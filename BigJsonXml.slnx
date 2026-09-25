@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BigJsonXml.Core/BigJsonXml.Core.csproj" />
+    <Project Path="src/BigJsonXml.Desktop/BigJsonXml.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BigJsonXml.Core.Tests/BigJsonXml.Core.Tests.csproj" />
+    <Project Path="tests/BigJsonXml.Desktop.Tests/BigJsonXml.Desktop.Tests.csproj" />
+  </Folder>
+</Solution>
