@@ -54,7 +54,7 @@ public sealed partial class ViewerSession
             }
             else if (slot.Kind == SlotKind.Record && _expanded.Contains(path))
             {
-                var child = FindLive(slot.StartByte) ?? LoadElement(slot.StartByte, slot.ParentScope, path);
+                var child = Opened(slot, path);
                 if (Walk(child, indent + 1, ref y, ref width, emit, find))
                     return true;
             }
@@ -254,7 +254,7 @@ public sealed partial class ViewerSession
             var cell = entryPath.Field(field.Name);
             if (field.Kind == SlotKind.Record && _expanded.Contains(cell))
             {
-                var child = FindLive(field.StartByte) ?? LoadElement(field.StartByte, field.ParentScope, cell);
+                var child = Opened(field, cell);
                 if (Walk(child, indent, ref y, ref width, emit, find))
                     return true;
             }

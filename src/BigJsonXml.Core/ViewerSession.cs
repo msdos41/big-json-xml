@@ -280,7 +280,7 @@ public sealed partial class ViewerSession : IDisposable
         var (parent, slot) = Locate(path);
         if (slot.Kind == SlotKind.Scalar)
             throw new InvalidOperationException($"{path} is a scalar.");
-        return FindLive(slot.StartByte) ?? LoadElement(slot.StartByte, slot.ParentScope, path);
+        return Opened(slot, path);
     }
 
     private (Frame Parent, Slot Slot) Locate(DocumentPath path)
@@ -303,7 +303,7 @@ public sealed partial class ViewerSession : IDisposable
 
             var record = Require(frame, step.Name);
             var recordPath = frame.Path.Field(record.Name);
-            frame = FindLive(record.StartByte) ?? LoadElement(record.StartByte, record.ParentScope, recordPath);
+            frame = Opened(record, recordPath);
         }
 
         throw new InvalidOperationException("The path does not name a field.");
@@ -457,6 +457,9 @@ public sealed partial class ViewerSession : IDisposable
 
     private Frame RootFrame() =>
         _tree.Root ?? throw new InvalidOperationException("The document element is not available yet.");
+
+    private Frame Opened(Slot slot, DocumentPath path) =>
+        FindLive(slot.StartByte) ?? slot.Detail ?? LoadElement(slot.StartByte, slot.ParentScope, path);
 
     private Frame? FindLive(long startByte)
     {

@@ -43,6 +43,9 @@ internal sealed class Slot
     public List<Column> Columns = [];
     public List<Column> Inner = [];
     public bool HasFields;
+
+    // Closed record body. A refresh reads this instead of parsing the children again.
+    public Frame? Detail;
 }
 
 internal sealed class Frame
@@ -279,6 +282,7 @@ internal sealed class DocumentTree
             slot.Columns = columns;
             slot.Text.Clear();
             slot.Inner.Clear();
+            slot.Detail = null;
         }
         else
         {
@@ -319,7 +323,10 @@ internal sealed class DocumentTree
             pending.PendingStart = -1;
             pending.EndByte = child.EndByte;
             if (pending.Kind == SlotKind.List)
+            {
                 Merge(pending.Columns, child);
+                pending.Detail = null;
+            }
             else if (child.IsSimple)
             {
                 pending.Kind = SlotKind.Scalar;
@@ -327,12 +334,14 @@ internal sealed class DocumentTree
                 pending.Text = CopyPieces(child.Text);
                 pending.Inner.Clear();
                 pending.Columns.Clear();
+                pending.Detail = null;
             }
             else
             {
                 pending.Kind = SlotKind.Record;
                 pending.HasFields = true;
                 pending.Inner = ColumnsOf(child);
+                pending.Detail = child;
             }
 
             return new Folded(parent, pending, child, false);
@@ -359,6 +368,7 @@ internal sealed class DocumentTree
                 slot.Kind = SlotKind.Record;
                 slot.HasFields = true;
                 slot.Inner = ColumnsOf(child);
+                slot.Detail = child;
             }
 
             AddSlot(parent, slot);
@@ -374,11 +384,13 @@ internal sealed class DocumentTree
             slot.Columns = columns;
             slot.Text.Clear();
             slot.Inner.Clear();
+            slot.Detail = null;
         }
         else
         {
             slot.Count++;
             Merge(slot.Columns, child);
+            slot.Detail = null;
         }
 
         return new Folded(parent, slot, child, promoted);
