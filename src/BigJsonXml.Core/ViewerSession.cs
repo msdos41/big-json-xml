@@ -197,9 +197,16 @@ public sealed partial class ViewerSession : IDisposable
     public void Search(string query)
     {
         ArgumentNullException.ThrowIfNull(query);
+        ClearMark();
         _hits.Clear();
-        Marked = null;
         _search = new Searcher(_document, query, _hits);
+    }
+
+    public void ClearMark()
+    {
+        if (Marked is DocumentPath path && _chrome.TryGetValue(path, out var chrome))
+            chrome.WindowStart = 0;
+        Marked = null;
     }
 
     public void Reveal(Hit hit)
