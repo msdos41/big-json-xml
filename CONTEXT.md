@@ -29,7 +29,7 @@ One attribute, one text value, or one child name of an element. On a record tabl
 _Avoid_: Property, key, column (that word only describes a list table), row (overloaded)
 
 **List field**:
-A field whose child name occurs two or more times under the element. It is presented as a list table, not as a scalar cell.
+A field whose child name occurs two or more times under the element. Expanded, it is a list table inside the cell. Collapsed, the cell reads `Name[n]`, where `n` is how many siblings of that name have been seen. The count comes from the scan that is already walking those siblings; it is not a separate pass.
 _Avoid_: Array column, nested column, sub-table column
 
 **Scalar field**:
@@ -41,17 +41,21 @@ The field that holds an element's own character data when that element also has 
 _Avoid_: Inner text, value
 
 **Embedded table**:
-A record table or list table drawn inside the cell that was expanded. The row that owns that cell grows with the embedded table. The document has one scrollbar; the embedded table does not have its own. It is not another screen, pane, or window.
+A record table or list table drawn inside the cell that was expanded. The row that owns that cell grows with the embedded table. The document has one scrollable surface, vertical and horizontal. An embedded table does not add its own. It is not another screen, pane, or window.
 _Avoid_: Sub-table, drill-down, popup, nested view
 
 **Text search**:
-A search for a character sequence anywhere in the document's attribute values and character data.
+A case-sensitive search for a character sequence in attribute values and character data, written as a query with no `=` and no `~`.
 _Avoid_: XPath, full-text index, grep
 
 **Field search**:
-A search for a named field and a value. It runs over the document, including tables that are not expanded. Whether the value must match exactly is not decided.
+A case-sensitive search for a named field over the whole document, including tables that are not expanded. `name = value` matches the whole value. `name ~ value` matches a value that contains the sequence.
 _Avoid_: Column filter, XPath, predicate
 
+**Path**:
+The steps from the document element down to a hit or an entry. Each step is a field name and, for a list field, the entry's position among siblings of that same name.
+_Avoid_: XPath, byte offset, row number
+
 **Hit**:
-One search match. It remembers where it sits in the document so the viewer can expand the embedded tables that contain it and scroll that cell into view.
+One search match. It remembers its path so the viewer can expand the embedded tables on that path and scroll that cell into view.
 _Avoid_: Result row, match span
