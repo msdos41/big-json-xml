@@ -25,7 +25,7 @@ One element in a list table.
 _Avoid_: Row, record, item, node
 
 **Field**:
-One attribute, one text value, or one child name of an element. On a record table a field is a row. On a list table a scalar field is a column.
+One attribute, one text value, or one child name of an element. On a record table a field is a row. On a list table a scalar field is a column. An attribute name is written with a leading `@`. A name from a namespace is shown with the prefix written in the file; its identity is the namespace URI plus the local name.
 _Avoid_: Property, key, column (that word only describes a list table), row (overloaded)
 
 **List field**:
@@ -41,5 +41,17 @@ The field that holds an element's own character data when that element also has 
 _Avoid_: Inner text, value
 
 **Embedded table**:
-A record table or list table drawn inside the cell that was expanded. The row that owns that cell grows with the embedded table. It is not another screen, pane, or window.
+A record table or list table drawn inside the cell that was expanded. The row that owns that cell grows with the embedded table. The document has one scrollbar; the embedded table does not have its own. It is not another screen, pane, or window.
 _Avoid_: Sub-table, drill-down, popup, nested view
+
+**Text search**:
+A search for a character sequence anywhere in the document's attribute values and character data.
+_Avoid_: XPath, full-text index, grep
+
+**Field search**:
+A search for a named field, either an exact value or a value containing a character sequence. It runs over the document, including tables that are not expanded.
+_Avoid_: Column filter, XPath, predicate
+
+**Hit**:
+One search match. It remembers where it sits in the document so the viewer can expand the embedded tables that contain it and scroll that cell into view.
+_Avoid_: Result row, match span

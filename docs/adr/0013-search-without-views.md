@@ -1,3 +1,5 @@
-# Search runs over the document, not over built views
+# Search is text or field, over the document, and a hit can be revealed
 
-Search must be able to find hits in parts of the document whose tables have not been expanded or built. The query language is not decided. XPath was the original prompt's name for this, and it is the expensive interpretation: a real XPath engine needs a navigable element index. Plain text search and field search do not.
+Search does not require tables to be expanded. v1 has two queries: text search (a character sequence in attribute values and character data) and field search (a named field, exact or containing). It does not have XPath. A hit stores enough location to expand the ancestor cells and scroll the single outer scrollbar to that cell.
+
+XPath was rejected because it needs a navigable index of every element. The original prompt used "XPath" for this whole-file search.
