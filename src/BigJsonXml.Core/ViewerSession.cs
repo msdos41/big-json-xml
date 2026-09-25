@@ -264,6 +264,7 @@ public sealed partial class ViewerSession : IDisposable
         }
 
         if (folded.Slot.Kind == SlotKind.List
+            && folded.Child.EndByte >= folded.Child.StartByte
             && _offsets.TryGetValue(path, out var index)
             && folded.Child.StartByte >= index.Watermark)
         {

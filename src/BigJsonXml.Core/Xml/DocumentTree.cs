@@ -37,6 +37,7 @@ internal sealed class Slot
     public int Count = 1;
     public long StartByte;
     public long EndByte = -1;
+    public long PendingStart = -1;
     public NsScope ParentScope = NsScope.Empty;
     public List<TextPiece> Text = [];
     public List<Column> Columns = [];
@@ -100,16 +101,31 @@ internal sealed class DocumentTree
 
     public bool RootClosed { get; private set; }
 
+    private Folded _announced;
+    private bool _hasAnnounced;
+
     public bool Apply(XmlEvent ev, out Folded folded)
     {
         folded = default;
         switch (ev.Kind)
         {
             case XmlEventKind.Start:
+                _hasAnnounced = false;
                 var frame = Start(ev);
                 if (ev.Empty)
-                    return Close(frame, ev.ByteEnd, ev.ByteEnd, out folded);
-                return false;
+                {
+                    var promoted = _hasAnnounced && _announced.Promoted;
+                    if (!Close(frame, ev.ByteEnd, ev.ByteEnd, out folded))
+                        return false;
+                    if (promoted)
+                        folded = new Folded(folded.Parent, folded.Slot, folded.Child, true);
+                    return true;
+                }
+
+                if (!_hasAnnounced)
+                    return false;
+                folded = _announced;
+                return true;
             case XmlEventKind.End:
                 if (Stack.Count == 0)
                     return false;
@@ -182,8 +198,97 @@ internal sealed class DocumentTree
 
         if (parent is null)
             Root = frame;
+        else
+            NoteElement(parent);
         Stack.Push(frame);
+        Announce(frame);
         return frame;
+    }
+
+    // A non-simple element is a field before its end tag, so a long parent shows up while the scan is still inside it.
+    private void Announce(Frame frame)
+    {
+        if (!frame.IsSimple)
+        {
+            var parent = ParentOf(frame);
+            if (parent is not null && Ensure(parent, frame, out var folded))
+            {
+                _announced = folded;
+                _hasAnnounced = true;
+            }
+        }
+
+        var ancestor = ParentOf(frame);
+        if (ancestor is not null)
+            Announce(ancestor);
+    }
+
+    private Frame? ParentOf(Frame frame)
+    {
+        var seen = false;
+        foreach (var item in Stack)
+        {
+            if (seen)
+                return item;
+            if (ReferenceEquals(item, frame))
+                seen = true;
+        }
+
+        return null;
+    }
+
+    private bool Ensure(Frame parent, Frame child, out Folded folded)
+    {
+        folded = default;
+        var key = FieldKey.Elem(child.Ns, child.Local);
+        if (!parent.ByKey.TryGetValue(key, out var slot))
+        {
+            slot = new Slot
+            {
+                Key = key,
+                Name = child.Name,
+                StartByte = child.StartByte,
+                EndByte = -1,
+                PendingStart = child.StartByte,
+                ParentScope = parent.Scope,
+                Kind = SlotKind.Record,
+                HasFields = true,
+                Inner = ColumnsOf(child),
+            };
+            AddSlot(parent, slot);
+            folded = new Folded(parent, slot, child, false);
+            return true;
+        }
+
+        if (slot.PendingStart == child.StartByte)
+        {
+            if (slot.Kind == SlotKind.Record)
+                slot.Inner = ColumnsOf(child);
+            return false;
+        }
+
+        var promoted = false;
+        if (slot.Kind != SlotKind.List)
+        {
+            promoted = true;
+            var columns = slot.Kind == SlotKind.Scalar ? TextColumns(slot) : CopyColumns(slot.Inner);
+            Merge(columns, child);
+            slot.Kind = SlotKind.List;
+            slot.Count = 2;
+            slot.HasFields = true;
+            slot.Columns = columns;
+            slot.Text.Clear();
+            slot.Inner.Clear();
+        }
+        else
+        {
+            slot.Count++;
+            Merge(slot.Columns, child);
+        }
+
+        slot.PendingStart = child.StartByte;
+        folded = new Folded(parent, slot, child, promoted);
+        return true;
     }
 
     private bool Close(Frame frame, long endByte, long contentEnd, out Folded folded)
@@ -209,6 +314,30 @@ internal sealed class DocumentTree
     {
         NoteElement(parent);
         var key = FieldKey.Elem(child.Ns, child.Local);
+        if (parent.ByKey.TryGetValue(key, out var pending) && pending.PendingStart == child.StartByte)
+        {
+            pending.PendingStart = -1;
+            pending.EndByte = child.EndByte;
+            if (pending.Kind == SlotKind.List)
+                Merge(pending.Columns, child);
+            else if (child.IsSimple)
+            {
+                pending.Kind = SlotKind.Scalar;
+                pending.HasFields = false;
+                pending.Text = CopyPieces(child.Text);
+                pending.Inner.Clear();
+                pending.Columns.Clear();
+            }
+            else
+            {
+                pending.Kind = SlotKind.Record;
+                pending.HasFields = true;
+                pending.Inner = ColumnsOf(child);
+            }
+
+            return new Folded(parent, pending, child, false);
+        }
+
         var promoted = false;
         if (!parent.ByKey.TryGetValue(key, out var slot))
         {
