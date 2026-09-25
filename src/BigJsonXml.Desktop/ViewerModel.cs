@@ -114,7 +114,14 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         if (_session is null)
             return;
-        _session.Pump(1200);
+        var start = Environment.TickCount64;
+        do
+        {
+            if (!_session.Pump(2048))
+                break;
+        }
+        while (Environment.TickCount64 - start < 16);
+
         Refresh();
     }
 
