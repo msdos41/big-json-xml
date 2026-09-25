@@ -33,8 +33,12 @@ A field whose child name occurs two or more times under the element. Expanded, i
 _Avoid_: Array column, nested column, sub-table column
 
 **Scalar field**:
-An attribute, the element's own character data, or a child that occurs once and has only character data. An attribute's name is written with a leading `@`. The cell shows at most a 200-character window: the start of the value, or a window around a hit inside it. The rest of the value is not decoded into one string. The complete value must be reachable; how it is shown is not decided.
+An attribute, the element's own character data, or a child that occurs once and has only character data. An attribute's name is written with a leading `@`. The cell normally shows at most a 200-character window: the start of the value, or a window around a hit inside it. The value is not decoded into one string.
 _Avoid_: Value, cell
+
+**Full value**:
+The complete character data of a scalar field, shown only after the user expands that cell. The row grows to the virtual height of the text on the document's one scroll surface. Only the visible slice is decoded. Collapsing the cell returns it to the 200-character window.
+_Avoid_: Text viewer, popup, inner scroll
 
 **#text**:
 The field that holds an element's own character data when that element also has attributes or element children, and that data contains something other than whitespace. Whitespace-only text is not a field, including under `xml:space="preserve"`.
