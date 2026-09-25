@@ -111,4 +111,28 @@ public class ExpandTests
         Assert.Equal(5, slice.Entries.Count);
         Assert.Equal("480", slice.Entries[0].Cells.Single(cell => cell.Name == "#text").Text);
     }
+
+    [Fact]
+    public void Refreshing_a_closed_record_does_not_reread_its_list()
+    {
+        var items = string.Concat(Enumerable.Range(0, 2000).Select(i =>
+            $"<Feature id=\"{i}\" visible><Style stroke=\"1\"></Style></Feature>"));
+        var session = SessionFixture.Scan(
+            $"<CadDocument id=\"d\" name=\"n\" units=\"mm\"><Features>{items}</Features></CadDocument>");
+        var features = DocumentPath.Root.Field("Features");
+        session.Expand(features);
+        session.Expand(features.Field("Feature"));
+        session.SetViewport(0, 0, 800, ViewerSession.RowHeight * 8);
+        _ = session.ReadSurface();
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        for (var i = 0; i < 20; i++)
+            _ = session.ReadSurface();
+        watch.Stop();
+
+        var rows = session.ReadSurface().Rows;
+        Assert.InRange(rows.Count(row => row.Kind == SurfaceKind.Entry), 1, 20);
+        Assert.Equal(2000, session.ReadRecord(features).Fields.Single(field => field.Name == "Feature").ListCount);
+        Assert.True(watch.ElapsedMilliseconds < 500, $"refresh took {watch.ElapsedMilliseconds} ms");
+    }
 }
