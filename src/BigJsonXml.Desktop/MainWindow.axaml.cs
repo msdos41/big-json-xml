@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -41,7 +42,21 @@ public partial class MainWindow : Window
     private void HitSelected(object? sender, SelectionChangedEventArgs e)
     {
         if (e.AddedItems.Count > 0 && e.AddedItems[0] is Hit hit)
-            _model.Reveal(hit);
+            _model.ChooseHit(hit);
+        else if (e.RemovedItems.Count > 0)
+            _model.ChooseHit(null);
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.Key != Key.Escape)
+            return;
+        if (HitList.SelectedItem is not null)
+            HitList.SelectedItem = null;
+        else
+            _model.ClearMark();
+        e.Handled = true;
     }
 
     protected override void OnClosed(EventArgs e)

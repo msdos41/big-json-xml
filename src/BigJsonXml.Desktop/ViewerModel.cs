@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
@@ -18,8 +19,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private double _viewportWidth = 800;
     private double _viewportHeight = 600;
     private bool _refreshing;
+    private bool _adjustingHits;
     private IReadOnlyList<SurfaceRow> _rows = [];
-    private IReadOnlyList<Hit> _hits = [];
+    private readonly ObservableCollection<Hit> _hits = [];
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -95,11 +97,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         private set => Set(ref _rows, value);
     }
 
-    public IReadOnlyList<Hit> Hits
-    {
-        get => _hits;
-        private set => Set(ref _hits, value);
-    }
+    public IReadOnlyList<Hit> Hits => _hits;
 
     public void OpenPath(string path)
     {
@@ -156,6 +154,24 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(ScrollY));
     }
 
+    public void ChooseHit(Hit? hit)
+    {
+        if (_adjustingHits || _session is null)
+            return;
+        if (hit is null)
+            ClearMark();
+        else
+            Reveal(hit);
+    }
+
+    public void ClearMark()
+    {
+        if (_session is null)
+            return;
+        _session.ClearMark();
+        Refresh();
+    }
+
     public void Toggle(SurfaceRow row)
     {
         if (_session is null)
@@ -204,7 +220,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         _session.SetViewport(_scrollX, _scrollY, _viewportWidth, _viewportHeight);
         var frame = _session.ReadSurface();
         Rows = frame.Rows;
-        Hits = _session.Hits.ToArray();
+        SyncHits();
         ContentWidth = frame.ContentWidth;
         ContentHeight = frame.ContentHeight;
         ScrollMaxX = Math.Max(0, frame.ContentWidth - _viewportWidth);
@@ -219,6 +235,43 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             _ => "Stopped",
         };
         _refreshing = false;
+    }
+
+    private void SyncHits()
+    {
+        var next = _session!.Hits;
+        if (IsPrefix(next))
+        {
+            for (var i = _hits.Count; i < next.Count; i++)
+                _hits.Add(next[i]);
+            return;
+        }
+
+        // Replacing the list raises selection changes that are not a new choice.
+        _adjustingHits = true;
+        try
+        {
+            _hits.Clear();
+            foreach (var hit in next)
+                _hits.Add(hit);
+        }
+        finally
+        {
+            _adjustingHits = false;
+        }
+    }
+
+    private bool IsPrefix(IReadOnlyList<Hit> next)
+    {
+        if (_hits.Count > next.Count)
+            return false;
+        for (var i = 0; i < _hits.Count; i++)
+        {
+            if (!ReferenceEquals(_hits[i], next[i]))
+                return false;
+        }
+
+        return true;
     }
 
     private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)

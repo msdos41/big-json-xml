@@ -14,7 +14,8 @@
       <TextBlock Text="{Binding Status}" VerticalAlignment="Center"/>
     </StackPanel>
     <TextBlock DockPanel.Dock="Bottom" Margin="8" Text="{Binding Error}" TextWrapping="Wrap"/>
-    <ListBox DockPanel.Dock="Right" Width="280" ItemsSource="{Binding Hits}" SelectionChanged="HitSelected"/>
+    <ListBox x:Name="HitList" DockPanel.Dock="Right" Width="280" ItemsSource="{Binding Hits}"
+             SelectionMode="Toggle" SelectionChanged="HitSelected"/>
     <Grid ColumnDefinitions="*,Auto" RowDefinitions="*,Auto">
       <local:DocumentSurface Grid.Row="0" Grid.Column="0"/>
       <ScrollBar Grid.Row="0" Grid.Column="1" Orientation="Vertical"
