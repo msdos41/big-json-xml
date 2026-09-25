@@ -25,7 +25,7 @@ One element in a list table.
 _Avoid_: Row, record, item, node
 
 **Field**:
-One attribute, one text value, or one child name of an element. On a record table a field is a row. On a list table a scalar field is a column. An attribute name is written with a leading `@`. A name from a namespace is shown with the prefix written in the file; its identity is the namespace URI plus the local name.
+One attribute, one text value, or one child name of an element. On a record table a field is a row. On a list table a scalar field is a column. An attribute name is written with a leading `@`. A name in a start tag with no value is still an attribute, and that value is empty. A name from a namespace is shown with the prefix written in the file; its identity is the namespace URI plus the local name.
 _Avoid_: Property, key, column (that word only describes a list table), row (overloaded)
 
 **List field**:
