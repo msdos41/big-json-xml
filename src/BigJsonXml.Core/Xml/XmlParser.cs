@@ -395,10 +395,25 @@ internal sealed class XmlParser
                 break;
             if (!ReadQName(out var ap, out var al))
                 return SignalEvent();
-            if (!SkipSpaceAllowEmpty() || !Expect("=") || !SkipSpaceAllowEmpty())
+            if (!SkipSpaceAllowEmpty())
                 return SignalEvent();
-            if (!ReadQuoted(out var piece))
-                return SignalEvent();
+            if (!TryPeek(out var after))
+                return _signal == Signal.NeedMore ? SignalEvent() : Fail("The document ends inside a tag.");
+            TextPiece piece;
+            if (after == '=')
+            {
+                if (!Expect("=") || !SkipSpaceAllowEmpty() || !ReadQuoted(out piece))
+                    return SignalEvent();
+            }
+            else
+            {
+                var entity = CurrentEntity();
+                var at = Cursor();
+                piece = entity < 0
+                    ? TextPiece.Bytes(at, at, attribute: true)
+                    : TextPiece.Chars(entity, at, at, attribute: true);
+            }
+
             raw.Add(new RawAttr(ap, al, piece));
         }
 
