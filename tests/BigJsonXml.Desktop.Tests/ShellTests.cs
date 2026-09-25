@@ -30,6 +30,10 @@ public class ShellTests
         model.Reveal(hit);
         Assert.Contains(model.Rows, row => row.IsMarked);
         Assert.Equal("Complete", model.Status);
+
+        model.ChooseHit(null);
+        Assert.DoesNotContain(model.Rows, row => row.IsMarked);
+        Assert.Same(hit, Assert.Single(model.Hits));
     }
 
     [Fact]
