@@ -83,6 +83,57 @@ public class OpenRecordTableTests
     }
 
     [Fact]
+    public void Bare_attribute_does_not_hide_later_elements()
+    {
+        var session = SessionFixture.Scan("""
+            <CadDocument id="doc-main" name="Harness" units="mm">
+              <Layers>
+                <Layer id="0" name="0" color="#94a3b8" visible locked="false" undeletable></Layer>
+                <Layer id="Frame" name="Frame" color="#64748b" visible locked></Layer>
+              </Layers>
+              <Features>
+                <Feature id="line-1" type="line" visible></Feature>
+                <Feature id="line-2" type="line" visible></Feature>
+              </Features>
+            </CadDocument>
+            """);
+
+        Assert.Equal(ScanProgress.Completed, session.Progress);
+        Assert.Null(session.Error);
+        Assert.Equal(
+            ["@id", "@name", "@units", "Layers", "Features"],
+            session.ReadRecord(DocumentPath.Root).Fields.Select(field => field.Name).ToArray());
+        Assert.True(session.Field("Layers").CanExpand);
+        Assert.Equal(FieldKind.Record, session.Field("Layers").Kind);
+        Assert.True(session.Field("Features").CanExpand);
+
+        var layers = DocumentPath.Root.Field("Layers");
+        var layer = session.ReadRecord(layers).Fields.Single(field => field.Name == "Layer");
+        Assert.Equal(FieldKind.List, layer.Kind);
+        Assert.Equal(2, layer.ListCount);
+
+        var list = layers.Field("Layer");
+        session.Expand(list);
+        var entries = session.ReadList(list, 0, 2).Entries;
+        Assert.Equal("", entries[0].Cells.Single(cell => cell.Name == "@visible").Text);
+        Assert.Equal("false", entries[0].Cells.Single(cell => cell.Name == "@locked").Text);
+        Assert.Equal("", entries[0].Cells.Single(cell => cell.Name == "@undeletable").Text);
+        Assert.Equal("", entries[1].Cells.Single(cell => cell.Name == "@locked").Text);
+        Assert.Equal("", entries[1].Cells.Single(cell => cell.Name == "@undeletable").Text);
+    }
+
+    [Fact]
+    public void Unquoted_attribute_value_still_stops_the_scan()
+    {
+        var session = SessionFixture.Scan("<root><child flag=yes></child><after>1</after></root>");
+
+        Assert.Equal(ScanProgress.Stopped, session.Progress);
+        Assert.NotNull(session.Error);
+        Assert.Contains("quoted", session.Error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(session.ReadRecord(DocumentPath.Root).Fields, field => field.Name == "after");
+    }
+
+    [Fact]
     public void Cdata_is_literal_text()
     {
         var session = SessionFixture.Scan("<root><name><![CDATA[A & B]]></name></root>");

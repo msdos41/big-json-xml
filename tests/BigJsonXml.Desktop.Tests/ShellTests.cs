@@ -33,6 +33,33 @@ public class ShellTests
     }
 
     [Fact]
+    public void Bare_attribute_still_shows_an_expandable_child()
+    {
+        var path = Write("""
+            <CadDocument id="doc-main" name="Harness" units="mm">
+              <Layers>
+                <Layer id="0" visible locked="false"></Layer>
+              </Layers>
+            </CadDocument>
+            """);
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+
+        Assert.Equal("Complete", model.Status);
+        Assert.Equal("", model.Error);
+        Assert.Contains(model.Rows, row => row.Name == "@id" && row.Value == "doc-main");
+        var layers = Assert.Single(model.Rows, row => row.Name == "Layers");
+        Assert.True(layers.CanExpand);
+
+        model.Toggle(layers);
+        var layer = Assert.Single(model.Rows, row => row.Name == "Layer");
+        Assert.True(layer.CanExpand);
+        model.Toggle(layer);
+        Assert.Contains(model.Rows, row => row.Name == "@visible" && row.Value == "");
+        Assert.Contains(model.Rows, row => row.Name == "@locked" && row.Value == "false");
+    }
+
+    [Fact]
     public void Check_mode_opens_expands_searches_and_reveals()
     {
         var path = Write("<root><item>alpha</item><item>beta</item></root>");
