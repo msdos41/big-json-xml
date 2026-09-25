@@ -150,20 +150,22 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         if (_session is null)
             return;
+        var expandPath = row.ExpandPath ?? row.Path;
         if (row.CanExpand)
         {
             if (row.IsExpanded)
-                _session.Collapse(row.Path);
+                _session.Collapse(expandPath);
             else
-                _session.Expand(row.Path);
+                _session.Expand(expandPath);
         }
         else if (row.CanGrowValue || row.Kind == SurfaceKind.ValueLine)
         {
-            var scalar = _session.ReadScalar(row.Path);
+            var scalar = _session.ReadScalar(row.GrowPath ?? row.Path);
+            var growPath = row.GrowPath ?? row.Path;
             if (scalar.IsFullValueExpanded)
-                _session.CollapseFullValue(row.Path);
+                _session.CollapseFullValue(growPath);
             else
-                _session.ExpandFullValue(row.Path);
+                _session.ExpandFullValue(growPath);
         }
 
         Refresh();

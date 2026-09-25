@@ -65,7 +65,8 @@ public sealed class DocumentSurface : Control
             var left = row.X - model.ScrollX;
             if (row.IsMarked)
                 context.FillRectangle(Mark, new Rect(0, top, Bounds.Width, row.Height));
-            var label = row.CanExpand ? (row.IsExpanded ? "▾ " : "▸ ") + row.Name : row.Name;
+            var mark = row.CanExpand || row.CanGrowValue;
+            var label = mark ? ((row.IsExpanded || row.Kind == SurfaceKind.ValueLine) ? "▾ " : "▸ ") + row.Name : row.Name;
             Draw(context, label, left + 4, top + 4);
             if (!string.IsNullOrEmpty(row.Value))
                 Draw(context, row.Value, left + ViewerSession.NameWidth, top + 4);

@@ -16,6 +16,14 @@ public class ShellTests
         model.Toggle(list);
         Assert.Contains(model.Rows, row => row.Kind == SurfaceKind.Entry && row.Value == "alpha");
 
+        var nestedPath = Write("<root><item><meta><x>1</x></meta></item><item><meta><x>2</x></meta></item></root>");
+        using var nested = new ViewerModel();
+        nested.OpenPath(nestedPath);
+        nested.Toggle(nested.Rows.Single(row => row.Name == "item"));
+        var entry = nested.Rows.First(row => row.Kind == SurfaceKind.Entry && row.CanExpand);
+        nested.Toggle(entry);
+        Assert.Contains(nested.Rows, row => row.Name == "x" && row.Value == "1");
+
         model.Query = "beta";
         model.Search();
         var hit = Assert.Single(model.Hits);
@@ -38,6 +46,7 @@ public class ShellTests
         var project = File.ReadAllText(Path.Combine(root, "src", "BigJsonXml.Desktop", "BigJsonXml.Desktop.csproj"));
         Assert.Contains("<PublishSingleFile>true</PublishSingleFile>", project, StringComparison.Ordinal);
         Assert.Contains("<SelfContained>true</SelfContained>", project, StringComparison.Ordinal);
+        Assert.Contains("win-x64", project, StringComparison.Ordinal);
         Assert.DoesNotContain("PublishAot", project, StringComparison.Ordinal);
         var core = Directory.GetFiles(Path.Combine(root, "src", "BigJsonXml.Core"), "*.cs", SearchOption.AllDirectories);
         foreach (var file in core)
