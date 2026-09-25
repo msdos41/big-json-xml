@@ -49,7 +49,7 @@ A search for a character sequence anywhere in the document's attribute values an
 _Avoid_: XPath, full-text index, grep
 
 **Field search**:
-A search for a named field, either an exact value or a value containing a character sequence. It runs over the document, including tables that are not expanded.
+A search for a named field and a value. It runs over the document, including tables that are not expanded. Whether the value must match exactly is not decided.
 _Avoid_: Column filter, XPath, predicate
 
 **Hit**:
