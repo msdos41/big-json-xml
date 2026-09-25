@@ -142,6 +142,50 @@ public class OpenRecordTableTests
     }
 
     [Fact]
+    public void Open_parent_is_a_field_while_its_end_tag_is_still_ahead()
+    {
+        var source = new MemoryByteSource();
+        var session = ViewerSession.Open(source);
+        source.Append("""
+            <CadDocument id="doc-main" name="Harness" units="mm">
+              <Layers>
+                <Layer id="0" visible></Layer>
+              </Layers>
+              <Features>
+                <Feature id="a" visible>
+            """);
+        session.PumpAll();
+
+        Assert.Equal(ScanProgress.Scanning, session.Progress);
+        Assert.Equal(
+            ["@id", "@name", "@units", "Layers", "Features"],
+            session.ReadRecord(DocumentPath.Root).Fields.Select(field => field.Name).ToArray());
+        Assert.Equal(FieldKind.Record, session.Field("Features").Kind);
+        Assert.True(session.Field("Features").CanExpand);
+        session.SetViewport(0, 0, 800, 600);
+        Assert.Contains(session.ReadSurface().Rows, row => row.Name == "Features" && row.CanExpand);
+
+        var features = DocumentPath.Root.Field("Features");
+        Assert.Equal(FieldKind.Record, session.ReadRecord(features).Fields.Single(field => field.Name == "Feature").Kind);
+
+        source.Append("</Feature><Feature id=\"b\" visible></Feature>");
+        session.PumpAll();
+
+        Assert.Equal(ScanProgress.Scanning, session.Progress);
+        var feature = session.ReadRecord(features).Fields.Single(field => field.Name == "Feature");
+        Assert.Equal(FieldKind.List, feature.Kind);
+        Assert.Equal(2, feature.ListCount);
+        Assert.Contains(session.ReadRecord(DocumentPath.Root).Fields, field => field.Name == "Features");
+
+        source.Append("</Features></CadDocument>");
+        source.Complete();
+        session.PumpAll();
+
+        Assert.Equal(ScanProgress.Completed, session.Progress);
+        Assert.Equal(2, session.ReadRecord(features).Fields.Single(field => field.Name == "Feature").ListCount);
+    }
+
+    [Fact]
     public void Presentation_is_available_before_the_end_of_the_file()
     {
         var source = new MemoryByteSource();
