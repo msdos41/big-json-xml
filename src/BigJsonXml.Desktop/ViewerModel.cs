@@ -115,14 +115,17 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         if (_session is null)
             return;
         var start = Environment.TickCount64;
+        var worked = false;
         do
         {
             if (!_session.Pump(2048))
                 break;
+            worked = true;
         }
         while (Environment.TickCount64 - start < 16);
 
-        Refresh();
+        if (worked)
+            Refresh();
     }
 
     public void SetViewportSize(double width, double height)
