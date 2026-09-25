@@ -33,9 +33,13 @@ A field whose child name occurs two or more times under the element. It is prese
 _Avoid_: Array column, nested column, sub-table column
 
 **Scalar field**:
-An attribute, the element's own character data, or a child that occurs once and has only character data.
+An attribute, the element's own character data, or a child that occurs once and has only character data. An attribute's name is written with a leading `@`.
 _Avoid_: Value, cell
 
 **#text**:
 The field that holds an element's own character data when that element also has attributes or element children.
 _Avoid_: Inner text, value
+
+**Embedded table**:
+A record table or list table drawn inside the cell that was expanded. The row that owns that cell grows with the embedded table. It is not another screen, pane, or window.
+_Avoid_: Sub-table, drill-down, popup, nested view
