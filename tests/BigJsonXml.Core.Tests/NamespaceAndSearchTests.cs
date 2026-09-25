@@ -193,4 +193,38 @@ public class NamespaceAndSearchTests
         session.SetViewport(session.ViewportX, session.ViewportY, 800, ViewerSession.RowHeight * 8);
         Assert.Contains(session.ReadSurface().Rows, row => row.IsMarked);
     }
+
+    [Fact]
+    public void Clearing_a_hit_drops_the_mark_and_restores_the_scalar_window()
+    {
+        var body = new string('a', 150) + "NEEDLE" + new string('b', 200);
+        var items = string.Concat(Enumerable.Range(0, 4).Select(i => i == 2 ? $"<item>{body}</item>" : "<item>x</item>"));
+        var session = SessionFixture.Scan($"<root>{items}</root>");
+        session.SetViewport(0, 0, 900, ViewerSession.RowHeight * 12);
+        session.Search("NEEDLE");
+        session.PumpAll();
+
+        var hit = Assert.Single(session.Hits);
+        session.Reveal(hit);
+        Assert.True(session.Field("item").IsExpanded);
+        Assert.True(session.ReadScalar(hit.Path).WindowStart > 0);
+        Assert.Contains(session.ReadSurface().Rows, row => row.IsMarked);
+
+        session.ClearMark();
+
+        Assert.Null(session.Marked);
+        Assert.Equal(0, session.ReadScalar(hit.Path).WindowStart);
+        Assert.StartsWith(new string('a', 20), session.ReadScalar(hit.Path).Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(session.ReadSurface().Rows, row => row.IsMarked);
+        Assert.True(session.Field("item").IsExpanded);
+        Assert.Equal(hit, Assert.Single(session.Hits));
+
+        session.Reveal(hit);
+        session.Search("absent");
+        session.PumpAll();
+        Assert.Null(session.Marked);
+        Assert.Equal(0, session.ReadScalar(hit.Path).WindowStart);
+        Assert.Empty(session.Hits);
+        Assert.DoesNotContain(session.ReadSurface().Rows, row => row.IsMarked);
+    }
 }
