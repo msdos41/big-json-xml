@@ -112,6 +112,10 @@ public class NamespaceAndSearchTests
         session.PumpAll();
         Assert.Equal("a:item[2] / #text", Assert.Single(session.Hits).Path.ToString());
 
+        session.Search("#text = one");
+        session.PumpAll();
+        Assert.Equal("a:item[1] / #text", Assert.Single(session.Hits).Path.ToString());
+
         session.Search("a:note = two");
         session.PumpAll();
         Assert.Equal("b:note", Assert.Single(session.Hits).Path.ToString());

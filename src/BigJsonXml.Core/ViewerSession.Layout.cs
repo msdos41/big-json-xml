@@ -7,7 +7,7 @@ public sealed partial class ViewerSession
     public SurfaceFrame ReadSurface()
     {
         var rows = new List<SurfaceRow>();
-        double width = NameWidth + ValueWidth;
+        double width = RowSpan;
         var height = 0d;
         if (_tree.Root is not null)
             Walk(_tree.Root, 0, ref height, ref width, rows, find: null);
@@ -31,7 +31,7 @@ public sealed partial class ViewerSession
         {
             var path = frame.Path.Field(slot.Name);
             var x = indent * 16d;
-            width = Math.Max(width, x + NameWidth + ValueWidth);
+            width = Math.Max(width, x + RowSpan);
             if (find is not null && find.Equals(path))
                 return true;
             if (slot.Kind == SlotKind.Scalar && Full(path))
@@ -74,13 +74,13 @@ public sealed partial class ViewerSession
         DocumentPath? find)
     {
         var x = indent * 16d;
-        width = Math.Max(width, x + NameWidth + ValueWidth);
+        width = Math.Max(width, x + RowSpan);
         if (find is not null && find.Equals(path))
             return true;
         if (Visible(y, RowHeight) && emit is not null)
         {
             emit.Add(new SurfaceRow(
-                x, y, NameWidth + ValueWidth, RowHeight,
+                x, y, RowSpan, RowHeight,
                 "", string.Join("  ", ColumnNames(slot)),
                 false, false, false, path, SurfaceKind.ColumnHeader));
         }
@@ -214,10 +214,30 @@ public sealed partial class ViewerSession
         var entryPath = path.WithIndex(zeroBased + 1);
         var entry = LoadElement(index.Offsets[zeroBased], slot.ParentScope, entryPath);
         Normalize(entry);
+        DocumentPath? expandPath = null;
+        DocumentPath? growPath = null;
+        foreach (var column in slot.Columns)
+        {
+            if (!entry.ByKey.TryGetValue(column.Key, out var cell))
+                continue;
+            if (expandPath is null && cell.Kind is SlotKind.Record or SlotKind.List)
+                expandPath = entryPath.Field(cell.Name);
+            if (growPath is null && cell.Kind == SlotKind.Scalar)
+            {
+                var cellPath = entryPath.Field(cell.Name);
+                var start = _chrome.TryGetValue(cellPath, out var chrome) ? chrome.WindowStart : 0;
+                _ = ExpandedText.Slice(_document, cell.Text, start, ScalarWindowChars, out var more);
+                if (!Full(cellPath) && (start > 0 || more))
+                    growPath = cellPath;
+            }
+        }
+
         emit.Add(new SurfaceRow(
-            x, top, NameWidth + ValueWidth, RowHeight,
+            x, top, RowSpan, RowHeight,
             (zeroBased + 1).ToString(), Join(entry, slot.Columns, entryPath),
-            false, false, Marks(entryPath), entryPath, SurfaceKind.Entry));
+            expandPath is not null, expandPath is not null && _expanded.Contains(expandPath),
+            Marks(entryPath), entryPath, SurfaceKind.Entry,
+            growPath is not null, expandPath, growPath));
     }
 
     private bool WalkEmbedded(
@@ -317,7 +337,7 @@ public sealed partial class ViewerSession
             {
                 var text = ExpandedText.Slice(_document, slot.Text, line * FullValueColumns, FullValueColumns, out _);
                 emit.Add(new SurfaceRow(
-                    x, top, NameWidth + ValueWidth, RowHeight,
+                    x, top, RowSpan, RowHeight,
                     line == 0 ? slot.Name : "", text,
                     false, false, Marked is not null && Marked.Equals(path), path, SurfaceKind.ValueLine));
             }
@@ -342,7 +362,7 @@ public sealed partial class ViewerSession
 
         var marked = Marked is not null && (Marked.Equals(path) || (slot.Kind == SlotKind.List && Marks(path)));
         return new SurfaceRow(
-            x, y, NameWidth + ValueWidth, RowHeight,
+            x, y, RowSpan, RowHeight,
             slot.Name, value,
             slot.Kind != SlotKind.Scalar, _expanded.Contains(path), marked, path,
             SurfaceKind.Field, canGrow);

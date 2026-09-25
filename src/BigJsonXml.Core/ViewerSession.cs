@@ -12,6 +12,8 @@ public sealed partial class ViewerSession : IDisposable
     public const double RowHeight = 24;
     public const double NameWidth = 220;
     public const double ValueWidth = 720;
+
+    private static double RowSpan => NameWidth + Math.Max(ValueWidth, ScalarWindowChars * 8d);
     public const int FullValueColumns = 100;
     public const int ScrollSurfaces = 1;
 

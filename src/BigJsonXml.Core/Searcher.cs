@@ -83,7 +83,7 @@ internal sealed class Searcher
             parent.Names[key] = ev.Name;
         var display = parent.Names[key];
         if (count == 2)
-            Promote(parent, display);
+            Promote(parent, key, display);
         var index = count >= 2 ? count : (int?)null;
         var frame = new SFrame
         {
@@ -143,6 +143,15 @@ internal sealed class Searcher
     {
         if (frame.Text.Count == 0)
             return;
+        if (frame.Index is null && _stack.Count > 0)
+        {
+            _stack.Peek().Pending[FieldKey.Elem(frame.Ns, frame.Local)] = new PendingSimple
+            {
+                Text = [..frame.Text],
+                Scope = frame.Scope,
+            };
+        }
+
         SearchValue(frame.Path, frame.Name, attribute: false, frame.Ns, frame.Local, frame.Scope, frame.Text, simple: true);
     }
 
@@ -190,7 +199,7 @@ internal sealed class Searcher
         _hits.Add(hit);
     }
 
-    private void Promote(SFrame parent, string name)
+    private void Promote(SFrame parent, FieldKey key, string name)
     {
         var depth = parent.Path.Steps.Count;
         for (var i = _hits.Count - 1; i >= 0; i--)
@@ -214,6 +223,12 @@ internal sealed class Searcher
                 hit.SimpleText = false;
             }
         }
+
+        if (parent.Pending.Remove(key, out var pending) && !_query.IsText && _query.Local == "#text")
+        {
+            var path = parent.Path.Field(name, 1).Field("#text");
+            SearchValue(path, "#text", false, "", "#text", pending.Scope, pending.Text, simple: false);
+        }
     }
 
     private sealed class SFrame
@@ -230,6 +245,13 @@ internal sealed class Searcher
         public List<TextPiece> Text { get; } = [];
         public Dictionary<FieldKey, int> Counts { get; } = [];
         public Dictionary<FieldKey, string> Names { get; } = [];
+        public Dictionary<FieldKey, PendingSimple> Pending { get; } = [];
+    }
+
+    private sealed class PendingSimple
+    {
+        public List<TextPiece> Text { get; init; } = [];
+        public NsScope Scope { get; init; } = NsScope.Empty;
     }
 }
 

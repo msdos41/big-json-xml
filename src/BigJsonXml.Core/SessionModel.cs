@@ -89,7 +89,9 @@ public sealed record SurfaceRow(
     bool IsMarked,
     DocumentPath Path,
     SurfaceKind Kind,
-    bool CanGrowValue = false);
+    bool CanGrowValue = false,
+    DocumentPath? ExpandPath = null,
+    DocumentPath? GrowPath = null);
 
 /// <summary>
 /// The one scrollable surface. Rows are only those that intersect the viewport.
