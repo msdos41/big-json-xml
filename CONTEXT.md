@@ -1,6 +1,6 @@
 # BigJsonXml
 
-A desktop viewer that presents large XML documents as nested tables of like elements so a person can scroll and search without treating the document as a tree of objects. JSON is out of scope for the current product.
+A desktop viewer that presents a large XML document as record tables and list tables so a person can scroll and search without treating the document as a tree of objects. JSON is out of scope for the current product.
 
 ## Language
 
@@ -12,26 +12,30 @@ _Avoid_: File (when you mean the opened XML), payload, dump, editor buffer
 A read-only session over a document: open, present tables, scroll, search. There is no edit and no save.
 _Avoid_: Editor
 
-**Table**:
-A two-dimensional view of sibling elements that share a parent and a name, whether or not those siblings are consecutive. One parent may own several tables, one per child name.
-_Avoid_: Grid, sheet, DataGrid, TreeDataGrid
+**Record table**:
+A table of one element's fields, with the field names as row headers (vertical headers). This is the presentation when the element is not one entry among same-named siblings.
+_Avoid_: Form, property grid, vertical table, key-value sheet
 
-**Row**:
-One element instance in a table.
-_Avoid_: Record, node (when you mean a table row), item
+**List table**:
+A table of two or more sibling elements that share a parent and a name, whether or not they are consecutive. Field names are column headers (horizontal headers). One entry per element. A single occurrence of a name is not a list table.
+_Avoid_: Grid, sheet, DataGrid, horizontal table
 
-**Column**:
-A scalar field of a table, taken from an attribute or a simple child of the row element. A simple child is an element that is not repeating under that row and has no element children of its own. The cell is that child's character data.
-_Avoid_: Property, key, cell (a cell is a value at a row/column)
+**Entry**:
+One element in a list table.
+_Avoid_: Row, record, item, node
 
-**Nested column**:
-A field of a table whose cells are not scalar. Activating it opens a sub-table of the nested elements for that name. Repeating children and children that have element children are nested columns, not columns.
-_Avoid_: Expander, tree column, drill-down column
+**Field**:
+One attribute, one text value, or one child name of an element. On a record table a field is a row. On a list table a scalar field is a column.
+_Avoid_: Property, key, column (that word only describes a list table), row (overloaded)
 
-**Sub-table**:
-A table opened from a nested column. It does not change the parent table's rows or columns.
-_Avoid_: Nested grid, child grid, drill-down, expander, tree
+**List field**:
+A field whose child name occurs two or more times under the element. It is presented as a list table, not as a scalar cell.
+_Avoid_: Array column, nested column, sub-table column
+
+**Scalar field**:
+An attribute, the element's own character data, or a child that occurs once and has only character data.
+_Avoid_: Value, cell
 
 **#text**:
-The column that holds a row element's own character data when that element also has attributes or children (mixed or element-plus-text content).
-_Avoid_: Inner text, value (when you mean this column)
+The field that holds an element's own character data when that element also has attributes or element children.
+_Avoid_: Inner text, value
