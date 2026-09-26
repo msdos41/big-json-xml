@@ -28,7 +28,12 @@ public sealed class DocumentSurface : Control
     public static bool HasExpandButton(SurfaceRow row) =>
         row.CanExpand && row.Kind is SurfaceKind.Field or SurfaceKind.Entry;
 
-    public static double TextTop(SurfaceRow row) => 4;
+    public static double TextTop(SurfaceRow row)
+    {
+        if (HasExpandButton(row) || row.Kind is not (SurfaceKind.Entry or SurfaceKind.EntryIndex))
+            return 4;
+        return (row.Height - (ViewerSession.RowHeight - 8)) / 2;
+    }
 
     public static double TextOrigin(SurfaceRow row)
     {
@@ -142,10 +147,11 @@ public sealed class DocumentSurface : Control
                 if (HasExpandButton(row))
                     DrawExpandButton(context, rect, row.IsExpanded);
                 var text = row.Value ?? row.Name;
+                var textY = rect.Y + TextTop(row);
                 if (text.Length > 0)
-                    Draw(context, text, rect.X + TextOrigin(row), rect.Y + 4);
+                    Draw(context, text, rect.X + TextOrigin(row), textY);
                 if (row.IsCutOff)
-                    Draw(context, "…", rect.Right - 14, rect.Y + 4);
+                    Draw(context, "…", rect.Right - 14, textY);
             }
         }
     }
