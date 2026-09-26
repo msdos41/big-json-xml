@@ -8,6 +8,10 @@ A desktop viewer that presents a large XML document as record tables and list ta
 An XML file opened for inspection. Comments and processing instructions are not presented. The product does not change the document.
 _Avoid_: File (when you mean the opened XML), payload, dump, editor buffer
 
+**Scan**:
+The one forward reading of a document, during which the viewer is scanning. List counts and the columns of a list table come from it, and it ends when the end of the document is reached.
+_Avoid_: Index, import, load, parse
+
 **Viewer**:
 A read-only session over a document: open, present tables, scroll, search. There is no edit and no save.
 _Avoid_: Editor
@@ -45,7 +49,7 @@ The complete character data of a scalar field, shown inside the cell after the u
 _Avoid_: Text viewer, popup, inner scroll
 
 **#text**:
-The field that holds an element's own character data when that element also has attributes or element children, and that data contains something other than whitespace. Whitespace-only text is not a field, including under `xml:space="preserve"`.
+The field that holds an element's own character data when that element also has attributes or element children, and that data contains a character other than space, tab, carriage return, or line feed. Text made only of those characters is not a field, including under `xml:space="preserve"`.
 _Avoid_: Inner text, value, indent
 
 **Embedded table**:
