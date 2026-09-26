@@ -18,6 +18,10 @@ public class ShellTests
 
         var list = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "item");
         model.Toggle(list);
+        var openList = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "item" && row.IsExpanded);
+        Assert.Equal("item[2]", openList.Value);
+        var openHeader = model.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "#text");
+        Assert.True(openHeader.Y >= openList.Y + ViewerSession.RowHeight);
         var alpha = model.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Name == "#text" && row.Value == "alpha");
         Assert.Equal(list.Path.WithIndex(1).Field("#text"), alpha.Path);
         Assert.DoesNotContain(model.Rows, row => row.Value != null && row.Value.Contains('|', StringComparison.Ordinal));
@@ -28,7 +32,10 @@ public class ShellTests
         nested.Toggle(nested.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "item"));
         var entry = nested.Rows.First(row => row.Kind == SurfaceKind.Entry && row.CanExpand);
         nested.Toggle(entry);
-        Assert.Contains(nested.Rows, row => row.Name == "x" && row.Value == "1");
+        var openEntry = nested.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Path.Equals(entry.Path) && row.IsExpanded);
+        Assert.Equal("meta", openEntry.Value);
+        var nestedField = nested.Rows.Single(row => row.Name == "x" && row.Value == "1");
+        Assert.True(nestedField.Y >= openEntry.Y + ViewerSession.RowHeight);
 
         model.Query = "beta";
         model.Search();
@@ -147,6 +154,19 @@ public class ShellTests
     }
 
     [Fact]
+    public void A_tall_entry_centers_its_text_and_an_opened_caption_stays_on_the_first_line()
+    {
+        var tall = new SurfaceRow(
+            0, 0, 80, ViewerSession.RowHeight * 3,
+            "Unit", "bar", false, false, false, DocumentPath.Root, SurfaceKind.Entry);
+        var caption = tall with { Name = "UnitName", Value = "UnitName", CanExpand = true, IsExpanded = true };
+        var index = tall with { Kind = SurfaceKind.EntryIndex, Name = "1", Value = null };
+        Assert.Equal(4, DocumentSurface.TextTop(caption));
+        Assert.True(DocumentSurface.TextTop(tall) > ViewerSession.RowHeight);
+        Assert.Equal(DocumentSurface.TextTop(tall), DocumentSurface.TextTop(index));
+    }
+
+    [Fact]
     public void The_expand_button_is_painted_and_a_plain_cell_is_not()
     {
         if (Application.Current is null)
@@ -178,6 +198,7 @@ public class ShellTests
 
         model.Toggle(cell);
         var open = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "features" && row.IsExpanded);
+        Assert.Equal("feature[2]", open.Value);
         bitmap.Render(surface);
         Assert.True(Dark(bitmap, (int)open.X + 8, (int)open.Y + 12));
         Assert.False(Dark(bitmap, (int)open.X + 8, (int)open.Y + 9));

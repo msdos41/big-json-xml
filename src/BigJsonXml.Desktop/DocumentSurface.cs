@@ -28,6 +28,8 @@ public sealed class DocumentSurface : Control
     public static bool HasExpandButton(SurfaceRow row) =>
         row.CanExpand && row.Kind is SurfaceKind.Field or SurfaceKind.Entry;
 
+    public static double TextTop(SurfaceRow row) => 4;
+
     public static double TextOrigin(SurfaceRow row)
     {
         if (HasExpandButton(row))
