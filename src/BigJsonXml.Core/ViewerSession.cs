@@ -8,13 +8,10 @@ namespace BigJsonXml;
 /// </summary>
 public sealed partial class ViewerSession : IDisposable
 {
-    public const int ScalarWindowChars = 200;
+    public const double Advance = 8;
+    public const double DefaultWidth = 200;
+    public const double MinWidth = 32;
     public const double RowHeight = 24;
-    public const double NameWidth = 220;
-    public const double ValueWidth = 720;
-
-    private static double RowSpan => NameWidth + Math.Max(ValueWidth, ScalarWindowChars * 8d);
-    public const int FullValueColumns = 100;
     public const int ScrollSurfaces = 1;
 
     private readonly XmlDocument _document;
@@ -174,24 +171,32 @@ public sealed partial class ViewerSession : IDisposable
 
         foreach (var key in chrome)
             _chrome.Remove(key);
+        ReleaseUnusedPins();
     }
 
     public void ExpandFullValue(DocumentPath path)
     {
         var pieces = Pieces(path);
         var length = ExpandedText.Count(_document, pieces);
-        if (length <= ScalarWindowChars)
+        if (length <= Capacity(ScalarWidth(path)))
             return;
-        _chrome[path] = new Chrome { FullValue = true, Length = length };
+        _chrome.TryGetValue(path, out var existing);
+        _chrome[path] = new Chrome
+        {
+            FullValue = true,
+            Length = length,
+            WindowStart = existing?.WindowStart ?? 0,
+            HitOffset = existing?.HitOffset,
+        };
     }
 
     public void CollapseFullValue(DocumentPath path)
     {
-        if (_chrome.TryGetValue(path, out var chrome))
-        {
-            chrome.FullValue = false;
+        if (!_chrome.TryGetValue(path, out var chrome))
+            return;
+        chrome.FullValue = false;
+        if (Marked is null || !Marked.Equals(path))
             chrome.WindowStart = 0;
-        }
     }
 
     public void Search(string query)
@@ -205,7 +210,11 @@ public sealed partial class ViewerSession : IDisposable
     public void ClearMark()
     {
         if (Marked is DocumentPath path && _chrome.TryGetValue(path, out var chrome))
+        {
             chrome.WindowStart = 0;
+            chrome.HitOffset = null;
+        }
+
         Marked = null;
     }
 
@@ -379,18 +388,16 @@ public sealed partial class ViewerSession : IDisposable
         Marked = path;
         var pieces = Pieces(path);
         var length = ExpandedText.Count(_document, pieces);
-        var start = 0;
-        if (length > ScalarWindowChars)
+        var capacity = Capacity(ScalarWidth(path));
+        var start = length > capacity ? Center(hit.CharacterOffset, length, capacity) : 0;
+        _chrome.TryGetValue(path, out var existing);
+        _chrome[path] = new Chrome
         {
-            start = hit.CharacterOffset - (ScalarWindowChars / 2);
-            if (start < 0)
-                start = 0;
-            var last = length - ScalarWindowChars;
-            if (start > last)
-                start = Math.Max(0, last);
-        }
-
-        _chrome[path] = new Chrome { WindowStart = start, Length = length };
+            WindowStart = start,
+            HitOffset = hit.CharacterOffset,
+            Length = length,
+            FullValue = existing?.FullValue ?? false,
+        };
     }
 
     private FieldView View(Slot slot, DocumentPath owner)
@@ -436,14 +443,11 @@ public sealed partial class ViewerSession : IDisposable
     private FieldView Scalar(string name, List<TextPiece> pieces, DocumentPath path)
     {
         _chrome.TryGetValue(path, out var chrome);
-        var start = chrome?.WindowStart ?? 0;
-        var full = chrome?.FullValue ?? false;
-        var window = ExpandedText.Slice(_document, pieces, start, ScalarWindowChars, out var more);
-        var canGrow = start > 0 || more;
+        var text = WindowText(path, pieces, ScalarWidth(path), out _, out var canGrow, out var start);
         var marked = Marked is not null && Marked.Equals(path);
         return new FieldView(
-            name, FieldKind.Scalar, window, false, false, null, null,
-            canGrow, full, canGrow, start, marked);
+            name, FieldKind.Scalar, text, false, false, null, null,
+            canGrow, chrome?.FullValue ?? false, canGrow, start, marked);
     }
 
     private static void Normalize(Frame frame)
@@ -536,6 +540,7 @@ public sealed partial class ViewerSession : IDisposable
     private sealed class Chrome
     {
         public int WindowStart { get; set; }
+        public int? HitOffset { get; set; }
         public bool FullValue { get; set; }
         public int? Length { get; set; }
     }

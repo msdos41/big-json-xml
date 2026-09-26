@@ -17,9 +17,19 @@ public enum FieldKind
 public enum SurfaceKind
 {
     Field,
+    FieldName,
     ColumnHeader,
     Entry,
+    EntryIndex,
     ValueLine,
+}
+
+public enum WidthAxis
+{
+    None,
+    RecordName,
+    RecordValue,
+    ListColumn,
 }
 
 /// <summary>
@@ -91,7 +101,11 @@ public sealed record SurfaceRow(
     SurfaceKind Kind,
     bool CanGrowValue = false,
     DocumentPath? ExpandPath = null,
-    DocumentPath? GrowPath = null);
+    DocumentPath? GrowPath = null,
+    bool IsCutOff = false,
+    WidthAxis Axis = WidthAxis.None,
+    DocumentPath? WidthTable = null,
+    string? WidthColumn = null);
 
 /// <summary>
 /// The one scrollable surface. Rows are only those that intersect the viewport.
