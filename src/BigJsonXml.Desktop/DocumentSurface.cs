@@ -123,10 +123,11 @@ public sealed class DocumentSurface : Control
             {
                 if (row.IsMarked)
                     context.FillRectangle(Mark, rect);
-                context.DrawRectangle(null, Line, rect);
+                if (row.Kind != SurfaceKind.ValueLine)
+                    context.DrawRectangle(null, Line, rect);
                 var text = row.Value ?? row.Name;
                 if (text.Length > 0)
-                    Draw(context, text, rect.X + 4, rect.Y + 4);
+                    Draw(context, text, rect.X + Math.Min(4, Math.Max(0, rect.Width - ViewerSession.Advance)), rect.Y + 4);
                 if (row.IsCutOff)
                     Draw(context, "…", rect.Right - 14, rect.Y + 4);
             }
