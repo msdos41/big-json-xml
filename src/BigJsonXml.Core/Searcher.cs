@@ -169,7 +169,7 @@ internal sealed class Searcher
         {
             if (_query.Text.Length == 0)
                 return;
-            ExpandedText.Find(_document, pieces, _query.Text, offset => Add(path, offset, pieces, simpleText: simple, fieldOnSimple: false));
+            ExpandedText.Find(_document, pieces, _query.Text, offset => Add(path, offset, _query.Text.Length, pieces, simpleText: simple, fieldOnSimple: false));
             return;
         }
 
@@ -178,14 +178,14 @@ internal sealed class Searcher
         if (_query.Exact)
         {
             if (ExpandedText.EqualsExact(_document, pieces, _query.Value))
-                Add(path, 0, pieces, simpleText: false, fieldOnSimple: simple);
+                Add(path, 0, _query.Value.Length, pieces, simpleText: false, fieldOnSimple: simple);
             return;
         }
 
-        ExpandedText.Find(_document, pieces, _query.Value, offset => Add(path, offset, pieces, simpleText: false, fieldOnSimple: simple));
+        ExpandedText.Find(_document, pieces, _query.Value, offset => Add(path, offset, _query.Value.Length, pieces, simpleText: false, fieldOnSimple: simple));
     }
 
-    private void Add(DocumentPath path, int offset, List<TextPiece> pieces, bool simpleText, bool fieldOnSimple)
+    private void Add(DocumentPath path, int offset, int matchLength, List<TextPiece> pieces, bool simpleText, bool fieldOnSimple)
     {
         var snippetStart = Math.Max(0, offset - 16);
         var snippet = ExpandedText.Slice(_document, pieces, snippetStart, 48, out _);
@@ -193,6 +193,7 @@ internal sealed class Searcher
         {
             SimpleText = simpleText,
             FieldOnSimple = fieldOnSimple,
+            MatchLength = matchLength,
         };
         foreach (var step in path.Steps)
             hit.Steps.Add(step);

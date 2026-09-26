@@ -66,9 +66,9 @@ public sealed partial class ViewerSession
             var cutOff = false;
             var canGrow = false;
             if (slot.Kind == SlotKind.List)
-                text = expanded ? "" : $"{slot.Name}[{slot.Count}]";
+                text = expanded ? "" : ClipLabel($"{slot.Name}[{slot.Count}]", valueWidth, out cutOff);
             else if (slot.Kind == SlotKind.Record)
-                text = expanded ? "" : slot.Name;
+                text = expanded ? "" : ClipLabel(slot.Name, valueWidth, out cutOff);
             else if (!full)
                 text = WindowText(field, slot.Text, valueWidth, out cutOff, out canGrow, out _);
             else
@@ -243,9 +243,9 @@ public sealed partial class ViewerSession
             var canGrow = false;
             var canExpand = cell.Kind != SlotKind.Scalar;
             if (cell.Kind == SlotKind.List)
-                text = expanded ? "" : $"{cell.Name}[{cell.Count}]";
+                text = expanded ? "" : ClipLabel($"{cell.Name}[{cell.Count}]", widths[i], out cutOff);
             else if (cell.Kind == SlotKind.Record)
-                text = expanded ? "" : cell.Name;
+                text = expanded ? "" : ClipLabel(cell.Name, widths[i], out cutOff);
             else
                 text = WindowText(cellPath, cell.Text, widths[i], out cutOff, out canGrow, out _);
 
@@ -377,7 +377,7 @@ public sealed partial class ViewerSession
             && marked.HitOffset is int hit)
         {
             var length = LengthOf(path, pieces);
-            start = length > capacity ? Center(hit, length, capacity) : 0;
+            start = length > capacity ? Place(hit, marked.MatchLength, length, capacity) : 0;
             marked.WindowStart = start;
             var text = ExpandedText.Slice(_document, pieces, start, capacity, out _);
             canGrow = length > capacity;
@@ -471,6 +471,7 @@ public sealed partial class ViewerSession
             FullValue = existing?.FullValue ?? false,
             WindowStart = existing?.WindowStart ?? 0,
             HitOffset = existing?.HitOffset,
+            MatchLength = existing?.MatchLength ?? 0,
         };
         return length;
     }

@@ -17,7 +17,7 @@ public sealed partial class ViewerSession
     public static double IndexTrackWidth(int entryCount)
     {
         var digits = Math.Max(1, entryCount).ToString(System.Globalization.CultureInfo.InvariantCulture).Length;
-        return Math.Max(MinWidth, digits * Advance);
+        return digits * Advance;
     }
 
     public void SetRecordNameWidth(DocumentPath recordPath, double width)
@@ -199,14 +199,24 @@ public sealed partial class ViewerSession
 
     private static int Capacity(double width) => Math.Max(1, (int)(width / Advance));
 
-    private static int Center(int hit, int length, int capacity)
+    private static int Place(int matchStart, int matchLength, int length, int capacity)
     {
-        var start = hit - (capacity / 2);
+        var match = Math.Max(1, matchLength);
+        var last = Math.Max(0, length - capacity);
+        if (match >= capacity)
+            return Math.Clamp(matchStart, 0, last);
+
+        var start = matchStart - ((capacity - match) / 2);
         if (start < 0)
             start = 0;
-        var last = length - capacity;
         if (start > last)
-            start = Math.Max(0, last);
+            start = last;
+        if (matchStart + match > start + capacity)
+            start = matchStart + match - capacity;
+        if (start < 0)
+            start = 0;
+        if (start > matchStart)
+            start = matchStart;
         return start;
     }
 

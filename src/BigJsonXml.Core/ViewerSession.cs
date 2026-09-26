@@ -187,6 +187,7 @@ public sealed partial class ViewerSession : IDisposable
             Length = length,
             WindowStart = existing?.WindowStart ?? 0,
             HitOffset = existing?.HitOffset,
+            MatchLength = existing?.MatchLength ?? 0,
         };
     }
 
@@ -385,16 +386,24 @@ public sealed partial class ViewerSession : IDisposable
 
     private void Mark(DocumentPath path, Hit hit)
     {
+        if (Marked is DocumentPath previous && !previous.Equals(path) && _chrome.TryGetValue(previous, out var old))
+        {
+            old.WindowStart = 0;
+            old.HitOffset = null;
+        }
+
         Marked = path;
         var pieces = Pieces(path);
         var length = ExpandedText.Count(_document, pieces);
         var capacity = Capacity(ScalarWidth(path));
-        var start = length > capacity ? Center(hit.CharacterOffset, length, capacity) : 0;
+        var matchLength = Math.Max(1, hit.MatchLength);
+        var start = length > capacity ? Place(hit.CharacterOffset, matchLength, length, capacity) : 0;
         _chrome.TryGetValue(path, out var existing);
         _chrome[path] = new Chrome
         {
             WindowStart = start,
             HitOffset = hit.CharacterOffset,
+            MatchLength = matchLength,
             Length = length,
             FullValue = existing?.FullValue ?? false,
         };
@@ -541,6 +550,7 @@ public sealed partial class ViewerSession : IDisposable
     {
         public int WindowStart { get; set; }
         public int? HitOffset { get; set; }
+        public int MatchLength { get; set; }
         public bool FullValue { get; set; }
         public int? Length { get; set; }
     }

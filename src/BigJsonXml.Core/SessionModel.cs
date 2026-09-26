@@ -84,6 +84,8 @@ public sealed class Hit
 
     public string Snippet { get; }
 
+    internal int MatchLength { get; init; }
+
     public override string ToString() => $"{Path} @{CharacterOffset}";
 }
 
