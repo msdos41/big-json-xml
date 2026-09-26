@@ -1,3 +1,7 @@
+using System.Runtime.InteropServices;
+using Avalonia;
+using Avalonia.Media.Imaging;
+
 namespace BigJsonXml.Desktop.Tests;
 
 public class ShellTests
@@ -143,6 +147,43 @@ public class ShellTests
     }
 
     [Fact]
+    public void The_expand_button_is_painted_and_a_plain_cell_is_not()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var path = Write("""
+            <root flag="">
+              <features>
+                <feature id="1"></feature>
+                <feature id="2"></feature>
+              </features>
+            </root>
+            """);
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        var surface = new DocumentSurface { DataContext = model };
+        surface.Measure(new Size(800, 400));
+        surface.Arrange(new Rect(0, 0, 800, 400));
+
+        var cell = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "features");
+        var plain = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "@flag");
+        Assert.Equal("feature[2]", cell.Value);
+        var bitmap = new RenderTargetBitmap(new PixelSize(800, 400), new Vector(96, 96));
+        bitmap.Render(surface);
+
+        Assert.True(Dark(bitmap, (int)cell.X + 8, (int)cell.Y + 12));
+        Assert.True(Dark(bitmap, (int)cell.X + 8, (int)cell.Y + 9));
+        Assert.False(Dark(bitmap, (int)plain.X + 8, (int)plain.Y + 12));
+
+        model.Toggle(cell);
+        var open = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "features" && row.IsExpanded);
+        bitmap.Render(surface);
+        Assert.True(Dark(bitmap, (int)open.X + 8, (int)open.Y + 12));
+        Assert.False(Dark(bitmap, (int)open.X + 8, (int)open.Y + 9));
+    }
+
+    [Fact]
     public void Check_mode_opens_expands_searches_and_reveals()
     {
         var path = Write("<root><item>alpha</item><item>beta</item></root>");
@@ -165,6 +206,22 @@ public class ShellTests
             Assert.DoesNotContain("DllImport", text, StringComparison.Ordinal);
             Assert.DoesNotContain("LibraryImport", text, StringComparison.Ordinal);
         }
+    }
+
+    private static bool Dark(RenderTargetBitmap bitmap, int x, int y)
+    {
+        var pixel = new byte[4];
+        var handle = GCHandle.Alloc(pixel, GCHandleType.Pinned);
+        try
+        {
+            bitmap.CopyPixels(new PixelRect(x, y, 1, 1), handle.AddrOfPinnedObject(), 4, 4);
+        }
+        finally
+        {
+            handle.Free();
+        }
+
+        return pixel[0] < 200 && pixel[1] < 200 && pixel[2] < 200;
     }
 
     private static string Write(string xml)
