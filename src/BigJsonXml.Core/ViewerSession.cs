@@ -162,7 +162,6 @@ public sealed partial class ViewerSession : IDisposable
     public void Collapse(DocumentPath path)
     {
         RemoveUnder(_expanded, path);
-        RemoveUnderOffsets(path);
         var chrome = new List<DocumentPath>();
         foreach (var key in _chrome.Keys)
         {
@@ -277,7 +276,7 @@ public sealed partial class ViewerSession : IDisposable
         if (folded.Promoted)
         {
             _expanded.Remove(path);
-            _offsets.Remove(path);
+            _offsets[path] = Seed(folded.Slot, folded.Child);
             return;
         }
 
@@ -289,6 +288,23 @@ public sealed partial class ViewerSession : IDisposable
             index.Offsets.Add(folded.Child.StartByte);
             index.Watermark = folded.Child.EndByte;
         }
+    }
+
+    // The first sibling is already closed when the second promotes the field.
+    // An open second sibling is recorded when it closes; its end tag can still be ahead.
+    private static OffsetIndex Seed(Slot slot, Frame child)
+    {
+        var index = new OffsetIndex();
+        index.Offsets.Add(slot.StartByte);
+        if (child.EndByte >= child.StartByte && child.StartByte != slot.StartByte)
+        {
+            index.Offsets.Add(child.StartByte);
+            index.Watermark = child.EndByte;
+            return index;
+        }
+
+        index.Watermark = slot.EndByte >= 0 && child.EndByte < 0 ? slot.EndByte : slot.StartByte;
+        return index;
     }
 
     private Frame ResolveRecord(DocumentPath path)
@@ -506,19 +522,6 @@ public sealed partial class ViewerSession : IDisposable
         foreach (var column in slot.Columns)
             names.Add(column.Name);
         return names;
-    }
-
-    private void RemoveUnderOffsets(DocumentPath path)
-    {
-        var doomed = new List<DocumentPath>();
-        foreach (var key in _offsets.Keys)
-        {
-            if (key.Equals(path) || IsUnder(key, path))
-                doomed.Add(key);
-        }
-
-        foreach (var key in doomed)
-            _offsets.Remove(key);
     }
 
     private static void RemoveUnder(HashSet<DocumentPath> set, DocumentPath path)
