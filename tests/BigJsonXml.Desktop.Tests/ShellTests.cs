@@ -12,14 +12,16 @@ public class ShellTests
         Assert.Contains(model.Rows, row => row.Name == "@id" && row.Value == "1");
         Assert.Contains(model.Rows, row => row.Name == "item" && row.Value == "item[2]");
 
-        var list = model.Rows.Single(row => row.Name == "item");
+        var list = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "item");
         model.Toggle(list);
-        Assert.Contains(model.Rows, row => row.Kind == SurfaceKind.Entry && row.Value == "alpha");
+        var alpha = model.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Name == "#text" && row.Value == "alpha");
+        Assert.Equal(list.Path.WithIndex(1).Field("#text"), alpha.Path);
+        Assert.DoesNotContain(model.Rows, row => row.Value != null && row.Value.Contains('|', StringComparison.Ordinal));
 
         var nestedPath = Write("<root><item><meta><x>1</x></meta></item><item><meta><x>2</x></meta></item></root>");
         using var nested = new ViewerModel();
         nested.OpenPath(nestedPath);
-        nested.Toggle(nested.Rows.Single(row => row.Name == "item"));
+        nested.Toggle(nested.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "item"));
         var entry = nested.Rows.First(row => row.Kind == SurfaceKind.Entry && row.CanExpand);
         nested.Toggle(entry);
         Assert.Contains(nested.Rows, row => row.Name == "x" && row.Value == "1");
@@ -52,15 +54,67 @@ public class ShellTests
         Assert.Equal("Complete", model.Status);
         Assert.Equal("", model.Error);
         Assert.Contains(model.Rows, row => row.Name == "@id" && row.Value == "doc-main");
-        var layers = Assert.Single(model.Rows, row => row.Name == "Layers");
+        var layers = Assert.Single(model.Rows, row => row.Kind == SurfaceKind.Field && row.Name == "Layers");
         Assert.True(layers.CanExpand);
 
         model.Toggle(layers);
-        var layer = Assert.Single(model.Rows, row => row.Name == "Layer");
+        var layer = Assert.Single(model.Rows, row => row.Kind == SurfaceKind.Field && row.Name == "Layer");
         Assert.True(layer.CanExpand);
         model.Toggle(layer);
         Assert.Contains(model.Rows, row => row.Name == "@visible" && row.Value == "");
         Assert.Contains(model.Rows, row => row.Name == "@locked" && row.Value == "false");
+    }
+
+    [Fact]
+    public void The_window_clips_a_scalar_until_the_cell_is_wide_enough_and_drags_a_column()
+    {
+        var path = Write("<root><title>abcdefghijklmnopqrstuvwxyz</title><item><a>1</a></item><item><a>2</a></item></root>");
+        var before = File.ReadAllBytes(path);
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+
+        var title = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "title");
+        Assert.True(title.IsCutOff);
+        Assert.EndsWith("…", DocumentSurface.PaintedText(title), StringComparison.Ordinal);
+        model.DragWidth(title, 800);
+        var fitted = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "title");
+        Assert.False(fitted.IsCutOff);
+        Assert.Equal("abcdefghijklmnopqrstuvwxyz", DocumentSurface.PaintedText(fitted));
+        Assert.Equal(before, File.ReadAllBytes(path));
+
+        var list = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "item");
+        var hit = DocumentSurface.HitTest(model.Rows, list.X + 12, list.Y + 8);
+        Assert.False(hit.Resize);
+        Assert.Equal(list.Path, hit.Row!.Path);
+        model.Toggle(hit.Row!);
+
+        var header = model.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "a");
+        var edge = DocumentSurface.HitTest(model.Rows, header.X + header.Width - 2, header.Y + 8);
+        Assert.True(edge.Resize);
+        Assert.Equal("a", edge.Row!.WidthColumn);
+        model.DragWidth(edge.Row, 320);
+        Assert.Equal(320, model.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "a").Width);
+        Assert.Contains(model.Rows, row => row.Kind == SurfaceKind.Entry && row.Name == "a" && row.Width == 320 && row.Value == "1");
+
+        var index = model.Rows.First(row => row.Kind == SurfaceKind.EntryIndex && row.Name == "1");
+        var indexHit = DocumentSurface.HitTest(model.Rows, index.X + (index.Width / 2), index.Y + 8);
+        Assert.False(indexHit.Resize);
+        Assert.Equal(SurfaceKind.EntryIndex, indexHit.Row!.Kind);
+        var indexWidth = index.Width;
+        model.Toggle(indexHit.Row);
+        model.Toggle(model.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "a"));
+        Assert.Equal(indexWidth, model.Rows.First(row => row.Kind == SurfaceKind.EntryIndex && row.Name == "1").Width);
+        Assert.Contains(model.Rows, row => row.Kind == SurfaceKind.Entry && row.Value == "1");
+
+        var nestedPath = Write("<root><item><meta><x>1</x></meta></item><item><meta><x>2</x></meta></item></root>");
+        using var nested = new ViewerModel();
+        nested.OpenPath(nestedPath);
+        nested.Toggle(nested.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "item"));
+        var meta = nested.Rows.First(row => row.Kind == SurfaceKind.Entry && row.Name == "meta" && row.CanExpand && row.Value == "meta");
+        var clicked = DocumentSurface.HitTest(nested.Rows, meta.X + 10, meta.Y + 8);
+        Assert.Equal(meta.Path, clicked.Row!.Path);
+        nested.Toggle(clicked.Row);
+        Assert.Contains(nested.Rows, row => row.Name == "x" && row.Value == "1");
     }
 
     [Fact]
