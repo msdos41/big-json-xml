@@ -25,7 +25,7 @@ A table of two or more sibling elements that share a parent and a name, whether 
 _Avoid_: Grid, sheet, DataGrid, horizontal table
 
 **Entry**:
-One element in a list table.
+One element in a list table. Opening it uses what the scan already learned, including after the list is collapsed, and does not read the other entries again.
 _Avoid_: Row, record, item, node
 
 **Field**:
