@@ -19,6 +19,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private double _viewportWidth = 800;
     private double _viewportHeight = 600;
     private bool _refreshing;
+    private bool _rebuild;
     private bool _adjustingHits;
     private IReadOnlyList<SurfaceRow> _rows = [];
     private readonly ObservableCollection<Hit> _hits = [];
@@ -130,8 +131,16 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         if (width <= 1 || height <= 1)
             return;
+        if (Math.Abs(_viewportWidth - width) < 0.5 && Math.Abs(_viewportHeight - height) < 0.5)
+            return;
         _viewportWidth = width;
         _viewportHeight = height;
+        if (_refreshing)
+        {
+            _rebuild = true;
+            return;
+        }
+
         _session?.SetViewport(_scrollX, _scrollY, _viewportWidth, _viewportHeight);
         Refresh();
     }
@@ -225,8 +234,14 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             return;
         field = value;
         OnPropertyChanged(name);
-        if (_refreshing || _session is null)
+        if (_session is null)
             return;
+        if (_refreshing)
+        {
+            _rebuild = true;
+            return;
+        }
+
         _session.SetViewport(_scrollX, _scrollY, _viewportWidth, _viewportHeight);
         Refresh();
     }
@@ -236,24 +251,63 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         if (_session is null || _refreshing)
             return;
         _refreshing = true;
-        _session.SetViewport(_scrollX, _scrollY, _viewportWidth, _viewportHeight);
-        var frame = _session.ReadSurface();
-        Rows = frame.Rows;
-        SyncHits();
-        ContentWidth = frame.ContentWidth;
-        ContentHeight = frame.ContentHeight;
-        ScrollMaxX = Math.Max(0, frame.ContentWidth - _viewportWidth);
-        ScrollMaxY = Math.Max(0, frame.ContentHeight - _viewportHeight);
-        Error = _session.Error is null
-            ? ""
-            : $"{_session.Error.Message} (line {_session.Error.Line}, column {_session.Error.Column})";
-        Status = _session.Progress switch
+        try
         {
-            ScanProgress.Scanning => "Scanning",
-            ScanProgress.Completed => "Complete",
-            _ => "Stopped",
-        };
-        _refreshing = false;
+            for (var pass = 0; pass < 4; pass++)
+            {
+                _rebuild = false;
+                _scrollX = Math.Max(0, _scrollX);
+                _scrollY = Math.Max(0, _scrollY);
+                var frame = ReadFrame();
+                var maxX = Math.Max(0, frame.ContentWidth - _viewportWidth);
+                var maxY = Math.Max(0, frame.ContentHeight - _viewportHeight);
+                var x = Math.Min(_scrollX, maxX);
+                var y = Math.Min(_scrollY, maxY);
+                var clamped = Math.Abs(x - _scrollX) >= 0.5 || Math.Abs(y - _scrollY) >= 0.5;
+                if (clamped)
+                {
+                    _scrollX = x;
+                    _scrollY = y;
+                    frame = ReadFrame();
+                    maxX = Math.Max(0, frame.ContentWidth - _viewportWidth);
+                    maxY = Math.Max(0, frame.ContentHeight - _viewportHeight);
+                }
+
+                Rows = frame.Rows;
+                SyncHits();
+                ContentWidth = frame.ContentWidth;
+                ContentHeight = frame.ContentHeight;
+                if (clamped)
+                {
+                    OnPropertyChanged(nameof(ScrollX));
+                    OnPropertyChanged(nameof(ScrollY));
+                }
+
+                ScrollMaxX = maxX;
+                ScrollMaxY = maxY;
+                Error = _session.Error is null
+                    ? ""
+                    : $"{_session.Error.Message} (line {_session.Error.Line}, column {_session.Error.Column})";
+                Status = _session.Progress switch
+                {
+                    ScanProgress.Scanning => "Scanning",
+                    ScanProgress.Completed => "Complete",
+                    _ => "Stopped",
+                };
+                if (!_rebuild)
+                    break;
+            }
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+    }
+
+    private SurfaceFrame ReadFrame()
+    {
+        _session!.SetViewport(_scrollX, _scrollY, _viewportWidth, _viewportHeight);
+        return _session.ReadSurface();
     }
 
     private void SyncHits()
