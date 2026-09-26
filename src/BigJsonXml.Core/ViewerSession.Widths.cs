@@ -17,7 +17,8 @@ public sealed partial class ViewerSession
     public static double IndexTrackWidth(int entryCount)
     {
         var digits = Math.Max(1, entryCount).ToString(System.Globalization.CultureInfo.InvariantCulture).Length;
-        return digits * Advance;
+        // One extra advance holds the text inset and the gap before the right border.
+        return (digits + 1) * Advance;
     }
 
     public void SetRecordNameWidth(DocumentPath recordPath, double width)
