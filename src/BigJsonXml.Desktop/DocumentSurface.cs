@@ -15,6 +15,8 @@ public sealed class DocumentSurface : Control
     private static readonly IBrush Mark = new SolidColorBrush(Color.Parse("#FFF3C4"));
     private static readonly IBrush Ink = Brushes.Black;
     private static readonly IPen Line = new Pen(new SolidColorBrush(Color.Parse("#E1E4E8")), 1);
+    private static readonly IPen ButtonPen = new Pen(new SolidColorBrush(Color.Parse("#4B5563")), 1);
+    private static readonly IBrush ButtonFill = new SolidColorBrush(Color.Parse("#F3F4F6"));
     private static readonly Typeface Face = new("Segoe UI");
     private SurfaceRow? _drag;
 
@@ -135,12 +137,30 @@ public sealed class DocumentSurface : Control
                     context.FillRectangle(Mark, rect);
                 if (row.Kind != SurfaceKind.ValueLine)
                     context.DrawRectangle(null, Line, rect);
+                if (HasExpandButton(row))
+                    DrawExpandButton(context, rect, row.IsExpanded);
                 var text = row.Value ?? row.Name;
                 if (text.Length > 0)
-                    Draw(context, text, rect.X + Math.Min(4, Math.Max(0, rect.Width - ViewerSession.Advance)), rect.Y + 4);
+                    Draw(context, text, rect.X + TextOrigin(row), rect.Y + 4);
                 if (row.IsCutOff)
                     Draw(context, "…", rect.Right - 14, rect.Y + 4);
             }
+        }
+    }
+
+    private static void DrawExpandButton(DrawingContext context, Rect cell, bool expanded)
+    {
+        const double size = 12;
+        if (cell.Width < size || cell.Height < 8)
+            return;
+        var box = new Rect(cell.X + 2, cell.Y + ((ViewerSession.RowHeight - size) / 2), size, size);
+        context.DrawRectangle(ButtonFill, ButtonPen, box, 2, 2);
+        var midY = box.Y + (size / 2);
+        context.DrawLine(ButtonPen, new Point(box.X + 3, midY), new Point(box.Right - 3, midY));
+        if (!expanded)
+        {
+            var midX = box.X + (size / 2);
+            context.DrawLine(ButtonPen, new Point(midX, box.Y + 3), new Point(midX, box.Bottom - 3));
         }
     }
 

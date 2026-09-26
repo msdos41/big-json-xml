@@ -71,7 +71,7 @@ public sealed partial class ViewerSession
         foreach (var path in _expanded)
         {
             if (IsDirectField(recordPath, path))
-                width = Math.Max(width, EmbeddedOuter(path));
+                width = Math.Max(width, EmbeddedOuter(path) + ExpandGutter);
         }
 
         return width;
@@ -86,7 +86,7 @@ public sealed partial class ViewerSession
         foreach (var path in _expanded)
         {
             if (IsColumnCell(listPath, column, path))
-                width = Math.Max(width, EmbeddedOuter(path));
+                width = Math.Max(width, EmbeddedOuter(path) + ExpandGutter);
         }
 
         return width;
@@ -98,7 +98,11 @@ public sealed partial class ViewerSession
         if (slot.Kind == SlotKind.List)
             return ListOuter(path, slot);
         if (slot.Kind == SlotKind.Record)
+        {
+            if (TrySoleList(slot, path, out _, out var list))
+                return ListOuter(path.Field(list.Name), list);
             return ShownName(path) + ShownValue(path);
+        }
         return 0;
     }
 

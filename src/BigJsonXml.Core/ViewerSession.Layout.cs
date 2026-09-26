@@ -65,10 +65,18 @@ public sealed partial class ViewerSession
             string? text = null;
             var cutOff = false;
             var canGrow = false;
+            var soleList = false;
+            Frame soleFrame = null!;
+            Slot sole = null!;
             if (slot.Kind == SlotKind.List)
-                text = expanded ? "" : ClipLabel($"{slot.Name}[{slot.Count}]", valueWidth, out cutOff);
+                text = expanded ? "" : ClipLabel($"{slot.Name}[{slot.Count}]", ExpandLabelWidth(valueWidth), out cutOff);
+            else if (TrySoleList(slot, field, out soleFrame, out sole))
+            {
+                soleList = true;
+                text = expanded ? "" : ClipLabel($"{sole.Name}[{sole.Count}]", ExpandLabelWidth(valueWidth), out cutOff);
+            }
             else if (slot.Kind == SlotKind.Record)
-                text = expanded ? "" : ClipLabel(slot.Name, valueWidth, out cutOff);
+                text = expanded ? "" : ClipLabel(slot.Name, ExpandLabelWidth(valueWidth), out cutOff);
             else if (!full)
                 text = WindowText(field, slot.Text, valueWidth, out cutOff, out canGrow, out _);
             else
@@ -91,10 +99,13 @@ public sealed partial class ViewerSession
                     emit, seek, x + nameWidth, cursor, valueWidth, rowHeight, clipRight,
                     slot.Name, text, canExpand, expanded, Marks(field), field, SurfaceKind.Field,
                     canGrow, cutOff, WidthAxis.RecordValue, path, null);
+                var inner = x + nameWidth + (expanded && canExpand ? ExpandGutter : 0);
                 if (slot.Kind == SlotKind.List && expanded)
-                    LayoutList(frame, slot, field, x + nameWidth, cursor, valueRight, emit, seek);
+                    LayoutList(frame, slot, field, inner, cursor, valueRight, emit, seek);
+                else if (soleList && expanded)
+                    LayoutList(soleFrame, sole, field.Field(sole.Name), inner, cursor, valueRight, emit, seek);
                 else if (slot.Kind == SlotKind.Record && expanded)
-                    LayoutRecord(Opened(slot, field), field, x + nameWidth, cursor, valueRight, emit, seek);
+                    LayoutRecord(Opened(slot, field), field, inner, cursor, valueRight, emit, seek);
             }
 
             cursor += rowHeight;
@@ -242,10 +253,18 @@ public sealed partial class ViewerSession
             var cutOff = false;
             var canGrow = false;
             var canExpand = cell.Kind != SlotKind.Scalar;
+            var soleList = false;
+            Frame soleFrame = null!;
+            Slot sole = null!;
             if (cell.Kind == SlotKind.List)
-                text = expanded ? "" : ClipLabel($"{cell.Name}[{cell.Count}]", widths[i], out cutOff);
+                text = expanded ? "" : ClipLabel($"{cell.Name}[{cell.Count}]", ExpandLabelWidth(widths[i]), out cutOff);
+            else if (TrySoleList(cell, cellPath, out soleFrame, out sole))
+            {
+                soleList = true;
+                text = expanded ? "" : ClipLabel($"{sole.Name}[{sole.Count}]", ExpandLabelWidth(widths[i]), out cutOff);
+            }
             else if (cell.Kind == SlotKind.Record)
-                text = expanded ? "" : ClipLabel(cell.Name, widths[i], out cutOff);
+                text = expanded ? "" : ClipLabel(cell.Name, ExpandLabelWidth(widths[i]), out cutOff);
             else
                 text = WindowText(cellPath, cell.Text, widths[i], out cutOff, out canGrow, out _);
 
@@ -253,10 +272,13 @@ public sealed partial class ViewerSession
                 emit, seek, starts[i], top, widths[i], expanded ? rowHeight : RowHeight, clipRight,
                 cell.Name, text, canExpand, expanded, Marks(cellPath), cellPath, SurfaceKind.Entry,
                 canGrow, cutOff, WidthAxis.ListColumn, listPath, column.Name);
+            var inner = starts[i] + (expanded && canExpand ? ExpandGutter : 0);
             if (cell.Kind == SlotKind.List && expanded)
-                LayoutList(entry, cell, cellPath, starts[i], top, cellRight, emit, seek);
+                LayoutList(entry, cell, cellPath, inner, top, cellRight, emit, seek);
+            else if (soleList && expanded)
+                LayoutList(soleFrame, sole, cellPath.Field(sole.Name), inner, top, cellRight, emit, seek);
             else if (cell.Kind == SlotKind.Record && expanded)
-                LayoutRecord(Opened(cell, cellPath), cellPath, starts[i], top, cellRight, emit, seek);
+                LayoutRecord(Opened(cell, cellPath), cellPath, inner, top, cellRight, emit, seek);
         }
     }
 
@@ -265,7 +287,11 @@ public sealed partial class ViewerSession
         if (slot.Kind == SlotKind.List && _expanded.Contains(path))
             return ListHeight(parent, slot, path);
         if (slot.Kind == SlotKind.Record && _expanded.Contains(path))
+        {
+            if (TrySoleList(slot, path, out var frame, out var list))
+                return ListHeight(frame, list, path.Field(list.Name));
             return RecordHeight(Opened(slot, path), path);
+        }
         if (slot.Kind == SlotKind.Scalar && Full(path))
             return WrappedHeight(path, slot.Text, valueWidth);
         return RowHeight;
@@ -391,6 +417,25 @@ public sealed partial class ViewerSession
         cutOff = canGrow;
         return window;
     }
+
+    // A record whose only field is a list is that list. The extra name row is not drawn.
+    private bool TrySoleList(Slot slot, DocumentPath path, out Frame frame, out Slot list)
+    {
+        frame = null!;
+        list = null!;
+        if (slot.Kind != SlotKind.Record)
+            return false;
+        frame = Opened(slot, path);
+        if (frame.Slots.Count != 1)
+            return false;
+        var only = frame.Slots[0];
+        if (only.Kind != SlotKind.List)
+            return false;
+        list = only;
+        return true;
+    }
+
+    private static double ExpandLabelWidth(double width) => Math.Max(Advance, width - ExpandGutter);
 
     private static string ClipLabel(string text, double width, out bool cutOff)
     {
