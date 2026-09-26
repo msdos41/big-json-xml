@@ -50,6 +50,8 @@ public sealed class DocumentSurface : Control
         return row.IsCutOff ? text + "…" : text;
     }
 
+    public static StandardCursorType CursorFor(SurfacePointer hit) => StandardCursorType.Arrow;
+
     public static SurfacePointer HitTest(IReadOnlyList<SurfaceRow> rows, double x, double y)
     {
         SurfaceRow? hit = null;

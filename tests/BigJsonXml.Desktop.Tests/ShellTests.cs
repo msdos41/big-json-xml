@@ -1,5 +1,10 @@
+using System.Globalization;
 using System.Runtime.InteropServices;
 using Avalonia;
+using Avalonia.Controls.Primitives;
+using Avalonia.Data;
+using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
 
 namespace BigJsonXml.Desktop.Tests;
@@ -202,6 +207,94 @@ public class ShellTests
         bitmap.Render(surface);
         Assert.True(Dark(bitmap, (int)open.X + 8, (int)open.Y + 12));
         Assert.False(Dark(bitmap, (int)open.X + 8, (int)open.Y + 9));
+    }
+
+    [Fact]
+    public void A_three_digit_index_fits_inside_its_column()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var width = ViewerSession.IndexTrackWidth(295);
+        var row = new SurfaceRow(
+            0, 0, width, ViewerSession.RowHeight,
+            "295", null, false, false, false,
+            DocumentPath.Root.Field("row").WithIndex(295),
+            SurfaceKind.EntryIndex);
+        var text = new FormattedText(
+            "888", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"), 13, Brushes.Black);
+        Assert.True(
+            DocumentSurface.TextOrigin(row) + text.Width <= width - 2,
+            $"column {width} cannot hold {text.Width}px starting at {DocumentSurface.TextOrigin(row)}");
+    }
+
+    [Fact]
+    public void A_column_edge_uses_the_horizontal_resize_cursor()
+    {
+        var header = new SurfaceRow(
+            10, 0, 80, ViewerSession.RowHeight,
+            "name", "name", false, false, false,
+            DocumentPath.Root.Field("row"),
+            SurfaceKind.ColumnHeader,
+            Axis: WidthAxis.ListColumn);
+        var edge = DocumentSurface.HitTest([header], header.X + header.Width - 1, 4);
+        var inside = DocumentSurface.HitTest([header], header.X + 8, 4);
+        Assert.True(edge.Resize);
+        Assert.False(inside.Resize);
+        Assert.Equal(StandardCursorType.SizeWestEast, DocumentSurface.CursorFor(edge));
+        Assert.Equal(StandardCursorType.Arrow, DocumentSurface.CursorFor(inside));
+    }
+
+    [Fact]
+    public void Collapsing_the_last_record_while_scrolled_to_the_end_keeps_the_rows_above()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var body = string.Concat(Enumerable.Range(0, 120).Select(i => $"<row><name>n{i}</name></row>"));
+        var path = Write($"<root>{body}<Routing><child>z</child></Routing></root>");
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        model.SetViewportSize(500, ViewerSession.RowHeight * 4);
+        var bar = new ScrollBar
+        {
+            DataContext = model,
+            Orientation = Avalonia.Layout.Orientation.Vertical,
+            ViewportSize = model.ViewportHeight,
+        };
+        bar.Bind(RangeBase.MaximumProperty, new Binding(nameof(ViewerModel.ScrollMaxY)));
+        bar.Bind(RangeBase.ValueProperty, new Binding(nameof(ViewerModel.ScrollY)) { Mode = BindingMode.TwoWay });
+
+        model.Toggle(model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "row"));
+        model.ScrollY = model.ScrollMaxY;
+        var routing = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "Routing");
+        model.Toggle(routing);
+        model.ScrollY = model.ScrollMaxY;
+        model.Toggle(model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "Routing" && row.IsExpanded));
+
+        AssertFilled(model);
+        var surface = new DocumentSurface { DataContext = model, Width = model.ViewportWidth, Height = model.ViewportHeight };
+        surface.Measure(new Size(model.ViewportWidth, model.ViewportHeight));
+        surface.Arrange(new Rect(0, 0, model.ViewportWidth, model.ViewportHeight));
+        var bitmap = new RenderTargetBitmap(new PixelSize((int)model.ViewportWidth, (int)model.ViewportHeight), new Vector(96, 96));
+        bitmap.Render(surface);
+        var index = model.Rows.First(row => row.Kind == SurfaceKind.EntryIndex && row.Y >= model.ScrollY && row.Y < model.ScrollY + ViewerSession.RowHeight);
+        Assert.True(Dark(bitmap, (int)(index.X - model.ScrollX + 6), (int)(index.Y - model.ScrollY + 10)));
+    }
+
+    private static void AssertFilled(ViewerModel model)
+    {
+        Assert.True(model.ScrollY <= model.ScrollMaxY + 0.5, $"scroll {model.ScrollY} past {model.ScrollMaxY}");
+        var top = model.ScrollY;
+        var bottom = Math.Min(model.ScrollY + model.ViewportHeight, model.ContentHeight);
+        var leaves = model.Rows.Where(row => row.Y >= top - ViewerSession.RowHeight || row.Height <= ViewerSession.RowHeight * 2).ToList();
+        var cursor = top;
+        while (cursor < bottom - 0.5)
+        {
+            var cover = leaves.Where(row => row.Y <= cursor + 0.1 && cursor < row.Y + row.Height - 0.1).ToList();
+            Assert.True(cover.Count > 0, $"gap at {cursor - top}");
+            cursor = cover.Min(row => row.Y + row.Height);
+        }
     }
 
     [Fact]
