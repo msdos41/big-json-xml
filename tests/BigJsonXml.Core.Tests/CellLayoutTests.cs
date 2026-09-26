@@ -207,7 +207,8 @@ public class CellLayoutTests
 
         var leftCell = frame.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Path.Equals(left) && row.IsExpanded);
         var rightCell = frame.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Path.Equals(right) && row.IsExpanded);
-        Assert.Equal("", leftCell.Value);
+        Assert.Equal("left[2]", leftCell.Value);
+        Assert.Equal("right[2]", rightCell.Value);
         Assert.Equal(leftCell.Y, rightCell.Y);
         Assert.True(leftCell.Height > ViewerSession.RowHeight);
         Assert.Equal(leftCell.Height, rightCell.Height);
