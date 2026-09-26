@@ -17,7 +17,7 @@ A table of one element's fields, with the field names as row headers (vertical h
 _Avoid_: Form, property grid, vertical table, key-value sheet
 
 **List table**:
-A table of two or more sibling elements that share a parent and a name, whether or not they are consecutive. Field names are column headers (horizontal headers). One entry per element. A single occurrence of a name is not a list table.
+A table of two or more sibling elements that share a parent and a name, whether or not they are consecutive. Field names are column headers (horizontal headers). One entry per element. A single occurrence of a name is not a list table. Columns stand in the order the scan first sees each field. A field seen later is added at the end.
 _Avoid_: Grid, sheet, DataGrid, horizontal table
 
 **Entry**:
@@ -27,6 +27,10 @@ _Avoid_: Row, record, item, node
 **Field**:
 One attribute, one text value, or one child name of an element. On a record table a field is a row. On a list table a scalar field is a column. An attribute name is written with a leading `@`. A name in a start tag with no value is still an attribute, and that value is empty. A child element is a field once the scan has seen that it has an attribute or an element child, even while its end tag is still ahead. A name from a namespace is shown with the prefix written in the file; its identity is the namespace URI plus the local name.
 _Avoid_: Property, key, column (that word only describes a list table), row (overloaded)
+
+**Cell**:
+The rectangle in which one field is shown. On a record table it is the value beside a field name. On a list table it is where one entry meets one column. Expanding and collapsing that field happen inside this rectangle.
+_Avoid_: Box, pane
 
 **List field**:
 A field whose child name occurs two or more times under the element. Expanded, it is a list table inside the cell. Collapsed, the cell reads `Name[n]`, where `n` is how many siblings of that name have been seen. The count comes from the scan that is already walking those siblings; it is not a separate pass.
@@ -45,7 +49,7 @@ The field that holds an element's own character data when that element also has 
 _Avoid_: Inner text, value, indent
 
 **Embedded table**:
-A record table or list table drawn inside the cell that was expanded. The row that owns that cell grows with the embedded table. The document has one scrollable surface, vertical and horizontal. An embedded table does not add its own. It is not another screen, pane, or window.
+A record table or list table drawn in the cell that was expanded, bounded by that cell's rectangle. It is not laid out as rows under the entry across the rest of the table. Sibling cells keep their own rectangles. The entry's row is as tall as its tallest cell. The document has one vertical scrollbar and one horizontal scrollbar. An embedded table does not add its own. It is not another screen, pane, or window.
 _Avoid_: Sub-table, drill-down, popup, nested view
 
 **Text search**:
