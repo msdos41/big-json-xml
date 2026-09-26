@@ -69,14 +69,14 @@ public sealed partial class ViewerSession
             Frame soleFrame = null!;
             Slot sole = null!;
             if (slot.Kind == SlotKind.List)
-                text = expanded ? "" : ClipLabel($"{slot.Name}[{slot.Count}]", ExpandLabelWidth(valueWidth), out cutOff);
+                text = ClipLabel($"{slot.Name}[{slot.Count}]", ExpandLabelWidth(valueWidth), out cutOff);
             else if (TrySoleList(slot, field, out soleFrame, out sole))
             {
                 soleList = true;
-                text = expanded ? "" : ClipLabel($"{sole.Name}[{sole.Count}]", ExpandLabelWidth(valueWidth), out cutOff);
+                text = ClipLabel($"{sole.Name}[{sole.Count}]", ExpandLabelWidth(valueWidth), out cutOff);
             }
             else if (slot.Kind == SlotKind.Record)
-                text = expanded ? "" : ClipLabel(slot.Name, ExpandLabelWidth(valueWidth), out cutOff);
+                text = ClipLabel(slot.Name, ExpandLabelWidth(valueWidth), out cutOff);
             else if (!full)
                 text = WindowText(field, slot.Text, valueWidth, out cutOff, out canGrow, out _);
             else
@@ -99,13 +99,14 @@ public sealed partial class ViewerSession
                     emit, seek, x + nameWidth, cursor, valueWidth, rowHeight, clipRight,
                     slot.Name, text, canExpand, expanded, Marks(field), field, SurfaceKind.Field,
                     canGrow, cutOff, WidthAxis.RecordValue, path, null);
-                var inner = x + nameWidth + (expanded && canExpand ? ExpandGutter : 0);
+                var nest = expanded && canExpand ? RowHeight : 0;
+                var inner = x + nameWidth + (nest > 0 ? ExpandGutter : 0);
                 if (slot.Kind == SlotKind.List && expanded)
-                    LayoutList(frame, slot, field, inner, cursor, valueRight, emit, seek);
+                    LayoutList(frame, slot, field, inner, cursor + nest, valueRight, emit, seek);
                 else if (soleList && expanded)
-                    LayoutList(soleFrame, sole, field.Field(sole.Name), inner, cursor, valueRight, emit, seek);
+                    LayoutList(soleFrame, sole, field.Field(sole.Name), inner, cursor + nest, valueRight, emit, seek);
                 else if (slot.Kind == SlotKind.Record && expanded)
-                    LayoutRecord(Opened(slot, field), field, inner, cursor, valueRight, emit, seek);
+                    LayoutRecord(Opened(slot, field), field, inner, cursor + nest, valueRight, emit, seek);
             }
 
             cursor += rowHeight;
@@ -223,26 +224,37 @@ public sealed partial class ViewerSession
     {
         var entryPath = listPath.WithIndex(zeroBased + 1);
         var entry = LoadEntry(slot, index, zeroBased + 1, entryPath);
+        var count = slot.Columns.Count;
+        var entryHeight = RowHeight;
+        for (var i = 0; i < count; i++)
+        {
+            var column = slot.Columns[i];
+            if (!entry.ByKey.TryGetValue(column.Key, out var cell))
+                continue;
+            var height = FieldBodyHeight(entry, cell, entryPath.Field(column.Name), widths[i]);
+            if (height > entryHeight)
+                entryHeight = height;
+        }
+
         Emit(
-            emit, null, x, top, indexWidth, RowHeight, clipRight,
+            emit, null, x, top, indexWidth, entryHeight, clipRight,
             (zeroBased + 1).ToString(CultureInfo.InvariantCulture), null,
             false, false, false, entryPath, SurfaceKind.EntryIndex,
             false, false, WidthAxis.None, null, null);
 
-        for (var i = 0; i < slot.Columns.Count; i++)
+        for (var i = 0; i < count; i++)
         {
             var column = slot.Columns[i];
             var cellPath = entryPath.Field(column.Name);
             var cellRight = Math.Min(clipRight, starts[i] + widths[i]);
             if (!entry.ByKey.TryGetValue(column.Key, out var cell))
             {
-                Emit(emit, seek, starts[i], top, widths[i], RowHeight, clipRight, column.Name, "", false, false, false, cellPath, SurfaceKind.Entry, false, false, WidthAxis.ListColumn, listPath, column.Name);
+                Emit(emit, seek, starts[i], top, widths[i], entryHeight, clipRight, column.Name, "", false, false, false, cellPath, SurfaceKind.Entry, false, false, WidthAxis.ListColumn, listPath, column.Name);
                 continue;
             }
 
             var expanded = _expanded.Contains(cellPath);
             var full = cell.Kind == SlotKind.Scalar && Full(cellPath);
-            var rowHeight = FieldBodyHeight(entry, cell, cellPath, widths[i]);
             if (full)
             {
                 EmitWrapped(emit, seek, cellPath, cell.Name, cell.Text, starts[i], top, widths[i], cellRight, SurfaceKind.Entry, WidthAxis.ListColumn, listPath, column.Name);
@@ -257,40 +269,41 @@ public sealed partial class ViewerSession
             Frame soleFrame = null!;
             Slot sole = null!;
             if (cell.Kind == SlotKind.List)
-                text = expanded ? "" : ClipLabel($"{cell.Name}[{cell.Count}]", ExpandLabelWidth(widths[i]), out cutOff);
+                text = ClipLabel($"{cell.Name}[{cell.Count}]", ExpandLabelWidth(widths[i]), out cutOff);
             else if (TrySoleList(cell, cellPath, out soleFrame, out sole))
             {
                 soleList = true;
-                text = expanded ? "" : ClipLabel($"{sole.Name}[{sole.Count}]", ExpandLabelWidth(widths[i]), out cutOff);
+                text = ClipLabel($"{sole.Name}[{sole.Count}]", ExpandLabelWidth(widths[i]), out cutOff);
             }
             else if (cell.Kind == SlotKind.Record)
-                text = expanded ? "" : ClipLabel(cell.Name, ExpandLabelWidth(widths[i]), out cutOff);
+                text = ClipLabel(cell.Name, ExpandLabelWidth(widths[i]), out cutOff);
             else
                 text = WindowText(cellPath, cell.Text, widths[i], out cutOff, out canGrow, out _);
 
             Emit(
-                emit, seek, starts[i], top, widths[i], expanded ? rowHeight : RowHeight, clipRight,
+                emit, seek, starts[i], top, widths[i], entryHeight, clipRight,
                 cell.Name, text, canExpand, expanded, Marks(cellPath), cellPath, SurfaceKind.Entry,
                 canGrow, cutOff, WidthAxis.ListColumn, listPath, column.Name);
-            var inner = starts[i] + (expanded && canExpand ? ExpandGutter : 0);
+            var nest = expanded && canExpand ? RowHeight : 0;
+            var inner = starts[i] + (nest > 0 ? ExpandGutter : 0);
             if (cell.Kind == SlotKind.List && expanded)
-                LayoutList(entry, cell, cellPath, inner, top, cellRight, emit, seek);
+                LayoutList(entry, cell, cellPath, inner, top + nest, cellRight, emit, seek);
             else if (soleList && expanded)
-                LayoutList(soleFrame, sole, cellPath.Field(sole.Name), inner, top, cellRight, emit, seek);
+                LayoutList(soleFrame, sole, cellPath.Field(sole.Name), inner, top + nest, cellRight, emit, seek);
             else if (cell.Kind == SlotKind.Record && expanded)
-                LayoutRecord(Opened(cell, cellPath), cellPath, inner, top, cellRight, emit, seek);
+                LayoutRecord(Opened(cell, cellPath), cellPath, inner, top + nest, cellRight, emit, seek);
         }
     }
 
     private double FieldBodyHeight(Frame parent, Slot slot, DocumentPath path, double valueWidth)
     {
         if (slot.Kind == SlotKind.List && _expanded.Contains(path))
-            return ListHeight(parent, slot, path);
+            return RowHeight + ListHeight(parent, slot, path);
         if (slot.Kind == SlotKind.Record && _expanded.Contains(path))
         {
             if (TrySoleList(slot, path, out var frame, out var list))
-                return ListHeight(frame, list, path.Field(list.Name));
-            return RecordHeight(Opened(slot, path), path);
+                return RowHeight + ListHeight(frame, list, path.Field(list.Name));
+            return RowHeight + RecordHeight(Opened(slot, path), path);
         }
         if (slot.Kind == SlotKind.Scalar && Full(path))
             return WrappedHeight(path, slot.Text, valueWidth);
