@@ -176,22 +176,41 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         if (_session is null)
             return;
-        var expandPath = row.ExpandPath ?? row.Path;
         if (row.CanExpand)
         {
             if (row.IsExpanded)
-                _session.Collapse(expandPath);
+                _session.Collapse(row.Path);
             else
-                _session.Expand(expandPath);
+                _session.Expand(row.Path);
         }
         else if (row.CanGrowValue || row.Kind == SurfaceKind.ValueLine)
         {
-            var scalar = _session.ReadScalar(row.GrowPath ?? row.Path);
-            var growPath = row.GrowPath ?? row.Path;
-            if (scalar.IsFullValueExpanded)
-                _session.CollapseFullValue(growPath);
+            if (_session.ReadScalar(row.Path).IsFullValueExpanded)
+                _session.CollapseFullValue(row.Path);
             else
-                _session.ExpandFullValue(growPath);
+                _session.ExpandFullValue(row.Path);
+        }
+
+        Refresh();
+    }
+
+    public void DragWidth(SurfaceRow row, double width)
+    {
+        if (_session is null || row.WidthTable is null)
+            return;
+        switch (row.Axis)
+        {
+            case WidthAxis.RecordName:
+                _session.SetRecordNameWidth(row.WidthTable, width);
+                break;
+            case WidthAxis.RecordValue:
+                _session.SetRecordValueWidth(row.WidthTable, width);
+                break;
+            case WidthAxis.ListColumn when row.WidthColumn is not null:
+                _session.SetColumnWidth(row.WidthTable, row.WidthColumn, width);
+                break;
+            default:
+                return;
         }
 
         Refresh();

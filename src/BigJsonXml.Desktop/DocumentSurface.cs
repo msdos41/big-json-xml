@@ -6,15 +6,46 @@ using Avalonia.Media;
 
 namespace BigJsonXml.Desktop;
 
+public readonly record struct SurfacePointer(SurfaceRow? Row, bool Resize);
+
 public sealed class DocumentSurface : Control
 {
+    public const double ResizeEdge = 6;
+
     private static readonly IBrush Mark = new SolidColorBrush(Color.Parse("#FFF3C4"));
     private static readonly IBrush Ink = Brushes.Black;
+    private static readonly IPen Line = new Pen(new SolidColorBrush(Color.Parse("#E1E4E8")), 1);
     private static readonly Typeface Face = new("Segoe UI");
+    private SurfaceRow? _drag;
 
     public DocumentSurface()
     {
         ClipToBounds = true;
+    }
+
+    public static string PaintedText(SurfaceRow row)
+    {
+        var text = row.Value ?? row.Name;
+        if (text.Length == 0)
+            return "";
+        return row.IsCutOff ? text + "…" : text;
+    }
+
+    public static SurfacePointer HitTest(IReadOnlyList<SurfaceRow> rows, double x, double y)
+    {
+        SurfaceRow? hit = null;
+        SurfaceRow? resize = null;
+        foreach (var row in rows)
+        {
+            if (y < row.Y || y >= row.Y + row.Height)
+                continue;
+            if (x >= row.X && x < row.X + row.Width)
+                hit = row;
+            if (row.Axis != WidthAxis.None && Math.Abs(row.X + row.Width - x) <= ResizeEdge)
+                resize = row;
+        }
+
+        return new SurfacePointer(resize ?? hit, resize is not null);
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -47,10 +78,36 @@ public sealed class DocumentSurface : Control
         if (DataContext is not ViewerModel model)
             return;
         var point = e.GetPosition(this);
-        var y = point.Y + model.ScrollY;
-        var row = model.Rows.FirstOrDefault(item => y >= item.Y && y < item.Y + item.Height);
-        if (row is not null && (row.CanExpand || row.CanGrowValue || row.Kind == SurfaceKind.ValueLine))
+        var hit = HitTest(model.Rows, point.X + model.ScrollX, point.Y + model.ScrollY);
+        if (hit.Resize && hit.Row is not null)
+        {
+            _drag = hit.Row;
+            e.Pointer.Capture(this);
+            e.Handled = true;
+            return;
+        }
+
+        if (hit.Row is { } row && (row.CanExpand || row.CanGrowValue || row.Kind == SurfaceKind.ValueLine))
             model.Toggle(row);
+    }
+
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        base.OnPointerMoved(e);
+        if (_drag is null || DataContext is not ViewerModel model)
+            return;
+        var point = e.GetPosition(this);
+        model.DragWidth(_drag, point.X + model.ScrollX - _drag.X);
+        e.Handled = true;
+    }
+
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        base.OnPointerReleased(e);
+        if (_drag is null)
+            return;
+        _drag = null;
+        e.Pointer.Capture(null);
     }
 
     public override void Render(DrawingContext context)
@@ -61,15 +118,18 @@ public sealed class DocumentSurface : Control
         context.FillRectangle(Brushes.White, new Rect(Bounds.Size));
         foreach (var row in model.Rows)
         {
-            var top = row.Y - model.ScrollY;
-            var left = row.X - model.ScrollX;
-            if (row.IsMarked)
-                context.FillRectangle(Mark, new Rect(0, top, Bounds.Width, row.Height));
-            var mark = row.CanExpand || row.CanGrowValue;
-            var label = mark ? ((row.IsExpanded || row.Kind == SurfaceKind.ValueLine) ? "▾ " : "▸ ") + row.Name : row.Name;
-            Draw(context, label, left + 4, top + 4);
-            if (!string.IsNullOrEmpty(row.Value))
-                Draw(context, row.Value, left + ViewerSession.NameWidth, top + 4);
+            var rect = new Rect(row.X - model.ScrollX, row.Y - model.ScrollY, row.Width, row.Height);
+            using (context.PushClip(rect))
+            {
+                if (row.IsMarked)
+                    context.FillRectangle(Mark, rect);
+                context.DrawRectangle(null, Line, rect);
+                var text = row.Value ?? row.Name;
+                if (text.Length > 0)
+                    Draw(context, text, rect.X + 4, rect.Y + 4);
+                if (row.IsCutOff)
+                    Draw(context, "…", rect.Right - 14, rect.Y + 4);
+            }
         }
     }
 
