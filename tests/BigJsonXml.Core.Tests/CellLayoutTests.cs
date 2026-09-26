@@ -76,7 +76,7 @@ public class CellLayoutTests
 
         var indexes = frame.Rows.Where(row => row.Kind == SurfaceKind.EntryIndex && row.Name.Length > 0).OrderBy(row => row.Y).ToList();
         Assert.Equal(["1", "2", "3"], indexes.Select(row => row.Name).ToArray());
-        Assert.Equal(ViewerSession.Advance, ViewerSession.IndexTrackWidth(3));
+        Assert.Equal(2 * ViewerSession.Advance, ViewerSession.IndexTrackWidth(3));
         Assert.All(indexes, row => Assert.Equal(ViewerSession.IndexTrackWidth(3), row.Width));
         Assert.All(indexes, row => Assert.True(row.X < headers[0].X));
         Assert.All(indexes, row => Assert.False(row.CanExpand));
@@ -481,6 +481,15 @@ public class CellLayoutTests
         Assert.True(shown.Length < 500, $"decoded {shown.Length} characters");
         Assert.Contains("q", shown, StringComparison.Ordinal);
         Assert.True(allocated < 80_000, $"allocated {allocated} bytes");
+    }
+
+    [Fact]
+    public void The_index_track_grows_by_a_digit_and_keeps_room_for_the_inset()
+    {
+        Assert.Equal(2 * ViewerSession.Advance, ViewerSession.IndexTrackWidth(9));
+        Assert.Equal(3 * ViewerSession.Advance, ViewerSession.IndexTrackWidth(10));
+        Assert.Equal(4 * ViewerSession.Advance, ViewerSession.IndexTrackWidth(100));
+        Assert.Equal(4 * ViewerSession.Advance, ViewerSession.IndexTrackWidth(999));
     }
 
     [Fact]
