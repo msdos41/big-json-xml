@@ -23,6 +23,16 @@ public sealed class DocumentSurface : Control
         ClipToBounds = true;
     }
 
+    public static bool HasExpandButton(SurfaceRow row) =>
+        row.CanExpand && row.Kind is SurfaceKind.Field or SurfaceKind.Entry;
+
+    public static double TextOrigin(SurfaceRow row)
+    {
+        if (HasExpandButton(row))
+            return Math.Min(ViewerSession.ExpandGutter, Math.Max(0, row.Width - ViewerSession.Advance));
+        return Math.Min(4, Math.Max(0, row.Width - ViewerSession.Advance));
+    }
+
     public static string PaintedText(SurfaceRow row)
     {
         var text = row.Value ?? row.Name;

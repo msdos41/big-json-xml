@@ -5,6 +5,7 @@ namespace BigJsonXml.Tests;
 public class CellLayoutTests
 {
     private const string LongName = "thisnameisdefinitelylongerthantwentyfive";
+    private const int LabelRoom = (int)((ViewerSession.DefaultWidth - ViewerSession.ExpandGutter) / ViewerSession.Advance);
 
     [Fact]
     public void Record_names_and_values_share_a_width_and_clip()
@@ -306,14 +307,14 @@ public class CellLayoutTests
         session.SetColumnWidth(list, "child", 180);
         session.Expand(narrow);
         session.Expand(wide);
-        Assert.Equal(wideOuter, ColumnWidth(session, list, "child"));
+        Assert.Equal(wideOuter + ViewerSession.ExpandGutter, ColumnWidth(session, list, "child"));
 
         session.Collapse(narrow);
-        Assert.Equal(wideOuter, ColumnWidth(session, list, "child"));
+        Assert.Equal(wideOuter + ViewerSession.ExpandGutter, ColumnWidth(session, list, "child"));
         session.Collapse(wide);
         Assert.Equal(180, ColumnWidth(session, list, "child"));
         session.Expand(narrow);
-        Assert.Equal(narrowOuter, ColumnWidth(session, list, "child"));
+        Assert.Equal(narrowOuter + ViewerSession.ExpandGutter, ColumnWidth(session, list, "child"));
 
         session.SetColumnWidth(list, "child", 90);
         Assert.Equal(90, ColumnWidth(session, list, "child"));
@@ -332,15 +333,18 @@ public class CellLayoutTests
         session.Collapse(narrow);
         Assert.Equal(180, ColumnWidth(session, list, "child"));
         session.Expand(narrow);
-        Assert.Equal(narrowOuter, ColumnWidth(session, list, "child"));
+        Assert.Equal(narrowOuter + ViewerSession.ExpandGutter, ColumnWidth(session, list, "child"));
 
         var record = SessionFixture.Scan("<root><meta><id>1</id><name>Ada</name></meta><note>hi</note></root>");
         var meta = DocumentPath.Root.Field("meta");
         record.Expand(meta);
         var opened = Show(record);
-        Assert.Equal(400, opened.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Path.Equals(meta)).Width);
+        var metaCell = opened.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Path.Equals(meta));
+        var id = opened.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "id");
+        Assert.Equal(400 + ViewerSession.ExpandGutter, metaCell.Width);
+        Assert.True(id.X >= metaCell.X + ViewerSession.ExpandGutter);
         var note = opened.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "note");
-        Assert.Equal(400, note.Width);
+        Assert.Equal(400 + ViewerSession.ExpandGutter, note.Width);
         Assert.False(note.IsExpanded);
     }
 
@@ -484,7 +488,7 @@ public class CellLayoutTests
         const string name = "thisnameisdefinitelylongerthantwentyfive";
         var session = SessionFixture.Scan($"<root><{name}>1</{name}><{name}>2</{name}></root>");
         var label = Show(session).Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == name);
-        Assert.Equal(25, label.Value!.Length);
+        Assert.Equal(LabelRoom, label.Value!.Length);
         Assert.True(label.IsCutOff);
         Assert.StartsWith(name[..20], label.Value, StringComparison.Ordinal);
 
@@ -499,7 +503,7 @@ public class CellLayoutTests
         var frame = Show(nested);
         var top = frame.Rows.Single(row => row.Kind == SurfaceKind.EntryIndex && row.Name == "1");
         var cell = frame.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Name == name && row.Y == top.Y);
-        Assert.Equal(25, cell.Value!.Length);
+        Assert.Equal(LabelRoom, cell.Value!.Length);
         Assert.True(cell.IsCutOff);
     }
 

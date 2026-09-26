@@ -135,4 +135,63 @@ public class ExpandTests
         Assert.Equal(2000, session.ReadRecord(features).Fields.Single(field => field.Name == "Feature").ListCount);
         Assert.True(watch.ElapsedMilliseconds < 500, $"refresh took {watch.ElapsedMilliseconds} ms");
     }
+
+    [Fact]
+    public void A_record_that_only_holds_a_list_shows_that_list()
+    {
+        var session = SessionFixture.Scan("""
+            <root>
+              <features>
+                <feature id="1"></feature>
+                <feature id="2"></feature>
+              </features>
+              <note>hi</note>
+            </root>
+            """);
+        var features = DocumentPath.Root.Field("features");
+        var closed = Show(session);
+        var cell = closed.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Path.Equals(features));
+        Assert.Equal("features", closed.Rows.Single(row => row.Kind == SurfaceKind.FieldName && row.Path.Equals(features)).Value);
+        Assert.Equal("feature[2]", cell.Value);
+        Assert.True(cell.CanExpand);
+        Assert.False(cell.IsExpanded);
+        Assert.DoesNotContain(closed.Rows, row => row.Name == "feature");
+        Assert.Equal(FieldKind.Record, session.Field("features").Kind);
+        Assert.Equal(2, session.ReadRecord(features).Fields.Single(field => field.Name == "feature").ListCount);
+
+        session.Expand(features);
+        var open = Show(session);
+        Assert.DoesNotContain(open.Rows, row => row.Kind == SurfaceKind.FieldName && row.Name == "feature");
+        var header = open.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "@id");
+        var opened = open.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Path.Equals(features) && row.IsExpanded);
+        Assert.True(header.X >= opened.X + ViewerSession.ExpandGutter);
+        Assert.True(header.X + header.Width <= opened.X + opened.Width + 0.01);
+        Assert.Contains(open.Rows, row => row.Kind == SurfaceKind.Entry && row.Name == "@id" && row.Value == "1");
+        Assert.Contains(open.Rows, row => row.Kind == SurfaceKind.Entry && row.Name == "@id" && row.Value == "2");
+    }
+
+    [Fact]
+    public void A_record_keeps_a_list_row_when_it_has_another_field()
+    {
+        var session = SessionFixture.Scan("""
+            <root>
+              <features count="2">
+                <feature id="1"></feature>
+                <feature id="2"></feature>
+              </features>
+            </root>
+            """);
+        var features = DocumentPath.Root.Field("features");
+        session.Expand(features);
+        var rows = Show(session).Rows;
+        Assert.Contains(rows, row => row.Kind == SurfaceKind.Field && row.Name == "@count" && row.Value == "2");
+        Assert.Contains(rows, row => row.Kind == SurfaceKind.FieldName && row.Name == "feature");
+        Assert.Contains(rows, row => row.Kind == SurfaceKind.Field && row.Name == "feature" && row.Value == "feature[2]");
+    }
+
+    private static SurfaceFrame Show(ViewerSession session)
+    {
+        session.SetViewport(0, 0, 900, 800);
+        return session.ReadSurface();
+    }
 }

@@ -118,6 +118,31 @@ public class ShellTests
     }
 
     [Fact]
+    public void An_expandable_cell_shows_an_expand_button()
+    {
+        var path = Write("<root><item>a</item><item>b</item><note>hi</note></root>");
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+
+        var list = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "item");
+        var note = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "note");
+        var name = model.Rows.Single(row => row.Kind == SurfaceKind.FieldName && row.Name == "item");
+        Assert.True(DocumentSurface.HasExpandButton(list));
+        Assert.False(DocumentSurface.HasExpandButton(note));
+        Assert.False(DocumentSurface.HasExpandButton(name));
+        Assert.Equal(ViewerSession.ExpandGutter, DocumentSurface.TextOrigin(list));
+        Assert.Equal(4, DocumentSurface.TextOrigin(note));
+
+        model.Toggle(list);
+        var open = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "item");
+        Assert.True(open.IsExpanded);
+        Assert.True(DocumentSurface.HasExpandButton(open));
+        var header = model.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "#text");
+        Assert.False(DocumentSurface.HasExpandButton(header));
+        Assert.True(header.X >= open.X + ViewerSession.ExpandGutter);
+    }
+
+    [Fact]
     public void Check_mode_opens_expands_searches_and_reveals()
     {
         var path = Write("<root><item>alpha</item><item>beta</item></root>");

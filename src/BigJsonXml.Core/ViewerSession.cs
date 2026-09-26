@@ -12,6 +12,7 @@ public sealed partial class ViewerSession : IDisposable
     public const double DefaultWidth = 200;
     public const double MinWidth = 32;
     public const double RowHeight = 24;
+    public const double ExpandGutter = 16;
     public const int ScrollSurfaces = 1;
 
     private readonly XmlDocument _document;
