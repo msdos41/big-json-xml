@@ -13,7 +13,7 @@ A read-only session over a document: open, present tables, scroll, search. There
 _Avoid_: Editor
 
 **Record table**:
-A table of one element's fields, with the field names as row headers (vertical headers). This is the presentation when the element is not one entry among same-named siblings.
+A table of one element's fields, with the field names as row headers (vertical headers). This is the presentation when the element is not one entry among same-named siblings. Field names share one width. Values share another. Making the values wider widens every value cell and does not expand those fields.
 _Avoid_: Form, property grid, vertical table, key-value sheet
 
 **List table**:
@@ -29,7 +29,7 @@ One attribute, one text value, or one child name of an element. On a record tabl
 _Avoid_: Property, key, column (that word only describes a list table), row (overloaded)
 
 **Cell**:
-The rectangle in which one field is shown. On a record table it is the value beside a field name. On a list table it is where one entry meets one column. Expanding and collapsing that field happen inside this rectangle.
+The rectangle in which one field is shown. On a record table it is the value beside a field name. On a list table it is where one entry meets one column. Expanding and collapsing that field happen inside this rectangle. Doing so does not expand or collapse a sibling cell.
 _Avoid_: Box, pane
 
 **List field**:
@@ -37,11 +37,11 @@ A field whose child name occurs two or more times under the element. Expanded, i
 _Avoid_: Array column, nested column, sub-table column
 
 **Scalar field**:
-An attribute, the element's own character data, or a child that occurs once and has only character data. An attribute's name is written with a leading `@`. The cell normally shows at most a 200-character window: the start of the value, or a window around a hit inside it. The value is not decoded into one string.
+An attribute, the element's own character data, or a child that occurs once and has only character data. An attribute's name is written with a leading `@`. A collapsed cell shows one line: the start of the value, or a window around a hit, for as much of the value as the cell's width holds, up to the whole value.
 _Avoid_: Value, cell
 
 **Full value**:
-The complete character data of a scalar field, shown only after the user expands that cell. The row grows to the virtual height of the text on the document's one scroll surface. Only the visible slice is decoded. Collapsing the cell returns it to the 200-character window.
+The complete character data of a scalar field, shown inside the cell after the user expands it. The text wraps to the cell's width, and the row grows to the virtual height of that text on the document's one scroll surface. Only the visible slice is decoded. Collapsing the cell returns it to the one-line, width-limited view.
 _Avoid_: Text viewer, popup, inner scroll
 
 **#text**:
