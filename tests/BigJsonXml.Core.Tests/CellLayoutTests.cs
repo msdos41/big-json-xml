@@ -75,6 +75,7 @@ public class CellLayoutTests
 
         var indexes = frame.Rows.Where(row => row.Kind == SurfaceKind.EntryIndex && row.Name.Length > 0).OrderBy(row => row.Y).ToList();
         Assert.Equal(["1", "2", "3"], indexes.Select(row => row.Name).ToArray());
+        Assert.Equal(ViewerSession.Advance, ViewerSession.IndexTrackWidth(3));
         Assert.All(indexes, row => Assert.Equal(ViewerSession.IndexTrackWidth(3), row.Width));
         Assert.All(indexes, row => Assert.True(row.X < headers[0].X));
         Assert.All(indexes, row => Assert.False(row.CanExpand));
@@ -475,6 +476,69 @@ public class CellLayoutTests
         Assert.True(shown.Length < 500, $"decoded {shown.Length} characters");
         Assert.Contains("q", shown, StringComparison.Ordinal);
         Assert.True(allocated < 80_000, $"allocated {allocated} bytes");
+    }
+
+    [Fact]
+    public void A_long_collapsed_label_is_cut_to_the_cell()
+    {
+        const string name = "thisnameisdefinitelylongerthantwentyfive";
+        var session = SessionFixture.Scan($"<root><{name}>1</{name}><{name}>2</{name}></root>");
+        var label = Show(session).Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == name);
+        Assert.Equal(25, label.Value!.Length);
+        Assert.True(label.IsCutOff);
+        Assert.StartsWith(name[..20], label.Value, StringComparison.Ordinal);
+
+        var nested = SessionFixture.Scan($"""
+            <root>
+              <item><{name}><child>1</child></{name}></item>
+              <item><{name}><child>2</child></{name}></item>
+            </root>
+            """);
+        var list = DocumentPath.Root.Field("item");
+        nested.Expand(list);
+        var frame = Show(nested);
+        var top = frame.Rows.Single(row => row.Kind == SurfaceKind.EntryIndex && row.Name == "1");
+        var cell = frame.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Name == name && row.Y == top.Y);
+        Assert.Equal(25, cell.Value!.Length);
+        Assert.True(cell.IsCutOff);
+    }
+
+    [Fact]
+    public void A_hit_window_keeps_the_match_and_the_previous_scalar_returns_to_the_start()
+    {
+        var token = "NEEDLE";
+        var first = new string('a', 80) + token + new string('b', 80);
+        var second = new string('c', 80) + token + new string('d', 80);
+        var session = SessionFixture.Scan($"<root><item>{first}</item><item>{second}</item></root>");
+        session.Search(token);
+        session.PumpAll();
+        Assert.Equal(2, session.Hits.Count);
+        session.Reveal(session.Hits[0]);
+        Assert.True(session.ReadScalar(session.Hits[0].Path).WindowStart > 0);
+
+        session.Reveal(session.Hits[1]);
+        var restored = session.ReadScalar(session.Hits[0].Path);
+        Assert.Equal(0, restored.WindowStart);
+        Assert.StartsWith(new string('a', 20), restored.Text, StringComparison.Ordinal);
+        Assert.Contains(token, session.ReadScalar(session.Hits[1].Path).Text, StringComparison.Ordinal);
+
+        var fit = new string('N', 20);
+        var fitted = SessionFixture.Scan($"<root><note>{new string('a', 40)}{fit}{new string('b', 40)}</note></root>");
+        fitted.Search(fit);
+        fitted.PumpAll();
+        fitted.Reveal(Assert.Single(fitted.Hits));
+        var fittedWindow = fitted.ReadScalar(DocumentPath.Root.Field("note"));
+        Assert.Equal(25, fittedWindow.Text!.Length);
+        Assert.Contains(fit, fittedWindow.Text, StringComparison.Ordinal);
+
+        var wide = new string('Q', 30);
+        var overflow = SessionFixture.Scan($"<root><note>{new string('a', 40)}{wide}{new string('b', 40)}</note></root>");
+        overflow.Search(wide);
+        overflow.PumpAll();
+        overflow.Reveal(Assert.Single(overflow.Hits));
+        var overflowWindow = overflow.ReadScalar(DocumentPath.Root.Field("note"));
+        Assert.Equal(25, overflowWindow.Text!.Length);
+        Assert.StartsWith(wide[..25], overflowWindow.Text, StringComparison.Ordinal);
     }
 
     private static double ColumnWidth(ViewerSession session, DocumentPath list, string name) =>
