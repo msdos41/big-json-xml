@@ -48,18 +48,18 @@ public class JumpAndWindowTests
     }
 
     [Fact]
-    public void A_scalar_window_is_200_characters_until_the_full_value_is_opened()
+    public void A_scalar_window_follows_the_cell_width_until_the_full_value_is_opened()
     {
         var body = new string('a', 180) + "NEEDLE" + new string('b', 80);
         var session = SessionFixture.Scan($"<root><note>{body}</note></root>");
         var note = DocumentPath.Root.Field("note");
         var field = session.ReadScalar(note);
 
-        Assert.Equal(200, field.Text!.Length);
+        Assert.Equal(25, field.Text!.Length);
         Assert.True(field.IsTruncated);
         Assert.True(field.CanExpandFullValue);
         Assert.False(field.IsFullValueExpanded);
-        Assert.StartsWith(new string('a', 180) + "NEEDLE", field.Text, StringComparison.Ordinal);
+        Assert.StartsWith(new string('a', 25), field.Text, StringComparison.Ordinal);
         Assert.Equal(body[200..250], session.ReadFullValueSlice(note, 200, 50));
 
         var huge = new string('z', 100_000);
@@ -81,7 +81,7 @@ public class JumpAndWindowTests
         var closed = session.ReadScalar(note);
         Assert.False(closed.IsFullValueExpanded);
         Assert.Equal(0, closed.WindowStart);
-        Assert.Equal(200, closed.Text!.Length);
+        Assert.Equal(25, closed.Text!.Length);
         Assert.True(session.ReadSurface().ContentHeight < openHeight);
     }
 
@@ -97,7 +97,7 @@ public class JumpAndWindowTests
 
         Assert.False(cell.IsFullValueExpanded);
         Assert.True(cell.CanExpandFullValue);
-        Assert.Equal(200, cell.Text!.Length);
+        Assert.Equal(25, cell.Text!.Length);
     }
 
     [Fact]

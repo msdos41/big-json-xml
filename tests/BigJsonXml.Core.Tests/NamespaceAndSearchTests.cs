@@ -187,7 +187,7 @@ public class NamespaceAndSearchTests
         var window = session.ReadScalar(hit.Path);
         Assert.Contains("NEEDLE", window.Text, StringComparison.Ordinal);
         Assert.True(window.WindowStart > 0);
-        Assert.Equal(200, window.Text!.Length);
+        Assert.Equal(25, window.Text!.Length);
         Assert.True(session.ViewportY > ViewerSession.RowHeight * 10);
 
         session.SetViewport(session.ViewportX, session.ViewportY, 800, ViewerSession.RowHeight * 8);
