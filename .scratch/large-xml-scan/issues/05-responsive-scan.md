@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] While a scan is in progress, one slice of work returns within a short bound, on the order of a frame and well under a tenth of a second.
-- [ ] The shell's idle time between slices is not longer than the slice itself, so the scan is not limited to a small fraction of the wall clock.
-- [ ] Input is handled at least several times a second during the scan. The window does not go unresponsive for seconds at a time.
-- [ ] The Viewer session remains the test seam. The shell schedule is still required; a window test is not added.
-- [ ] This ticket does not by itself require a 500MB document to finish within fifteen seconds.
+- [x] While a scan is in progress, one slice of work returns within a short bound, on the order of a frame and well under a tenth of a second.
+- [x] The shell's idle time between slices is not longer than the slice itself, so the scan is not limited to a small fraction of the wall clock.
+- [x] Input is handled at least several times a second during the scan. The window does not go unresponsive for seconds at a time.
+- [x] The Viewer session remains the test seam. The shell schedule is still required; a window test is not added.
+- [x] This ticket does not by itself require a 500MB document to finish within fifteen seconds.

@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A gap that is only a carriage return, only a line feed, or a CRLF pair, with or without spaces and tabs, is not a field.
-- [ ] `xml:space="preserve"` does not turn those gaps into `#text`.
-- [ ] A value that contains a non-whitespace character keeps the spaces and line breaks written beside that character.
-- [ ] When an element has other fields and its own non-whitespace text, that text is still `#text`.
-- [ ] The checks use small documents on the Viewer session, including a lone carriage return and a CRLF gap.
+- [x] A gap that is only a carriage return, only a line feed, or a CRLF pair, with or without spaces and tabs, is not a field.
+- [x] `xml:space="preserve"` does not turn those gaps into `#text`.
+- [x] A value that contains a non-whitespace character keeps the spaces and line breaks written beside that character.
+- [x] When an element has other fields and its own non-whitespace text, that text is still `#text`.
+- [x] The checks use small documents on the Viewer session, including a lone carriage return and a CRLF gap.
