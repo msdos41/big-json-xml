@@ -4,7 +4,7 @@
 
 **Blocked by:** 03: Drag a table width for this opening; 04: Keep an embedded table inside the opened cell
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Opening a list cell widens that column to the embedded list's outer width: its index track plus its columns at their current widths.
 - [ ] Opening a cell on a record table widens the shared value side to the embedded table's outer width. An embedded record's outer width is its name side plus its value side.

@@ -4,7 +4,7 @@
 
 **Blocked by:** 03: Drag a table width for this opening
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] At the default 200px width, a collapsed scalar shows 25 characters, or the whole value when it is shorter. A longer value is marked cut off.
 - [ ] The text on the surface and the text reported for that scalar are the same. The old 200-character window no longer limits either one.

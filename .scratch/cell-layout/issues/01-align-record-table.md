@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Field names in one record table share one horizontal position and one width.
 - [ ] Values in that record table share one horizontal position and one width.

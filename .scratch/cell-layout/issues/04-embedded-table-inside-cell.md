@@ -4,7 +4,7 @@
 
 **Blocked by:** 02: Align a list table under its column headers
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Clicking one cell of a list entry expands or collapses that cell only.
 - [ ] The embedded table, including its own headers, sits inside that cell's rectangle and does not extend across the sibling cells.

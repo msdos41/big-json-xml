@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Align a record table's names and values
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Column headers and the entry cells under them share one horizontal position and one width per column.
 - [ ] Each column starts at 200px.

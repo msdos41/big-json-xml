@@ -4,7 +4,7 @@
 
 **Blocked by:** 02: Align a list table under its column headers
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Dragging the edge of a list column changes that column's width. The header and the entries stay aligned.
 - [ ] Dragging the edge between names and values changes the name side, the value side, or both. Every field in that record table follows.
