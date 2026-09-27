@@ -12,6 +12,13 @@ namespace BigJsonXml.Desktop.Tests;
 public class ShellTests
 {
     [Fact]
+    public void The_scan_idle_gap_is_not_longer_than_the_slice()
+    {
+        Assert.InRange(ViewerModel.ScanIdleMilliseconds, 1, ViewerModel.ScanSliceMilliseconds);
+        Assert.InRange(ViewerModel.ScanSliceMilliseconds, 1, 99);
+    }
+
+    [Fact]
     public void The_window_model_shows_the_record_expands_a_list_and_reveals_a_hit()
     {
         var path = Write("<root id=\"1\"><item>alpha</item><item>beta</item></root>");
