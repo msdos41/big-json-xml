@@ -4,7 +4,7 @@
 
 **Blocked by:** 05: Expand a list inside the cell
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] While an expanded list is still being scanned, the scroll range grows as further entries are found, and the first rows stay readable.
 - [ ] Reading a slice at an entry near the end does not require an object per earlier entry.

@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Open a document as a record table
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] A once-only child that itself has fields shows an expand control. A once-only child with only scalar character data does not.
 - [ ] Expanding that cell draws a record table inside the cell and grows the row that owns it.

@@ -4,7 +4,7 @@
 
 **Blocked by:** 03: Show list fields and live counts; 08: Show namespaced fields
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] A query with no `=` and no `~` is a case-sensitive text search over attribute values and character data, not over element or attribute names.
 - [ ] The first `=` or `~` in the query is the operator. `=` matches the whole expanded value. `~` matches when the value contains the sequence. Both the field name and the value are case-sensitive.

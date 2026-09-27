@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Open a document as a record table
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Two or more sibling elements with the same parent and the same name are one list field, not separate record fields and not a one-row list.
 - [ ] A different-named sibling between them does not split the list and does not join it.

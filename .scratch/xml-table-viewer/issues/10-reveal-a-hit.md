@@ -4,7 +4,7 @@
 
 **Blocked by:** 05: Expand a list inside the cell; 07: Show a scalar window, then the full value; 09: Search the whole document
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Choosing a hit expands each list field and once-only nested record on its path, including lists that were collapsed.
 - [ ] The single scroll surface moves so the matching cell is in view, and that cell is marked as the current hit.

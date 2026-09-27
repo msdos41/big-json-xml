@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Open a document as a record table
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] An external entity reference stops the scan and is reported as an error.
 - [ ] An external DTD subset is not fetched, and a reference that would require one stops the scan.

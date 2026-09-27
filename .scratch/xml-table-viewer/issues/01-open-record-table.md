@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Opening a document shows the document element as a record table, not as a one-row list table.
 - [ ] An attribute is a field named with a leading `@` and shows its expanded value.

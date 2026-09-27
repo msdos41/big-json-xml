@@ -4,7 +4,7 @@
 
 **Blocked by:** 03: Show list fields and live counts; 04: Expand a nested record inside the cell
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Expanding a list field embeds a list table in that cell and grows the row.
 - [ ] Field names are column headers. One entry is one row. The row is not also drawn as a nested record table of the same fields.

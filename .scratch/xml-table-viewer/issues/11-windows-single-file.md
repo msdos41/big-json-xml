@@ -4,7 +4,7 @@
 
 **Blocked by:** 02: Stop on unsafe or broken XML; 06: Jump within a long list; 10: Reveal a hit
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] The shipping build is one self-contained single-file executable for Windows, on CoreCLR, not Native AOT.
 - [ ] The Viewer session and the document scan do not call Win32 APIs.

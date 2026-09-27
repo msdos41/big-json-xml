@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Open a document as a record table; 05: Expand a list inside the cell
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] A scalar cell shows at most 200 characters, taken from the start of the value, until the person expands it or a hit moves the window.
 - [ ] The value is not decoded into one string to paint the cell.

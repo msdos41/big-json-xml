@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Open a document as a record table
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] A namespaced name is shown with the prefix written in the file.
 - [ ] Two prefixes bound to the same URI do not create two fields for the same local name. They are one field.
