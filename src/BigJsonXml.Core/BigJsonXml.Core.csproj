@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- The scan time bar is enforced by the test suite, so Debug stays optimized too. -->
+    <Optimize>true</Optimize>
   </PropertyGroup>
 
 </Project>

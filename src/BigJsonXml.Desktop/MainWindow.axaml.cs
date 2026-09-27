@@ -15,7 +15,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = _model;
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ViewerModel.ScanIdleMilliseconds) };
         _timer.Tick += (_, _) => _model.Tick();
         _timer.Start();
     }

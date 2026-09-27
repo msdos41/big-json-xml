@@ -230,11 +230,8 @@ internal sealed class ExpandedCursor
 
             if (raw == '\r')
             {
-                if (TryRaw(out var next))
-                {
-                    if (next != '\n')
-                        Unread(next);
-                }
+                if (NextIsAdjacent('\n') && !TryRaw(out _))
+                    throw new InvalidOperationException("The document ends in the middle of a character.");
 
                 value = _attribute ? ' ' : '\n';
                 return true;
@@ -258,6 +255,28 @@ internal sealed class ExpandedCursor
             value = raw;
             return true;
         }
+    }
+
+    private bool NextIsAdjacent(char expected)
+    {
+        if (_hasPending)
+            return false;
+        if (_stack.Count > 0)
+        {
+            var frame = _stack.Peek();
+            return frame.Position < frame.Text.Length && frame.Text[frame.Position] == expected;
+        }
+
+        if (!_active || _piece >= _pieces.Count)
+            return false;
+        var current = _pieces[_piece];
+        if (_pos >= current.End)
+            return false;
+        if (current.EntityId >= 0)
+            return _document.Entities[current.EntityId].Replacement[(int)_pos] == expected;
+        if (!CharDecoders.TryDecode(_document.Encoding, _document.Source, _pos, current.End, out var value, out _, out _, out _))
+            return false;
+        return value == expected;
     }
 
     private void Unread(char value)
@@ -430,7 +449,7 @@ internal static class ExpandedText
         var cursor = new ExpandedCursor(document, pieces);
         while (cursor.TryRead(out var ch))
         {
-            if (ch is not (' ' or '\t' or '\n'))
+            if (ch is not (' ' or '\t' or '\n' or '\r'))
                 return false;
         }
 

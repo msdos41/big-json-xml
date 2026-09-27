@@ -74,9 +74,12 @@ public sealed partial class ViewerSession : IDisposable
 
     public bool Pump(int budget)
     {
+        var start = Environment.TickCount64;
         var any = false;
         for (var i = 0; i < budget; i++)
         {
+            if (any && Environment.TickCount64 - start >= 12)
+                break;
             var worked = false;
             if (Progress == ScanProgress.Scanning)
             {
@@ -272,38 +275,62 @@ public sealed partial class ViewerSession : IDisposable
 
         if (!_tree.Apply(ev, out var folded))
             return;
-        var path = folded.Parent.Path.Field(folded.Slot.Name);
+        var path = folded.Slot.Path ?? folded.Parent.Path.Field(folded.Slot.Name);
         if (folded.Promoted)
         {
             _expanded.Remove(path);
-            _offsets[path] = Seed(folded.Slot, folded.Child);
+            _parser.PreferFlat(folded.Slot.Name);
+            _offsets[path] = Seed(folded.Slot, folded.ChildStart, folded.ChildEnd);
             return;
         }
 
         if (folded.Slot.Kind == SlotKind.List
-            && folded.Child.EndByte >= folded.Child.StartByte
+            && folded.ChildEnd >= folded.ChildStart
             && _offsets.TryGetValue(path, out var index)
-            && folded.Child.StartByte >= index.Watermark)
+            && folded.ChildStart >= index.Watermark)
         {
-            index.Offsets.Add(folded.Child.StartByte);
-            index.Watermark = folded.Child.EndByte;
+            index.Offsets.Add(folded.ChildStart);
+            index.Watermark = folded.ChildEnd;
+            if (ev.Kind == XmlEventKind.Flat)
+                DrainFlat(folded.Slot, index);
+        }
+    }
+
+    private void DrainFlat(Slot slot, OffsetIndex index)
+    {
+        var stamp = System.Diagnostics.Stopwatch.GetTimestamp();
+        var limit = System.Diagnostics.Stopwatch.Frequency / 80;
+        while (_parser.TryNextFlat(slot.Name, out var start, out var end))
+        {
+            if (!_tree.SameFlat(slot, _parser.FlatFields))
+                _tree.MergeFlat(slot, _parser.FlatFields);
+            slot.Count++;
+            slot.EndByte = end;
+            if (start >= index.Watermark)
+            {
+                index.Offsets.Add(start);
+                index.Watermark = end;
+            }
+
+            if (System.Diagnostics.Stopwatch.GetTimestamp() - stamp >= limit)
+                break;
         }
     }
 
     // The first sibling is already closed when the second promotes the field.
     // An open second sibling is recorded when it closes; its end tag can still be ahead.
-    private static OffsetIndex Seed(Slot slot, Frame child)
+    private static OffsetIndex Seed(Slot slot, long childStart, long childEnd)
     {
         var index = new OffsetIndex();
         index.Offsets.Add(slot.StartByte);
-        if (child.EndByte >= child.StartByte && child.StartByte != slot.StartByte)
+        if (childEnd >= childStart && childStart != slot.StartByte)
         {
-            index.Offsets.Add(child.StartByte);
-            index.Watermark = child.EndByte;
+            index.Offsets.Add(childStart);
+            index.Watermark = childEnd;
             return index;
         }
 
-        index.Watermark = slot.EndByte >= 0 && child.EndByte < 0 ? slot.EndByte : slot.StartByte;
+        index.Watermark = slot.EndByte >= 0 && childEnd < 0 ? slot.EndByte : slot.StartByte;
         return index;
     }
 
@@ -454,7 +481,7 @@ public sealed partial class ViewerSession : IDisposable
         var cells = new List<FieldView>(columns.Count);
         foreach (var column in columns)
         {
-            if (!entry.ByKey.TryGetValue(column.Key, out var slot))
+            if (entry.FindKey(column.Key) is not Slot slot)
             {
                 cells.Add(new FieldView(column.Name, FieldKind.Scalar, "", false, false, null, null, false, false, false, 0, false));
                 continue;
@@ -478,7 +505,7 @@ public sealed partial class ViewerSession : IDisposable
 
     private static void Normalize(Frame frame)
     {
-        if (frame.Text.Count == 0 || frame.ByKey.ContainsKey(FieldKey.Text))
+        if (frame.Text.Count == 0 || frame.FindKey(FieldKey.Text) is not null)
             return;
         var slot = new Slot
         {
@@ -488,8 +515,11 @@ public sealed partial class ViewerSession : IDisposable
             Text = frame.Text,
         };
         frame.Slots.Add(slot);
-        frame.ByKey[slot.Key] = slot;
-        frame.ByName.TryAdd(slot.Name, slot);
+        if (frame.ByKey.Count > 0)
+        {
+            frame.ByKey[slot.Key] = slot;
+            frame.ByName[slot.Name] = slot;
+        }
     }
 
     private Frame RootFrame() =>
@@ -511,7 +541,7 @@ public sealed partial class ViewerSession : IDisposable
 
     private static Slot Require(Frame frame, string name)
     {
-        if (frame.ByName.TryGetValue(name, out var slot))
+        if (frame.FindName(name) is Slot slot)
             return slot;
         throw new InvalidOperationException($"Field '{name}' was not found.");
     }

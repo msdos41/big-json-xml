@@ -66,6 +66,9 @@ public sealed class StreamByteSource : IByteSource, IDisposable
 {
     private readonly Stream _stream;
     private readonly bool _leaveOpen;
+    private readonly byte[] _window = new byte[1024 * 1024];
+    private long _origin = -1;
+    private int _filled;
 
     public StreamByteSource(Stream stream, bool leaveOpen = false)
     {
@@ -85,8 +88,46 @@ public sealed class StreamByteSource : IByteSource, IDisposable
     {
         if ((ulong)offset > (ulong)Length || buffer.IsEmpty)
             return 0;
+        if (buffer.Length >= _window.Length)
+        {
+            _origin = -1;
+            _filled = 0;
+            _stream.Position = offset;
+            return _stream.Read(buffer);
+        }
+
+        var copied = 0;
+        while (copied < buffer.Length)
+        {
+            var pos = offset + copied;
+            if (pos >= Length)
+                break;
+            if ((ulong)(pos - _origin) >= (ulong)_filled)
+                Fill(pos);
+            var local = (int)(pos - _origin);
+            var count = Math.Min(buffer.Length - copied, _filled - local);
+            _window.AsSpan(local, count).CopyTo(buffer[copied..]);
+            copied += count;
+        }
+
+        return copied;
+    }
+
+    private void Fill(long offset)
+    {
+        var count = (int)Math.Min(_window.Length, Length - offset);
         _stream.Position = offset;
-        return _stream.Read(buffer);
+        var read = 0;
+        while (read < count)
+        {
+            var n = _stream.Read(_window.AsSpan(read, count - read));
+            if (n == 0)
+                break;
+            read += n;
+        }
+
+        _origin = offset;
+        _filled = read;
     }
 
     public void Dispose()

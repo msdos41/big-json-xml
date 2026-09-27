@@ -6,6 +6,8 @@ namespace BigJsonXml.Desktop;
 
 public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 {
+    public const int ScanSliceMilliseconds = 32;
+    public const int ScanIdleMilliseconds = 16;
     private ViewerSession? _session;
     private string _query = "";
     private string _status = "No document";
@@ -103,7 +105,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     public void OpenPath(string path)
     {
         _session?.Dispose();
-        _session = ViewerSession.Open(File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+        _session = ViewerSession.Open(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 20, FileOptions.SequentialScan));
         _scrollX = 0;
         _scrollY = 0;
         Tick();
@@ -117,11 +119,11 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         var worked = false;
         do
         {
-            if (!_session.Pump(2048))
+            if (!_session.Pump(512))
                 break;
             worked = true;
         }
-        while (Environment.TickCount64 - start < 16);
+        while (Environment.TickCount64 - start < ScanSliceMilliseconds);
 
         if (worked)
             Refresh();

@@ -43,6 +43,8 @@ internal sealed class Slot
     public List<Column> Columns = [];
     public List<Column> Inner = [];
     public bool HasFields;
+    public DocumentPath? Path;
+    public DocumentPath? PathParent;
 
     // Closed record body. A refresh reads this instead of parsing the children again.
     public Frame? Detail;
@@ -70,13 +72,43 @@ internal sealed class Frame
     public int TextAt = -1;
 
     public bool IsSimple => !SawAttribute && !SawElement;
+
+    public Slot? FindKey(FieldKey key)
+    {
+        if (ByKey.Count > 0)
+            return ByKey.GetValueOrDefault(key);
+        foreach (var slot in Slots)
+        {
+            if (slot.Key == key)
+                return slot;
+        }
+
+        return null;
+    }
+
+    public Slot? FindName(string name)
+    {
+        if (ByName.Count > 0)
+        {
+            return ByName.TryGetValue(name, out var slot) ? slot : null;
+        }
+
+        foreach (var slot in Slots)
+        {
+            if (slot.Name == name)
+                return slot;
+        }
+
+        return null;
+    }
 }
 
-internal readonly struct Folded(Frame parent, Slot slot, Frame child, bool promoted)
+internal readonly struct Folded(Frame parent, Slot slot, long childStart, long childEnd, bool promoted)
 {
     public Frame Parent { get; } = parent;
     public Slot Slot { get; } = slot;
-    public Frame Child { get; } = child;
+    public long ChildStart { get; } = childStart;
+    public long ChildEnd { get; } = childEnd;
     public bool Promoted { get; } = promoted;
 }
 
@@ -106,6 +138,10 @@ internal sealed class DocumentTree
 
     private Folded _announced;
     private bool _hasAnnounced;
+    private readonly Stack<Frame> _spareFrames = new();
+    private readonly Stack<Slot> _spareSlots = new();
+    private readonly Dictionary<(DocumentPath Parent, string Name), DocumentPath> _childPaths = new();
+    private readonly Dictionary<string, string> _atNames = new(StringComparer.Ordinal);
 
     public bool Apply(XmlEvent ev, out Folded folded)
     {
@@ -121,7 +157,7 @@ internal sealed class DocumentTree
                     if (!Close(frame, ev.ByteEnd, ev.ByteEnd, out folded))
                         return false;
                     if (promoted)
-                        folded = new Folded(folded.Parent, folded.Slot, folded.Child, true);
+                        folded = new Folded(folded.Parent, folded.Slot, folded.ChildStart, folded.ChildEnd, true);
                     return true;
                 }
 
@@ -134,8 +170,10 @@ internal sealed class DocumentTree
                     return false;
                 return Close(Stack.Peek(), ev.ByteEnd, ev.ByteStart, out folded);
             case XmlEventKind.Text when Stack.Count > 0:
-                AddText(Stack.Peek(), ev.Text);
+                AddText(Stack.Peek(), ev.Text, ev.TrustedText);
                 return false;
+            case XmlEventKind.Flat when Stack.Count > 0:
+                return NoteFlat(ev, out folded);
             default:
                 return false;
         }
@@ -173,28 +211,25 @@ internal sealed class DocumentTree
     private Frame Start(XmlEvent ev)
     {
         var parent = Stack.Count == 0 ? null : Stack.Peek();
-        var frame = new Frame
-        {
-            Name = ev.Name,
-            Local = ev.Local,
-            Ns = ev.Ns,
-            StartByte = ev.ByteStart,
-            ContentByte = ev.ByteEnd,
-            StableByte = ev.ByteEnd,
-            Scope = ev.Scope,
-            AlwaysRecord = _documentElement && parent is null,
-            Path = parent is null ? DocumentPath.Root : parent.Path.Field(ev.Name),
-        };
+        var frame = RentFrame();
+        frame.Name = ev.Name;
+        frame.Local = ev.Local;
+        frame.Ns = ev.Ns;
+        frame.StartByte = ev.ByteStart;
+        frame.ContentByte = ev.ByteEnd;
+        frame.StableByte = ev.ByteEnd;
+        frame.Scope = ev.Scope;
+        frame.AlwaysRecord = _documentElement && parent is null;
+        frame.Path = parent is null ? DocumentPath.Root : ChildPath(parent, ev.Name);
         foreach (var attr in ev.Attributes)
         {
-            var slot = new Slot
-            {
-                Key = FieldKey.Attr(attr.Ns, attr.Local),
-                Name = "@" + attr.Name,
-                Kind = SlotKind.Scalar,
-                Text = [attr.Value],
-                ParentScope = ev.Scope,
-            };
+            var slot = RentSlot();
+            slot.Key = FieldKey.Attr(attr.Ns, attr.Local);
+            slot.Name = At(attr.Name);
+            slot.Kind = SlotKind.Scalar;
+            slot.Text.Clear();
+            slot.Text.Add(attr.Value);
+            slot.ParentScope = ev.Scope;
             AddSlot(frame, slot);
             frame.SawAttribute = true;
         }
@@ -244,22 +279,20 @@ internal sealed class DocumentTree
     {
         folded = default;
         var key = FieldKey.Elem(child.Ns, child.Local);
-        if (!parent.ByKey.TryGetValue(key, out var slot))
+        if (parent.FindKey(key) is not Slot slot)
         {
-            slot = new Slot
-            {
-                Key = key,
-                Name = child.Name,
-                StartByte = child.StartByte,
-                EndByte = -1,
-                PendingStart = child.StartByte,
-                ParentScope = parent.Scope,
-                Kind = SlotKind.Record,
-                HasFields = true,
-                Inner = ColumnsOf(child),
-            };
+            slot = RentSlot();
+            slot.Key = key;
+            slot.Name = child.Name;
+            slot.StartByte = child.StartByte;
+            slot.EndByte = -1;
+            slot.PendingStart = child.StartByte;
+            slot.ParentScope = parent.Scope;
+            slot.Kind = SlotKind.Record;
+            slot.HasFields = true;
+            slot.Inner = ColumnsOf(child);
             AddSlot(parent, slot);
-            folded = new Folded(parent, slot, child, false);
+            folded = new Folded(parent, slot, child.StartByte, child.EndByte, false);
             return true;
         }
 
@@ -282,7 +315,7 @@ internal sealed class DocumentTree
             slot.Columns = columns;
             slot.Text.Clear();
             slot.Inner.Clear();
-            slot.Detail = null;
+            ReleaseDetail(slot);
         }
         else
         {
@@ -291,7 +324,7 @@ internal sealed class DocumentTree
         }
 
         slot.PendingStart = child.StartByte;
-        folded = new Folded(parent, slot, child, promoted);
+        folded = new Folded(parent, slot, child.StartByte, child.EndByte, promoted);
         return true;
     }
 
@@ -311,6 +344,8 @@ internal sealed class DocumentTree
         var parent = Stack.Peek();
         parent.StableByte = endByte;
         folded = Fold(parent, frame);
+        if (!ReferenceEquals(folded.Slot.Detail, frame))
+            Recycle(frame);
         return true;
     }
 
@@ -318,23 +353,23 @@ internal sealed class DocumentTree
     {
         NoteElement(parent);
         var key = FieldKey.Elem(child.Ns, child.Local);
-        if (parent.ByKey.TryGetValue(key, out var pending) && pending.PendingStart == child.StartByte)
+        if (parent.FindKey(key) is Slot pending && pending.PendingStart == child.StartByte)
         {
             pending.PendingStart = -1;
             pending.EndByte = child.EndByte;
             if (pending.Kind == SlotKind.List)
             {
                 Merge(pending.Columns, child);
-                pending.Detail = null;
+                ReleaseDetail(pending);
             }
             else if (child.IsSimple)
             {
                 pending.Kind = SlotKind.Scalar;
                 pending.HasFields = false;
-                pending.Text = CopyPieces(child.Text);
+                GivePieces(pending.Text, child.Text);
                 pending.Inner.Clear();
                 pending.Columns.Clear();
-                pending.Detail = null;
+                ReleaseDetail(pending);
             }
             else
             {
@@ -344,24 +379,22 @@ internal sealed class DocumentTree
                 pending.Detail = child;
             }
 
-            return new Folded(parent, pending, child, false);
+            return new Folded(parent, pending, child.StartByte, child.EndByte, false);
         }
 
         var promoted = false;
-        if (!parent.ByKey.TryGetValue(key, out var slot))
+        if (parent.FindKey(key) is not Slot slot)
         {
-            slot = new Slot
-            {
-                Key = key,
-                Name = child.Name,
-                StartByte = child.StartByte,
-                EndByte = child.EndByte,
-                ParentScope = parent.Scope,
-            };
+            slot = RentSlot();
+            slot.Key = key;
+            slot.Name = child.Name;
+            slot.StartByte = child.StartByte;
+            slot.EndByte = child.EndByte;
+            slot.ParentScope = parent.Scope;
             if (child.IsSimple)
             {
                 slot.Kind = SlotKind.Scalar;
-                slot.Text = CopyPieces(child.Text);
+                GivePieces(slot.Text, child.Text);
             }
             else
             {
@@ -384,29 +417,27 @@ internal sealed class DocumentTree
             slot.Columns = columns;
             slot.Text.Clear();
             slot.Inner.Clear();
-            slot.Detail = null;
+            ReleaseDetail(slot);
         }
         else
         {
             slot.Count++;
             Merge(slot.Columns, child);
-            slot.Detail = null;
+            ReleaseDetail(slot);
         }
 
-        return new Folded(parent, slot, child, promoted);
+        return new Folded(parent, slot, child.StartByte, child.EndByte, promoted);
     }
 
     private void NoteElement(Frame frame)
     {
         if (!frame.SawElement && !frame.SawAttribute && frame.Text.Count > 0)
         {
-            var slot = new Slot
-            {
-                Key = FieldKey.Text,
-                Name = "#text",
-                Kind = SlotKind.Scalar,
-                Text = CopyPieces(frame.Text),
-            };
+            var slot = RentSlot();
+            slot.Key = FieldKey.Text;
+            slot.Name = "#text";
+            slot.Kind = SlotKind.Scalar;
+            GivePieces(slot.Text, frame.Text);
             frame.TextAt = frame.Slots.Count;
             AddSlot(frame, slot);
             frame.Text.Clear();
@@ -415,9 +446,67 @@ internal sealed class DocumentTree
         frame.SawElement = true;
     }
 
-    private void AddText(Frame frame, TextPiece piece)
+    internal bool SameFlat(Slot slot, List<FlatField> fields)
     {
-        if (ExpandedText.IsWhitespaceOnly(Document, [piece]))
+        var columns = slot.Columns;
+        if (columns.Count != fields.Count)
+            return false;
+        for (var i = 0; i < fields.Count; i++)
+        {
+            if (columns[i].Name != fields[i].Name)
+                return false;
+        }
+
+        return true;
+    }
+
+    internal void MergeFlat(Slot slot, List<FlatField> fields)
+    {
+        foreach (var field in fields)
+            AddColumn(slot.Columns, field.Key, field.Name);
+    }
+
+    private bool NoteFlat(XmlEvent ev, out Folded folded)
+    {
+        folded = default;
+        if (Stack.Count == 0)
+            return false;
+        var parent = Stack.Peek();
+        var key = FieldKey.Elem(ev.Ns, ev.Local);
+        var slot = parent.FindKey(key);
+        if (slot is null || slot.Kind != SlotKind.List)
+            return false;
+        slot.Count++;
+        slot.EndByte = ev.ByteEnd;
+        parent.StableByte = ev.ByteEnd;
+        var columns = slot.Columns;
+        var fields = ev.FlatFields;
+        var same = fields.Count == columns.Count;
+        if (same)
+        {
+            for (var i = 0; i < fields.Count; i++)
+            {
+                if (!ReferenceEquals(fields[i].Name, columns[i].Name))
+                {
+                    same = false;
+                    break;
+                }
+            }
+        }
+
+        if (!same)
+        {
+            foreach (var field in fields)
+                AddColumn(columns, field.Key, field.Name);
+        }
+
+        folded = new Folded(parent, slot, ev.ByteStart, ev.ByteEnd, false);
+        return true;
+    }
+
+    private void AddText(Frame frame, TextPiece piece, bool trusted)
+    {
+        if (!trusted && ExpandedText.IsWhitespaceOnly(Document, [piece]))
             return;
         if (frame.AlwaysRecord || frame.SawAttribute || frame.SawElement)
             AppendHash(frame, piece);
@@ -429,12 +518,10 @@ internal sealed class DocumentTree
     {
         if (frame.TextAt < 0)
         {
-            var slot = new Slot
-            {
-                Key = FieldKey.Text,
-                Name = "#text",
-                Kind = SlotKind.Scalar,
-            };
+            var slot = RentSlot();
+            slot.Key = FieldKey.Text;
+            slot.Name = "#text";
+            slot.Kind = SlotKind.Scalar;
             frame.TextAt = frame.Slots.Count;
             AddSlot(frame, slot);
         }
@@ -442,11 +529,31 @@ internal sealed class DocumentTree
         frame.Slots[frame.TextAt].Text.Add(piece);
     }
 
-    private static void AddSlot(Frame frame, Slot slot)
+    private void AddSlot(Frame frame, Slot slot)
     {
+        if (slot.Path is null || !ReferenceEquals(slot.PathParent, frame.Path) || slot.Path.Steps[^1].Name != slot.Name)
+        {
+            slot.PathParent = frame.Path;
+            slot.Path = ChildPath(frame, slot.Name);
+        }
+
         frame.Slots.Add(slot);
-        frame.ByKey[slot.Key] = slot;
-        frame.ByName.TryAdd(slot.Name, slot);
+        if (frame.AlwaysRecord || frame.Slots.Count > 8)
+        {
+            if (frame.ByKey.Count == 0)
+            {
+                foreach (var existing in frame.Slots)
+                {
+                    frame.ByKey[existing.Key] = existing;
+                    frame.ByName[existing.Name] = existing;
+                }
+            }
+            else
+            {
+                frame.ByKey[slot.Key] = slot;
+                frame.ByName[slot.Name] = slot;
+            }
+        }
     }
 
     private static List<Column> TextColumns(Slot slot)
@@ -497,10 +604,116 @@ internal sealed class DocumentTree
         columns.Add(new Column { Key = key, Name = name });
     }
 
-    private static List<TextPiece> CopyPieces(List<TextPiece> source)
+    private static void GivePieces(List<TextPiece> target, List<TextPiece> source)
     {
-        var copy = new List<TextPiece>(source.Count);
-        copy.AddRange(source);
-        return copy;
+        target.Clear();
+        target.AddRange(source);
+    }
+
+    private string At(string name)
+    {
+        if (_atNames.TryGetValue(name, out var existing))
+            return existing;
+        var text = "@" + name;
+        _atNames[name] = text;
+        return text;
+    }
+
+    private DocumentPath ChildPath(Frame parent, string name)
+    {
+        if (_childPaths.TryGetValue((parent.Path, name), out var found))
+            return found;
+        var path = parent.Path.Field(name);
+        _childPaths[(parent.Path, name)] = path;
+        return path;
+    }
+
+    private Frame RentFrame()
+    {
+        if (_spareFrames.Count == 0)
+        {
+            return new Frame();
+        }
+        var frame = _spareFrames.Pop();
+        frame.Name = "";
+        frame.Local = "";
+        frame.Ns = "";
+        frame.StartByte = 0;
+        frame.ContentByte = 0;
+        frame.ContentEnd = -1;
+        frame.EndByte = -1;
+        frame.StableByte = 0;
+        frame.Scope = NsScope.Empty;
+        frame.Path = DocumentPath.Root;
+        frame.AlwaysRecord = false;
+        frame.SawAttribute = false;
+        frame.SawElement = false;
+        frame.TextAt = -1;
+        return frame;
+    }
+
+    private Slot RentSlot()
+    {
+        if (_spareSlots.Count == 0)
+        {
+            return new Slot();
+        }
+        var slot = _spareSlots.Pop();
+        slot.Name = "";
+        slot.Kind = SlotKind.Scalar;
+        slot.Count = 1;
+        slot.StartByte = 0;
+        slot.EndByte = -1;
+        slot.PendingStart = -1;
+        slot.ParentScope = NsScope.Empty;
+        slot.Text.Clear();
+        slot.Columns.Clear();
+        slot.Inner.Clear();
+        slot.HasFields = false;
+        slot.Detail = null;
+        return slot;
+    }
+
+    private void ReleaseDetail(Slot slot)
+    {
+        if (slot.Detail is null)
+            return;
+        var detail = slot.Detail;
+        slot.Detail = null;
+        Recycle(detail);
+    }
+
+    private void Recycle(Frame frame)
+    {
+        foreach (var slot in frame.Slots)
+        {
+            if (slot.Detail is not null)
+            {
+                var detail = slot.Detail;
+                slot.Detail = null;
+                Recycle(detail);
+            }
+
+            slot.Text.Clear();
+            slot.Columns.Clear();
+            slot.Inner.Clear();
+            slot.Detail = null;
+            if (_spareSlots.Count < 64)
+                _spareSlots.Push(slot);
+        }
+
+        frame.Slots.Clear();
+        frame.ByName.Clear();
+        frame.ByKey.Clear();
+        frame.Text.Clear();
+        frame.TextAt = -1;
+        frame.SawAttribute = false;
+        frame.SawElement = false;
+        frame.AlwaysRecord = false;
+        frame.EndByte = -1;
+        frame.ContentEnd = -1;
+        frame.Path = DocumentPath.Root;
+        if (_spareFrames.Count < 32)
+            _spareFrames.Push(frame);
     }
 }

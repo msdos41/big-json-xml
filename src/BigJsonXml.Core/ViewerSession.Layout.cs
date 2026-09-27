@@ -54,9 +54,24 @@ public sealed partial class ViewerSession
     {
         var nameWidth = ShownName(path);
         var valueWidth = ShownValue(path);
-        var cursor = y;
-        foreach (var slot in frame.Slots)
+        var count = frame.Slots.Count;
+        var variable = seek is not null || RecordVaries(path);
+        var first = 0;
+        var last = count;
+        if (!variable && count > 0)
         {
+            first = (int)Math.Max(0, Math.Floor((ViewportY - y) / RowHeight) - 1);
+            last = (int)Math.Min(count, Math.Ceiling((ViewportY + ViewportHeight - y) / RowHeight) + 2);
+            if (first > count)
+                first = count;
+            if (last < first)
+                last = first;
+        }
+
+        var cursor = y + (first * RowHeight);
+        for (var index = first; index < last; index++)
+        {
+            var slot = frame.Slots[index];
             var field = path.Field(slot.Name);
             var rowHeight = FieldBodyHeight(frame, slot, field, valueWidth);
             var expanded = _expanded.Contains(field);
@@ -114,7 +129,26 @@ public sealed partial class ViewerSession
                 break;
         }
 
+        if (!variable)
+            return count * RowHeight;
         return cursor - y;
+    }
+
+    private bool RecordVaries(DocumentPath path)
+    {
+        foreach (var expanded in _expanded)
+        {
+            if (IsUnder(expanded, path))
+                return true;
+        }
+
+        foreach (var (key, chrome) in _chrome)
+        {
+            if (chrome.FullValue && IsUnder(key, path))
+                return true;
+        }
+
+        return false;
     }
 
     private double LayoutList(
@@ -229,7 +263,7 @@ public sealed partial class ViewerSession
         for (var i = 0; i < count; i++)
         {
             var column = slot.Columns[i];
-            if (!entry.ByKey.TryGetValue(column.Key, out var cell))
+            if (entry.FindKey(column.Key) is not Slot cell)
                 continue;
             var height = FieldBodyHeight(entry, cell, entryPath.Field(column.Name), widths[i]);
             if (height > entryHeight)
@@ -247,7 +281,7 @@ public sealed partial class ViewerSession
             var column = slot.Columns[i];
             var cellPath = entryPath.Field(column.Name);
             var cellRight = Math.Min(clipRight, starts[i] + widths[i]);
-            if (!entry.ByKey.TryGetValue(column.Key, out var cell))
+            if (entry.FindKey(column.Key) is not Slot cell)
             {
                 Emit(emit, seek, starts[i], top, widths[i], entryHeight, clipRight, column.Name, "", false, false, false, cellPath, SurfaceKind.Entry, false, false, WidthAxis.ListColumn, listPath, column.Name);
                 continue;
@@ -352,7 +386,7 @@ public sealed partial class ViewerSession
         var height = RowHeight;
         foreach (var column in list.Columns)
         {
-            if (!entry.ByKey.TryGetValue(column.Key, out var cell))
+            if (entry.FindKey(column.Key) is not Slot cell)
                 continue;
             var path = entryPath.Field(cell.Name);
             height = Math.Max(height, FieldBodyHeight(entry, cell, path, ShownColumn(listPath, column.Name)));
