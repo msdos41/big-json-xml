@@ -224,6 +224,74 @@ public class LargeScanTimeTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public void A_five_hundred_megabyte_scan_finishes_within_fifteen_seconds()
+    {
+        const long bytes = 500L * 1024 * 1024;
+        var repeated = ScanFiles.WriteRepeated(bytes);
+        try
+        {
+            AssertFileScan(repeated, list: true);
+        }
+        finally
+        {
+            File.Delete(repeated);
+        }
+
+        var distinct = ScanFiles.WriteDistinct(bytes, out var count);
+        try
+        {
+            AssertFileScan(distinct, list: false, distinctCount: count);
+        }
+        finally
+        {
+            File.Delete(distinct);
+        }
+    }
+
+    private static void AssertFileScan(string path, bool list, int distinctCount = 0)
+    {
+        using var session = ViewerSession.Open(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 20, FileOptions.SequentialScan));
+        var slice = Stopwatch.StartNew();
+        Assert.True(session.Pump(256));
+        slice.Stop();
+        Assert.Equal(ScanProgress.Scanning, session.Progress);
+        Assert.True(slice.ElapsedMilliseconds < 80, $"One slice took {slice.ElapsedMilliseconds} ms.");
+
+        var clock = Stopwatch.StartNew();
+        session.PumpAll();
+        clock.Stop();
+        var elapsed = slice.Elapsed + clock.Elapsed;
+        Assert.Equal(ScanProgress.Completed, session.Progress);
+        Assert.Null(session.Error);
+        Assert.True(elapsed.TotalSeconds < 15, $"The scan took {elapsed.TotalSeconds:F2} s.");
+
+        if (list)
+        {
+            var field = session.ReadRecord(DocumentPath.Root).Fields.Single();
+            var listPath = DocumentPath.Root.Field("item");
+            session.Expand(listPath);
+            session.Collapse(listPath);
+            session.Expand(listPath);
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            var tail = session.ReadList(listPath, field.ListCount!.Value - 1, 1);
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.Equal("hello", tail.Entries[0].Cells.Single(cell => cell.Name == "value").Text);
+            Assert.True(allocated < 400_000, $"The last entry allocated {allocated} bytes.");
+            return;
+        }
+
+        var recordPath = DocumentPath.Root.Field($"n{distinctCount - 1}");
+        var beforeOpen = GC.GetAllocatedBytesForCurrentThread();
+        var open = Stopwatch.StartNew();
+        var record = session.ReadRecord(recordPath);
+        open.Stop();
+        var openAllocated = GC.GetAllocatedBytesForCurrentThread() - beforeOpen;
+        Assert.Equal(new string('x', 25), record.Fields.Single(field => field.Name == "a").Text);
+        Assert.True(open.ElapsedMilliseconds < 250, $"Opening one record took {open.ElapsedMilliseconds} ms.");
+        Assert.True(openAllocated < 1_000_000, $"Opening one record allocated {openAllocated} bytes.");
+    }
 }
 
 [CollectionDefinition("large-scan", DisableParallelization = true)]
@@ -242,6 +310,26 @@ internal static class ScanFiles
         while (stream.Length + item.Length + end.Length < bytes)
             stream.Write(item);
         stream.Write(end);
+        return path;
+    }
+
+    public static string WriteDistinct(long bytes, out int count)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "bjx-distinct-" + Guid.NewGuid().ToString("n") + ".xml");
+        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 20);
+        var utf8 = new UTF8Encoding(false);
+        var pad = utf8.GetBytes("<a>" + new string('x', 400) + "</a>");
+        stream.Write("<root>"u8);
+        count = 0;
+        while (stream.Length + pad.Length + 48 < bytes)
+        {
+            stream.Write(utf8.GetBytes($"<n{count}>"));
+            stream.Write(pad);
+            stream.Write(utf8.GetBytes($"</n{count}>"));
+            count++;
+        }
+
+        stream.Write("</root>"u8);
         return path;
     }
 
