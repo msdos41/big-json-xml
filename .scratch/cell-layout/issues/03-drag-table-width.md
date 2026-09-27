@@ -6,14 +6,14 @@
 
 **Status:** resolved
 
-- [ ] Dragging the edge of a list column changes that column's width. The header and the entries stay aligned.
-- [ ] Dragging the edge between names and values changes the name side, the value side, or both. Every field in that record table follows.
-- [ ] A width cannot be dragged below 32px. A header longer than the width is cut off, and the header text does not force the width to stay open.
-- [ ] Dragging a field column does not resize the entry index track.
-- [ ] Clicking a column header does not expand a cell. Clicking the entry index does not expand a cell.
-- [ ] A width set while nothing in it is open is kept for that table for the rest of this opening, including after the table scrolls out of view.
-- [ ] Another table with the same field names keeps its own widths.
-- [ ] Opening the document again starts every width at 200px.
-- [ ] The document's horizontal range includes a column that was widened, so that column can be scrolled into view.
-- [ ] Dragging does not change the file.
-- [ ] Session surface tests cover the new width, the 32px floor, per-table memory, and a fresh open. The window performs the drag and shows the new width.
+- [x] Dragging the edge of a list column changes that column's width. The header and the entries stay aligned.
+- [x] Dragging the edge between names and values changes the name side, the value side, or both. Every field in that record table follows.
+- [x] A width cannot be dragged below 32px. A header longer than the width is cut off, and the header text does not force the width to stay open.
+- [x] Dragging a field column does not resize the entry index track.
+- [x] Clicking a column header does not expand a cell. Clicking the entry index does not expand a cell.
+- [x] A width set while nothing in it is open is kept for that table for the rest of this opening, including after the table scrolls out of view.
+- [x] Another table with the same field names keeps its own widths.
+- [x] Opening the document again starts every width at 200px.
+- [x] The document's horizontal range includes a column that was widened, so that column can be scrolled into view.
+- [x] Dragging does not change the file.
+- [x] Session surface tests cover the new width, the 32px floor, per-table memory, and a fresh open. The window performs the drag and shows the new width.

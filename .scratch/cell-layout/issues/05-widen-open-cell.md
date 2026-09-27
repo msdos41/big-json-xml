@@ -6,16 +6,16 @@
 
 **Status:** resolved
 
-- [ ] Opening a list cell widens that column to the embedded list's outer width: its index track plus its columns at their current widths.
-- [ ] Opening a cell on a record table widens the shared value side to the embedded table's outer width. An embedded record's outer width is its name side plus its value side.
-- [ ] Every value cell on that record table becomes wider. Fields that were collapsed stay collapsed.
-- [ ] Two open cells in the same column make the column as wide as the wider embedded table.
-- [ ] Collapsing one of them leaves enough width for the cell that remains open.
-- [ ] Dragging the width narrower while a cell is open clips the embedded table to the cell. The embedded table does not gain its own scrollbar.
-- [ ] That width does not jump wide again while the cell stays open.
-- [ ] A drag while a cell is open does not replace the stored width. Closing the last cell that contributes to that width restores the stored width.
-- [ ] Opening the cell again widens it again.
-- [ ] A drag while nothing on that width is open updates the stored width, and collapse restores that stored width.
-- [ ] An embedded table's own widths are stored for that embedded table. Dragging them does not rewrite the parent table's widths.
-- [ ] The document still has one vertical scrollbar and one horizontal scrollbar.
-- [ ] Session surface tests cover automatic widening, the wider of two open cells, a narrowing drag, restore on collapse, and a nested table's own widths.
+- [x] Opening a list cell widens that column to the embedded list's outer width: its index track plus its columns at their current widths.
+- [x] Opening a cell on a record table widens the shared value side to the embedded table's outer width. An embedded record's outer width is its name side plus its value side.
+- [x] Every value cell on that record table becomes wider. Fields that were collapsed stay collapsed.
+- [x] Two open cells in the same column make the column as wide as the wider embedded table.
+- [x] Collapsing one of them leaves enough width for the cell that remains open.
+- [x] Dragging the width narrower while a cell is open clips the embedded table to the cell. The embedded table does not gain its own scrollbar.
+- [x] That width does not jump wide again while the cell stays open.
+- [x] A drag while a cell is open does not replace the stored width. Closing the last cell that contributes to that width restores the stored width.
+- [x] Opening the cell again widens it again.
+- [x] A drag while nothing on that width is open updates the stored width, and collapse restores that stored width.
+- [x] An embedded table's own widths are stored for that embedded table. Dragging them does not rewrite the parent table's widths.
+- [x] The document still has one vertical scrollbar and one horizontal scrollbar.
+- [x] Session surface tests cover automatic widening, the wider of two open cells, a narrowing drag, restore on collapse, and a nested table's own widths.
