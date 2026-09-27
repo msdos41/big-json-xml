@@ -6,9 +6,9 @@
 
 **Status:** resolved
 
-- [ ] While an expanded list is still being scanned, the scroll range grows as further entries are found, and the first rows stay readable.
-- [ ] Reading a slice at an entry near the end does not require an object per earlier entry.
-- [ ] Collapsing the list allows that per-list offset information to be dropped.
-- [ ] Expanding the same list again shows the same entries and fields.
-- [ ] A Viewer session scale test uses a generated list large enough that an object-per-entry approach would dominate, and reads a slice at the end. No multi-GB fixture is added.
-- [ ] The window can scroll that expanded list to a late entry on the one scroll surface.
+- [x] While an expanded list is still being scanned, the scroll range grows as further entries are found, and the first rows stay readable.
+- [x] Reading a slice at an entry near the end does not require an object per earlier entry.
+- [x] Collapsing the list allows that per-list offset information to be dropped.
+- [x] Expanding the same list again shows the same entries and fields.
+- [x] A Viewer session scale test uses a generated list large enough that an object-per-entry approach would dominate, and reads a slice at the end. No multi-GB fixture is added.
+- [x] The window can scroll that expanded list to a late entry on the one scroll surface.

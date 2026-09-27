@@ -6,9 +6,9 @@
 
 **Status:** resolved
 
-- [ ] A namespaced name is shown with the prefix written in the file.
-- [ ] Two prefixes bound to the same URI do not create two fields for the same local name. They are one field.
-- [ ] An unprefixed element name in a default namespace uses that default namespace's URI as its identity.
-- [ ] An unprefixed element name with no default namespace in scope is in no namespace.
-- [ ] `@local` and a child element `local` are two fields, including when both are in the same namespace.
-- [ ] Viewer session tests cover distinct prefixes, a default namespace, and `@` versus element, and the window shows the prefixed names.
+- [x] A namespaced name is shown with the prefix written in the file.
+- [x] Two prefixes bound to the same URI do not create two fields for the same local name. They are one field.
+- [x] An unprefixed element name in a default namespace uses that default namespace's URI as its identity.
+- [x] An unprefixed element name with no default namespace in scope is in no namespace.
+- [x] `@local` and a child element `local` are two fields, including when both are in the same namespace.
+- [x] Viewer session tests cover distinct prefixes, a default namespace, and `@` versus element, and the window shows the prefixed names.

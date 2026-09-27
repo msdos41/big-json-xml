@@ -6,9 +6,9 @@
 
 **Status:** resolved
 
-- [ ] An external entity reference stops the scan and is reported as an error.
-- [ ] An external DTD subset is not fetched, and a reference that would require one stops the scan.
-- [ ] Opening a document does not open a network connection.
-- [ ] On any other well-formedness error, tables already shown stay on screen and the stop is marked at that point.
-- [ ] Entries and fields after the error are not invented or repaired.
-- [ ] Viewer session tests cover these cases, and the window shows the surviving tables and the error.
+- [x] An external entity reference stops the scan and is reported as an error.
+- [x] An external DTD subset is not fetched, and a reference that would require one stops the scan.
+- [x] Opening a document does not open a network connection.
+- [x] On any other well-formedness error, tables already shown stay on screen and the stop is marked at that point.
+- [x] Entries and fields after the error are not invented or repaired.
+- [x] Viewer session tests cover these cases, and the window shows the surviving tables and the error.

@@ -6,7 +6,7 @@
 
 **Status:** resolved
 
-- [ ] The shipping build is one self-contained single-file executable for Windows, on CoreCLR, not Native AOT.
-- [ ] The Viewer session and the document scan do not call Win32 APIs.
-- [ ] Running that executable can open a document as a record table, expand a list, search, and reveal a hit.
-- [ ] macOS and Linux builds are not produced or tested for this ticket.
+- [x] The shipping build is one self-contained single-file executable for Windows, on CoreCLR, not Native AOT.
+- [x] The Viewer session and the document scan do not call Win32 APIs.
+- [x] Running that executable can open a document as a record table, expand a list, search, and reveal a hit.
+- [x] macOS and Linux builds are not produced or tested for this ticket.

@@ -6,9 +6,9 @@
 
 **Status:** resolved
 
-- [ ] Choosing a hit expands each list field and once-only nested record on its path, including lists that were collapsed.
-- [ ] The single scroll surface moves so the matching cell is in view, and that cell is marked as the current hit.
-- [ ] When the match is inside a scalar longer than 200 characters, the cell shows a 200-character window around the match rather than the start of the value.
-- [ ] Revealing a hit does not expand the full value.
-- [ ] The path used to open the cell uses the displayed field name and, for a list, the 1-based position among same-named siblings.
-- [ ] Viewer session tests cover a hit inside a collapsed list and a hit inside a long scalar, and the window performs the same reveal.
+- [x] Choosing a hit expands each list field and once-only nested record on its path, including lists that were collapsed.
+- [x] The single scroll surface moves so the matching cell is in view, and that cell is marked as the current hit.
+- [x] When the match is inside a scalar longer than 200 characters, the cell shows a 200-character window around the match rather than the start of the value.
+- [x] Revealing a hit does not expand the full value.
+- [x] The path used to open the cell uses the displayed field name and, for a list, the 1-based position among same-named siblings.
+- [x] Viewer session tests cover a hit inside a collapsed list and a hit inside a long scalar, and the window performs the same reveal.
