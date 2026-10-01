@@ -107,7 +107,9 @@ public sealed record SurfaceRow(
     bool IsCutOff = false,
     WidthAxis Axis = WidthAxis.None,
     DocumentPath? WidthTable = null,
-    string? WidthColumn = null);
+    string? WidthColumn = null,
+    int TextStart = 0,
+    bool ScalarText = false);
 
 /// <summary>
 /// The one scrollable surface. Rows are only those that intersect the viewport.

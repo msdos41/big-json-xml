@@ -152,6 +152,8 @@ public sealed partial class ViewerSession : IDisposable
         return ExpandedText.Slice(_document, Pieces(path), characterOffset, characterCount, out _);
     }
 
+    public int ScalarLength(DocumentPath path) => LengthOf(path, Pieces(path));
+
     public void Expand(DocumentPath path)
     {
         var (parent, slot) = Locate(path);

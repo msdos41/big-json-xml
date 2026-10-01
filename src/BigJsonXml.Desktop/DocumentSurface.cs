@@ -1,8 +1,9 @@
-using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Media;
+using Avalonia.Media.TextFormatting;
 
 namespace BigJsonXml.Desktop;
 
@@ -11,24 +12,65 @@ public readonly record struct SurfacePointer(SurfaceRow? Row, bool Resize);
 public sealed class DocumentSurface : Control
 {
     public const double ResizeEdge = 6;
+    private const double ButtonSize = 12;
 
     private static readonly IBrush Mark = new SolidColorBrush(Color.Parse("#FFF3C4"));
+    private static readonly IBrush SelectionFill = new SolidColorBrush(Color.FromArgb(96, 51, 153, 255));
     private static readonly IBrush Ink = Brushes.Black;
     private static readonly IPen Line = new Pen(new SolidColorBrush(Color.Parse("#E1E4E8")), 1);
     private static readonly IPen ButtonPen = new Pen(new SolidColorBrush(Color.Parse("#4B5563")), 1);
     private static readonly IBrush ButtonFill = new SolidColorBrush(Color.Parse("#F3F4F6"));
-    private static readonly Typeface Face = new("Segoe UI");
+    private static readonly Typeface Face = CellText.Face;
     private static readonly Cursor ArrowCursor = new(StandardCursorType.Arrow);
     private static readonly Cursor ResizeCursor = new(StandardCursorType.SizeWestEast);
+    private static readonly Cursor IbeamCursor = new(StandardCursorType.Ibeam);
     private SurfaceRow? _drag;
+    private readonly CellPress _press = new();
 
     public DocumentSurface()
     {
         ClipToBounds = true;
+        Focusable = true;
+        var copy = new MenuItem { Header = "Copy" };
+        copy.Click += async (_, _) => await CopySelection();
+        ContextMenu = new ContextMenu { Items = { copy } };
     }
 
     public static bool HasExpandButton(SurfaceRow row) =>
         row.CanExpand && row.Kind is SurfaceKind.Field or SurfaceKind.Entry;
+
+    public static bool HasCollapseButton(SurfaceRow row) =>
+        row.Kind is SurfaceKind.Field or SurfaceKind.Entry
+        && row.CanGrowValue
+        && row.IsExpanded
+        && !row.CanExpand;
+
+    public static bool TryButton(SurfaceRow row, out Rect box)
+    {
+        var y = (ViewerSession.RowHeight - ButtonSize) / 2;
+        if (HasExpandButton(row))
+        {
+            box = new Rect(2, y, ButtonSize, ButtonSize);
+            return true;
+        }
+
+        if (HasCollapseButton(row))
+        {
+            var x = Math.Max(2, row.Width - ButtonSize - 2);
+            box = new Rect(x, y, ButtonSize, ButtonSize);
+            return true;
+        }
+
+        box = default;
+        return false;
+    }
+
+    public static bool HitsExpandButton(SurfaceRow row, double localX, double localY)
+    {
+        if (!TryButton(row, out var box))
+            return false;
+        return localX >= box.X && localX < box.Right && localY >= box.Y && localY < box.Bottom;
+    }
 
     public static double TextTop(SurfaceRow row)
     {
@@ -102,9 +144,19 @@ public sealed class DocumentSurface : Control
         if (DataContext is not ViewerModel model)
             return;
         var point = e.GetPosition(this);
-        var hit = HitTest(model.Rows, point.X + model.ScrollX, point.Y + model.ScrollY);
+        var docX = point.X + model.ScrollX;
+        var docY = point.Y + model.ScrollY;
+        var hit = HitTest(model.Rows, docX, docY);
+        if (e.GetCurrentPoint(this).Properties.IsRightButtonPressed)
+        {
+            Focus();
+            SelectForCopy(model, hit, docX);
+            return;
+        }
+
         if (hit.Resize && hit.Row is not null)
         {
+            _press.Cancel();
             _drag = hit.Row;
             Cursor = ResizeCursor;
             e.Pointer.Capture(this);
@@ -112,8 +164,34 @@ public sealed class DocumentSurface : Control
             return;
         }
 
-        if (hit.Row is { } row && (row.CanExpand || row.CanGrowValue || row.Kind == SurfaceKind.ValueLine))
-            model.Toggle(row);
+        Focus();
+        var row = hit.Row;
+        var onButton = row is not null && HitsExpandButton(row, docX - row.X, docY - row.Y);
+        var index = row is null ? 0 : IndexOf(row, docX);
+        _press.Begin(row, onButton, point, index, row is null ? null : CellPress.CopySource(row));
+        if (row is null)
+            return;
+        e.Pointer.Capture(this);
+        e.Handled = true;
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (DataContext is not ViewerModel model)
+            return;
+        if (!e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            return;
+        if (e.Key == Key.C)
+        {
+            _ = CopySelection();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.A)
+        {
+            model.SelectAll();
+            e.Handled = true;
+        }
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
@@ -128,15 +206,57 @@ public sealed class DocumentSurface : Control
             return;
         }
 
+        if (_press.Active && DataContext is ViewerModel selecting)
+        {
+            var docX = point.X + selecting.ScrollX;
+            var docY = point.Y + selecting.ScrollY;
+            var hit = HitTest(selecting.Rows, docX, docY);
+            var under = hit.Resize ? null : hit.Row;
+            var index = under is null ? 0 : IndexOf(under, docX);
+            var before = _press.Selection;
+            _press.Move(point, under, index);
+            if (_press.Selection != before)
+                selecting.SetSelection(_press.Selection);
+            Cursor = IbeamCursor;
+            e.Handled = true;
+            return;
+        }
+
         ApplyCursor(point);
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
-        if (_drag is null)
+        if (_drag is not null)
+        {
+            _drag = null;
+            e.Pointer.Capture(null);
+            ApplyCursor(e.GetPosition(this));
             return;
-        _drag = null;
+        }
+
+        if (!_press.Active || DataContext is not ViewerModel model)
+        {
+            _press.Cancel();
+            return;
+        }
+
+        var row = _press.Row;
+        var length = row is { ScalarText: true } ? model.ScalarLength(row.Path) : 0;
+        var label = row is null ? null : CellPress.CopySource(row);
+        var gesture = _press.End(length, label);
+        if (gesture == CellGesture.Toggle && row is not null)
+        {
+            model.SetSelection(null);
+            model.Toggle(row);
+        }
+        else if (gesture == CellGesture.Select)
+        {
+            model.SetSelection(_press.Selection);
+        }
+
+        _press.Cancel();
         e.Pointer.Capture(null);
         ApplyCursor(e.GetPosition(this));
     }
@@ -144,7 +264,7 @@ public sealed class DocumentSurface : Control
     protected override void OnPointerExited(PointerEventArgs e)
     {
         base.OnPointerExited(e);
-        if (_drag is null)
+        if (_drag is null && !_press.Active)
             Cursor = ArrowCursor;
     }
 
@@ -162,8 +282,48 @@ public sealed class DocumentSurface : Control
             return;
         }
 
-        var hit = HitTest(model.Rows, point.X + model.ScrollX, point.Y + model.ScrollY);
-        Cursor = CursorFor(hit) == StandardCursorType.SizeWestEast ? ResizeCursor : ArrowCursor;
+        var docX = point.X + model.ScrollX;
+        var docY = point.Y + model.ScrollY;
+        var hit = HitTest(model.Rows, docX, docY);
+        if (hit.Resize)
+        {
+            Cursor = ResizeCursor;
+            return;
+        }
+
+        var row = hit.Row;
+        var onButton = row is not null && HitsExpandButton(row, docX - row.X, docY - row.Y);
+        Cursor = row is not null && !onButton && CellPress.HasSelectableText(row) ? IbeamCursor : ArrowCursor;
+    }
+
+    private void SelectForCopy(ViewerModel model, SurfacePointer hit, double docX)
+    {
+        if (hit.Resize || hit.Row is not SurfaceRow row || !CellPress.HasSelectableText(row))
+            return;
+        var index = IndexOf(row, docX);
+        if (model.Selection is { } current && current.Contains(row, index))
+            return;
+        var length = row.ScalarText ? model.ScalarLength(row.Path) : 0;
+        model.SetSelection(CellPress.Shown(row, length, CellPress.CopySource(row)));
+    }
+
+    private static int IndexOf(SurfaceRow row, double docX)
+    {
+        var painted = row.Value ?? row.Name;
+        var localX = docX - row.X - TextOrigin(row);
+        return row.TextStart + CellText.IndexAt(painted, localX);
+    }
+
+    private async Task CopySelection()
+    {
+        if (DataContext is not ViewerModel model)
+            return;
+        var text = model.SelectedText();
+        if (string.IsNullOrEmpty(text))
+            return;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is not null)
+            await clipboard.SetTextAsync(text);
     }
 
     public override void Render(DrawingContext context)
@@ -194,11 +354,13 @@ public sealed class DocumentSurface : Control
                         context.DrawRectangle(null, Line, border);
                 }
 
-                if (HasExpandButton(row) && ButtonInView(rect, visible))
-                    DrawExpandButton(context, rect, row.IsExpanded);
+                if (TryButton(row, out var button) && ButtonInView(rect, button, visible))
+                    DrawExpandButton(context, rect, button, row.IsExpanded);
                 var text = row.Value ?? row.Name;
                 var textY = rect.Y + TextTop(row);
                 var textX = rect.X + TextOrigin(row);
+                if (model.Selection is { } selection && selection.Covers(row))
+                    DrawSelection(context, selection, row, text, textX, textY);
                 if (TextInView(text, textX, textY, visible))
                     Draw(context, text, textX, textY);
                 if (row.IsCutOff && TextInView("…", rect.Right - 14, textY, visible))
@@ -218,11 +380,22 @@ public sealed class DocumentSurface : Control
         return new Rect(left, top, right - left, bottom - top);
     }
 
-    private static bool ButtonInView(Rect cell, Rect visible)
+    private static bool ButtonInView(Rect cell, Rect button, Rect visible)
     {
-        const double size = 12;
-        var top = cell.Y + ((ViewerSession.RowHeight - size) / 2);
-        return top < visible.Bottom && top + size > visible.Top && cell.X < visible.Right && cell.X + size + 2 > visible.Left;
+        var top = cell.Y + button.Y;
+        var left = cell.X + button.X;
+        return top < visible.Bottom && top + button.Height > visible.Top
+            && left < visible.Right && left + button.Width > visible.Left;
+    }
+
+    private static void DrawSelection(DrawingContext context, CellSelection selection, SurfaceRow row, string text, double textX, double textY)
+    {
+        var from = Math.Max(selection.Start, row.TextStart);
+        var to = Math.Min(selection.End, row.TextStart + text.Length);
+        if (to <= from)
+            return;
+        foreach (var glyph in CellText.Rects(text, from - row.TextStart, to - from))
+            context.FillRectangle(SelectionFill, new Rect(textX + glyph.X, textY + glyph.Y, glyph.Width, glyph.Height));
     }
 
     private static bool TextInView(string text, double x, double y, Rect visible)
@@ -233,25 +406,24 @@ public sealed class DocumentSurface : Control
         return x < visible.Right && x + reach > visible.Left;
     }
 
-    private static void DrawExpandButton(DrawingContext context, Rect cell, bool expanded)
+    private static void DrawExpandButton(DrawingContext context, Rect cell, Rect button, bool expanded)
     {
-        const double size = 12;
-        if (cell.Width < size || cell.Height < 8)
+        if (cell.Width < ButtonSize || cell.Height < 8)
             return;
-        var box = new Rect(cell.X + 2, cell.Y + ((ViewerSession.RowHeight - size) / 2), size, size);
+        var box = new Rect(cell.X + button.X, cell.Y + button.Y, button.Width, button.Height);
         context.DrawRectangle(ButtonFill, ButtonPen, box, 2, 2);
-        var midY = box.Y + (size / 2);
+        var midY = box.Y + (button.Height / 2);
         context.DrawLine(ButtonPen, new Point(box.X + 3, midY), new Point(box.Right - 3, midY));
         if (!expanded)
         {
-            var midX = box.X + (size / 2);
+            var midX = box.X + (button.Width / 2);
             context.DrawLine(ButtonPen, new Point(midX, box.Y + 3), new Point(midX, box.Bottom - 3));
         }
     }
 
     private static void Draw(DrawingContext context, string text, double x, double y)
     {
-        var formatted = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Face, 13, Ink);
-        context.DrawText(formatted, new Point(x, y));
+        using var layout = new TextLayout(text, Face, CellText.FontSize, Ink);
+        layout.Draw(context, new Point(x, y));
     }
 }

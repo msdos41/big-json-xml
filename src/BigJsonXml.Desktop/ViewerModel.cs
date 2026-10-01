@@ -25,6 +25,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private bool _adjustingHits;
     private IReadOnlyList<SurfaceRow> _rows = [];
     private readonly ObservableCollection<Hit> _hits = [];
+    private CellSelection? _selection;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -102,12 +103,19 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     public IReadOnlyList<Hit> Hits => _hits;
 
+    public CellSelection? Selection
+    {
+        get => _selection;
+        private set => Set(ref _selection, value);
+    }
+
     public void OpenPath(string path)
     {
         _session?.Dispose();
         _session = ViewerSession.Open(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 20, FileOptions.SequentialScan));
         _scrollX = 0;
         _scrollY = 0;
+        Selection = null;
         Tick();
     }
 
@@ -203,6 +211,34 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         }
 
         Refresh();
+    }
+
+    public void SetSelection(CellSelection? selection) => Selection = selection;
+
+    public string? SelectedText()
+    {
+        if (_selection is not { Length: > 0 } selection || _session is null)
+            return null;
+        if (selection.Scalar)
+            return _session.ReadFullValueSlice(selection.Path, selection.Start, selection.Length);
+        if (selection.Label is null || selection.Start > selection.Label.Length)
+            return null;
+        var end = Math.Min(selection.End, selection.Label.Length);
+        if (end <= selection.Start)
+            return null;
+        return selection.Label[selection.Start..end];
+    }
+
+    public int ScalarLength(DocumentPath path) => _session?.ScalarLength(path) ?? 0;
+
+    public void SelectAll()
+    {
+        if (_selection is null || _session is null)
+            return;
+        if (_selection.Scalar)
+            SetSelection(_selection with { Start = 0, End = _session.ScalarLength(_selection.Path) });
+        else if (_selection.Label is not null)
+            SetSelection(_selection with { Start = 0, End = _selection.Label.Length });
     }
 
     public void DragWidth(SurfaceRow row, double width)

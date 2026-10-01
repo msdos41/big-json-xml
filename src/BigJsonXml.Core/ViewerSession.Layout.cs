@@ -80,6 +80,7 @@ public sealed partial class ViewerSession
             string? text = null;
             var cutOff = false;
             var canGrow = false;
+            var start = 0;
             var soleList = false;
             Frame soleFrame = null!;
             Slot sole = null!;
@@ -93,7 +94,7 @@ public sealed partial class ViewerSession
             else if (slot.Kind == SlotKind.Record)
                 text = ClipLabel(slot.Name, ExpandLabelWidth(valueWidth), out cutOff);
             else if (!full)
-                text = WindowText(field, slot.Text, valueWidth, out cutOff, out canGrow, out _);
+                text = WindowText(field, slot.Text, valueWidth, out cutOff, out canGrow, out start);
             else
                 canGrow = true;
 
@@ -113,7 +114,8 @@ public sealed partial class ViewerSession
                 Emit(
                     emit, seek, x + nameWidth, cursor, valueWidth, rowHeight, clipRight,
                     slot.Name, text, canExpand, expanded, Marks(field), field, SurfaceKind.Field,
-                    canGrow, cutOff, WidthAxis.RecordValue, path, null);
+                    canGrow, cutOff, WidthAxis.RecordValue, path, null,
+                    start, slot.Kind == SlotKind.Scalar);
                 var nest = expanded && canExpand ? RowHeight : 0;
                 var inner = x + nameWidth + (nest > 0 ? ExpandGutter : 0);
                 if (slot.Kind == SlotKind.List && expanded)
@@ -298,6 +300,7 @@ public sealed partial class ViewerSession
             string? text;
             var cutOff = false;
             var canGrow = false;
+            var start = 0;
             var canExpand = cell.Kind != SlotKind.Scalar;
             var soleList = false;
             Frame soleFrame = null!;
@@ -312,12 +315,13 @@ public sealed partial class ViewerSession
             else if (cell.Kind == SlotKind.Record)
                 text = ClipLabel(cell.Name, ExpandLabelWidth(widths[i]), out cutOff);
             else
-                text = WindowText(cellPath, cell.Text, widths[i], out cutOff, out canGrow, out _);
+                text = WindowText(cellPath, cell.Text, widths[i], out cutOff, out canGrow, out start);
 
             Emit(
                 emit, seek, starts[i], top, widths[i], entryHeight, clipRight,
                 cell.Name, text, canExpand, expanded, Marks(cellPath), cellPath, SurfaceKind.Entry,
-                canGrow, cutOff, WidthAxis.ListColumn, listPath, column.Name);
+                canGrow, cutOff, WidthAxis.ListColumn, listPath, column.Name,
+                start, cell.Kind == SlotKind.Scalar);
             var nest = expanded && canExpand ? RowHeight : 0;
             var inner = starts[i] + (nest > 0 ? ExpandGutter : 0);
             if (cell.Kind == SlotKind.List && expanded)
@@ -430,8 +434,8 @@ public sealed partial class ViewerSession
             var text = ExpandedText.Slice(_document, pieces, line * cols, cols, out _);
             Emit(
                 emit, null, x, y + (line * RowHeight), width, RowHeight, clipRight,
-                name, text, false, false, Marks(path), path, line == 0 ? kind : SurfaceKind.ValueLine,
-                true, false, axis, table, column);
+                name, text, false, line == 0, Marks(path), path, line == 0 ? kind : SurfaceKind.ValueLine,
+                true, false, axis, table, column, line * cols, true);
         }
     }
 
@@ -516,7 +520,9 @@ public sealed partial class ViewerSession
         bool cutOff,
         WidthAxis axis,
         DocumentPath? table,
-        string? column)
+        string? column,
+        int textStart = 0,
+        bool scalarText = false)
     {
         Note(seek, path, kind, x, y, width);
         if (rows is null)
@@ -532,7 +538,7 @@ public sealed partial class ViewerSession
             x, y, drawn, height,
             name, value,
             canExpand, expanded, marked, path, kind,
-            canGrow, null, null, cutOff, axis, table, column));
+            canGrow, null, null, cutOff, axis, table, column, textStart, scalarText));
     }
 
     private static void Note(Seek? seek, DocumentPath path, SurfaceKind kind, double x, double y, double width)
