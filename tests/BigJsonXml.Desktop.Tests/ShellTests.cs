@@ -153,7 +153,12 @@ public class ShellTests
         Assert.True(DocumentSurface.HasExpandButton(list));
         Assert.False(DocumentSurface.HasExpandButton(note));
         Assert.False(DocumentSurface.HasExpandButton(name));
+        Assert.True(DocumentSurface.TryButton(list, out var button));
+        Assert.True(button.X >= DocumentSurface.ResizeEdge + 4);
+        Assert.False(DocumentSurface.HitsExpandButton(list, DocumentSurface.ResizeEdge, 12));
+        Assert.True(DocumentSurface.HitsExpandButton(list, button.X + 2, 12));
         Assert.Equal(ViewerSession.ExpandGutter, DocumentSurface.TextOrigin(list));
+        Assert.True(DocumentSurface.TextOrigin(list) >= button.Right);
         Assert.Equal(4, DocumentSurface.TextOrigin(note));
 
         model.Toggle(list);
@@ -201,19 +206,24 @@ public class ShellTests
         var cell = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "features");
         var plain = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "@flag");
         Assert.Equal("feature[2]", cell.Value);
+        Assert.True(DocumentSurface.TryButton(cell, out var button));
         var bitmap = new RenderTargetBitmap(new PixelSize(800, 400), new Vector(96, 96));
         bitmap.Render(surface);
 
-        Assert.True(Dark(bitmap, (int)cell.X + 8, (int)cell.Y + 12));
-        Assert.True(Dark(bitmap, (int)cell.X + 8, (int)cell.Y + 9));
+        var midX = (int)(cell.X + button.X + (button.Width / 2));
+        var midY = (int)(cell.Y + button.Y + (button.Height / 2));
+        var armY = (int)(cell.Y + button.Y + 3);
+        Assert.True(Dark(bitmap, midX, midY));
+        Assert.True(Dark(bitmap, midX, armY));
+        Assert.False(Dark(bitmap, (int)(cell.X + DocumentSurface.ResizeEdge - 1), midY));
         Assert.False(Dark(bitmap, (int)plain.X + 8, (int)plain.Y + 12));
 
         model.Toggle(cell);
         var open = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "features" && row.IsExpanded);
         Assert.Equal("feature[2]", open.Value);
         bitmap.Render(surface);
-        Assert.True(Dark(bitmap, (int)open.X + 8, (int)open.Y + 12));
-        Assert.False(Dark(bitmap, (int)open.X + 8, (int)open.Y + 9));
+        Assert.True(Dark(bitmap, (int)(open.X + button.X + (button.Width / 2)), (int)(open.Y + button.Y + (button.Height / 2))));
+        Assert.False(Dark(bitmap, (int)(open.X + button.X + (button.Width / 2)), (int)(open.Y + button.Y + 3)));
     }
 
     [Fact]
