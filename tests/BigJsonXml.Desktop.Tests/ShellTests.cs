@@ -397,6 +397,24 @@ public class ShellTests
     }
 
     [Fact]
+    public void A_column_header_click_selects_only_that_header()
+    {
+        var list = DocumentPath.Root.Field("item");
+        var name = new SurfaceRow(
+            0, 0, 80, ViewerSession.RowHeight,
+            "name", "name", false, false, false, list, SurfaceKind.ColumnHeader);
+        var city = name with { X = 80, Name = "city", Value = "city" };
+        var press = new CellPress();
+        press.Begin(name, false, new Point(0, 0), 0, CellPress.CopySource(name));
+        press.Move(new Point(12, 0), name, 2);
+        Assert.Equal(CellGesture.Select, press.End(0, CellPress.CopySource(name)));
+        Assert.True(press.Selection!.Covers(name));
+        Assert.False(press.Selection.Covers(city));
+        Assert.False(CellPress.SameText(name, city));
+        Assert.True(CellPress.SameText(name, name with { Width = 120 }));
+    }
+
+    [Fact]
     public void The_model_returns_the_selected_slice_of_a_cell()
     {
         var body = new string('m', 40);
