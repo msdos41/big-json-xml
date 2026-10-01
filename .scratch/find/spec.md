@@ -1,8 +1,6 @@
 # Find
 
-Status: agreed
-
-Not implemented. This spec records the agreed search interaction. It does not change the viewer yet.
+Status: ready-for-agent
 
 ## Problem Statement
 
@@ -71,7 +69,25 @@ Each hit is one match, in document order, including while the scan is still runn
 51. As a person inspecting a document, I want search limited to the one open document, so that there is no search across files.
 52. As a person inspecting a document, I want no replace controls, so that the viewer still cannot change the document.
 
-## Out of scope
+## Implementation Decisions
+
+- The viewer session takes one structured text search: Find what, whether Match case is on, which of element name, attribute name, and value are included, whether the tested text must contain Find what, start with it, or equal it, plus an optional field name, parent element name, grandfather element name, and parent attribute name. A query string is not parsed. `=` and `~` are not operators.
+- Match case off uses ordinal case-folding for Find what and for every name constraint. There is one switch.
+- A prefixed name is typed as the table shows it. The field's identity remains the namespace URI plus the local name.
+- A hit still stores its path and the matched stretch. The session can render the path in the slash form from ADR-0028, and it can supply the field text for a result row: the whole value when it fits the requested width, otherwise a window around the stretch. The caller passes that width.
+- Contains, starts-with, and equals walk the field text. They do not assemble a multi-megabyte value into one string.
+- A collapsed list label such as `Name[n]` is not a value. An element-name hit on a list entry is that entry, not that label.
+- The window model holds the find window, the results window, the current hit, and the Find what history. The document keeps one scroll surface. Choosing a hit or Find Next reveals through the existing path rule in ADR-0013. Find Next walks hits in document order and lets the scan continue until the next hit exists or the scan stops.
+- History lives in memory for the open document, newest first, at most 20 sequences. Closing the document drops it. It is not written to disk.
+
+## Testing Decisions
+
+- Test the behaviour a person can observe. Do not test private scan steps or control trees.
+- Two existing seams cover this work. The viewer session is where a text search reports hits, stretches, path steps, streaming order, and reveal. The window model is where the two windows, the result columns, Find Next, history, and the document mark are exercised. Do not add a parser seam or a pixel seam.
+- Session tests are the prior art for search. Assertions that describe the retired query string are replaced as the structured search lands, inside the ticket that changes that behaviour, not as a separate rewrite.
+- Window-model tests are the prior art for opening a document, listing hits, and revealing one. They gain the find window and the results window.
+
+## Out of Scope
 
 - A Selection limit on the find window. The document surface can already select a stretch of text in one cell. That selection does not narrow a text search, and this work does not remove it.
 - A filter over the hits already listed.
@@ -80,3 +96,9 @@ Each hit is one match, in document order, including while the scan is still runn
 - Search across more than the open document.
 - Comments and processing instructions.
 - Evaluating the path line as XPath.
+
+## Further Notes
+
+- ADR-0027 records the structured text search. ADR-0028 records the path spelling. ADR-0013 still records reveal, and still rejects XPath.
+- The tickets under this spec are the implementation slices. Ticket 01 is the only one that can start immediately.
+- The document surface already selects a stretch of text inside one cell. This spec does not change that selection.
