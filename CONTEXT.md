@@ -60,9 +60,13 @@ _Avoid_: Inner text, value, indent
 A record table or list table drawn in the cell that was expanded, bounded by that cell's rectangle. It is not laid out as rows under the entry across the rest of the table. Sibling cells keep their own rectangles. The entry's row is as tall as its tallest cell. The document has one vertical scrollbar and one horizontal scrollbar. An embedded table does not add its own. It is not another screen, pane, or window.
 _Avoid_: Sub-table, drill-down, popup, nested view
 
+**Find what**:
+The character sequence a text search looks for.
+_Avoid_: Query, query string, pattern
+
 **Text search**:
-A case-sensitive search for a character sequence in attribute values and character data, written as a query with no `=` and no `~`.
-_Avoid_: XPath, full-text index, grep
+A search for Find what in attribute values and character data, over the whole document, including tables that are not expanded. It is case-sensitive unless Match case is turned off. Case is compared by ordinal rules. An empty Find what has no hits. Comments are not part of it.
+_Avoid_: XPath, full-text index, grep, query string
 
 **Field search**:
 A case-sensitive search for a named field over the whole document, including tables that are not expanded. `name = value` matches the whole value. `name ~ value` matches a value that contains the sequence.
@@ -73,5 +77,5 @@ The steps from the document element down to a hit or an entry. Each step is a fi
 _Avoid_: XPath, byte offset, row number
 
 **Hit**:
-One search match. It remembers its path so the viewer can expand the embedded tables on that path and scroll that cell into view.
+One search match. It remembers its path and the stretch of that field's text that matched. The path lets the viewer expand the embedded tables on that path and scroll that cell into view.
 _Avoid_: Result row, match span
