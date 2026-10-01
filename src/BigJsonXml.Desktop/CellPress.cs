@@ -23,7 +23,10 @@ public sealed record CellSelection(
     public int Length => Math.Max(0, End - Start);
 
     public bool Covers(SurfaceRow row) =>
-        Path.Equals(row.Path) && Scalar == row.ScalarText && (Scalar || Kind == row.Kind);
+        Path.Equals(row.Path)
+        && Scalar == row.ScalarText
+        && (Scalar || Kind == row.Kind)
+        && (Kind != SurfaceKind.ColumnHeader || Label == row.Name);
 
     public bool Contains(SurfaceRow row, int index) =>
         Covers(row) && Length > 0 && index >= Start && index < End;
@@ -115,7 +118,8 @@ public sealed class CellPress
     public static bool SameText(SurfaceRow left, SurfaceRow right) =>
         left.Path.Equals(right.Path)
         && left.ScalarText == right.ScalarText
-        && (left.ScalarText || left.Kind == right.Kind);
+        && (left.ScalarText || left.Kind == right.Kind)
+        && (left.Kind != SurfaceKind.ColumnHeader || left.Name == right.Name);
 
     public static CellSelection Shown(SurfaceRow row, int scalarLength, string? label)
     {
