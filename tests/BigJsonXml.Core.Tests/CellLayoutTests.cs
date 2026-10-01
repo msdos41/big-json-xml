@@ -555,6 +555,49 @@ public class CellLayoutTests
         Assert.StartsWith(wide[..25], overflowWindow.Text, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_scalar_slice_records_its_place_in_the_value()
+    {
+        var body = new string('m', 40);
+        var session = SessionFixture.Scan($"<root><note>{body}</note><item>a</item><item>b</item></root>");
+        var note = DocumentPath.Root.Field("note");
+        var frame = Show(session);
+        var cell = frame.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Path.Equals(note));
+        var name = frame.Rows.Single(row => row.Kind == SurfaceKind.FieldName && row.Path.Equals(note));
+        Assert.True(cell.ScalarText);
+        Assert.Equal(0, cell.TextStart);
+        Assert.Equal(body[..cell.Value!.Length], cell.Value);
+        Assert.False(name.ScalarText);
+        Assert.Equal(body.Length, session.ScalarLength(note));
+        var list = frame.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "item");
+        Assert.False(list.ScalarText);
+
+        session.ExpandFullValue(note);
+        var lines = Show(session, 900, 2000).Rows
+            .Where(row => row.ScalarText && row.Path.Equals(note))
+            .OrderBy(row => row.Y)
+            .ToList();
+        Assert.True(lines.Count > 1);
+        Assert.Equal(0, lines[0].TextStart);
+        Assert.True(lines[0].IsExpanded);
+        Assert.Equal(lines[0].Value!.Length, lines[1].TextStart);
+        Assert.Equal(SurfaceKind.ValueLine, lines[1].Kind);
+        Assert.False(lines[1].IsExpanded);
+        Assert.Equal(body, string.Concat(lines.Select(row => row.Value)));
+
+        var hitBody = new string('a', 80) + "NEEDLE" + new string('b', 40);
+        var hits = SessionFixture.Scan($"<root><item>{hitBody}</item><item>x</item></root>");
+        hits.Expand(DocumentPath.Root.Field("item"));
+        hits.Search("NEEDLE");
+        hits.PumpAll();
+        hits.Reveal(Assert.Single(hits.Hits));
+        var window = hits.ReadScalar(hits.Hits[0].Path);
+        var marked = Show(hits).Rows.Single(row => row.IsMarked);
+        Assert.True(marked.ScalarText);
+        Assert.Equal(window.WindowStart, marked.TextStart);
+        Assert.True(marked.TextStart > 0);
+    }
+
     private static double ColumnWidth(ViewerSession session, DocumentPath list, string name) =>
         Show(session).Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.WidthTable!.Equals(list) && row.Name == name).Width;
 

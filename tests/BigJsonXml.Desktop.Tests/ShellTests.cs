@@ -329,6 +329,130 @@ public class ShellTests
         }
     }
 
+    [Fact]
+    public void Dragging_selects_cell_text_and_a_click_selects_shown_text()
+    {
+        var path = DocumentPath.Root.Field("note");
+        var note = new SurfaceRow(
+            0, 0, 200, ViewerSession.RowHeight,
+            "note", "hello", false, false, false, path, SurfaceKind.Field,
+            ScalarText: true);
+        var press = new CellPress();
+        press.Begin(note, false, new Point(0, 0), 1, null);
+        press.Move(new Point(20, 0), note, 4);
+        Assert.Equal(CellGesture.Select, press.End(5, null));
+        Assert.Equal(1, press.Selection!.Start);
+        Assert.Equal(4, press.Selection.End);
+        Assert.True(press.Selection.Scalar);
+
+        press.Begin(note, false, new Point(0, 0), 0, null);
+        Assert.Equal(CellGesture.Select, press.End(5, null));
+        Assert.Equal(0, press.Selection!.Start);
+        Assert.Equal(5, press.Selection.End);
+
+        var collapsed = note with { CanGrowValue = true, Value = "abc", IsExpanded = false };
+        press.Begin(collapsed, false, default, 0, null);
+        Assert.Equal(CellGesture.Toggle, press.End(40, null));
+
+        press.Begin(collapsed, false, new Point(0, 0), 0, null);
+        press.Move(new Point(8, 0), collapsed, 2);
+        Assert.Equal(CellGesture.Select, press.End(40, null));
+        Assert.Equal(0, press.Selection!.Start);
+        Assert.Equal(2, press.Selection.End);
+
+        var open = collapsed with { IsExpanded = true };
+        press.Begin(open, false, default, 3, null);
+        Assert.Equal(CellGesture.Select, press.End(40, null));
+        Assert.Equal(0, press.Selection!.Start);
+        Assert.Equal(40, press.Selection.End);
+
+        press.Begin(open, true, default, 0, null);
+        Assert.Equal(CellGesture.Toggle, press.End(40, null));
+
+        var next = open with { Kind = SurfaceKind.ValueLine, IsExpanded = false, TextStart = 4, Value = "bbbb", Y = 24 };
+        press.Begin(open, false, new Point(0, 0), 1, null);
+        press.Move(new Point(30, 24), next, 6);
+        Assert.Equal(CellGesture.Select, press.End(8, null));
+        Assert.Equal(1, press.Selection!.Start);
+        Assert.Equal(6, press.Selection.End);
+
+        var line = open with { Kind = SurfaceKind.ValueLine, IsExpanded = false, TextStart = 25, Value = "rest" };
+        press.Begin(line, false, default, 26, null);
+        Assert.Equal(CellGesture.Select, press.End(40, null));
+        Assert.Equal(0, press.Selection!.Start);
+        Assert.Equal(40, press.Selection.End);
+
+        var title = new SurfaceRow(
+            0, 0, 80, ViewerSession.RowHeight,
+            "title", "ti", false, false, false, path, SurfaceKind.FieldName,
+            IsCutOff: true);
+        press.Begin(title, false, default, 0, CellPress.CopySource(title));
+        Assert.Equal(CellGesture.Select, press.End(0, CellPress.CopySource(title)));
+        Assert.Equal("title", press.Selection!.Label);
+        Assert.Equal(5, press.Selection.Length);
+
+        var list = note with { Name = "item", Value = "item[2]", CanExpand = true, ScalarText = false };
+        press.Begin(list, false, default, 0, "item[2]");
+        Assert.Equal(CellGesture.Toggle, press.End(0, "item[2]"));
+    }
+
+    [Fact]
+    public void The_model_returns_the_selected_slice_of_a_cell()
+    {
+        var body = new string('m', 40);
+        var path = Write($"<root><note>{body}</note></root>");
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        var note = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "note");
+        Assert.True(note.ScalarText);
+        model.SetSelection(new CellSelection(note.Path, 0, 4, true, null, note.Kind));
+        Assert.Equal("mmmm", model.SelectedText());
+
+        model.Toggle(note);
+        model.SetSelection(new CellSelection(note.Path, 20, 30, true, null, SurfaceKind.Field));
+        Assert.Equal(new string('m', 10), model.SelectedText());
+        model.SelectAll();
+        Assert.Equal(body, model.SelectedText());
+
+        model.SetSelection(new CellSelection(note.Path, 1, 4, false, "alpha", SurfaceKind.ColumnHeader));
+        Assert.Equal("lph", model.SelectedText());
+    }
+
+    [Fact]
+    public void An_opened_scalar_shows_a_collapse_button_on_the_first_line()
+    {
+        var path = Write($"<root><note>{new string('n', 80)}</note></root>");
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        var note = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "note");
+        Assert.True(note.CanGrowValue);
+        Assert.False(DocumentSurface.HasCollapseButton(note));
+        Assert.False(DocumentSurface.HasExpandButton(note));
+        model.Toggle(note);
+        var open = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Path.Equals(note.Path));
+        Assert.True(DocumentSurface.HasCollapseButton(open));
+        Assert.Equal(4, DocumentSurface.TextOrigin(open));
+        Assert.True(DocumentSurface.HitsExpandButton(open, open.Width - 4, 12));
+        Assert.False(DocumentSurface.HitsExpandButton(open, 8, 12));
+        var line = model.Rows.First(row => row.Kind == SurfaceKind.ValueLine && row.Path.Equals(note.Path));
+        Assert.False(DocumentSurface.HasCollapseButton(line));
+    }
+
+    [Fact]
+    public void A_character_hit_follows_the_painted_glyphs()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        const string text = "abcd";
+        Assert.Equal(0, CellText.IndexAt(text, 0));
+        Assert.Equal(text.Length, CellText.IndexAt(text, 10_000));
+        var rects = CellText.Rects(text, 1, 2);
+        Assert.NotEmpty(rects);
+        Assert.True(rects[0].Width > 0);
+        Assert.Equal(1, CellText.IndexAt(text, rects[0].X + 0.25));
+    }
+
     private static bool Dark(RenderTargetBitmap bitmap, int x, int y)
     {
         var pixel = new byte[4];
