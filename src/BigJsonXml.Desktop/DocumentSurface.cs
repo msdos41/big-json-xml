@@ -12,7 +12,7 @@ public readonly record struct SurfacePointer(SurfaceRow? Row, bool Resize);
 public sealed class DocumentSurface : Control
 {
     public const double ResizeEdge = 6;
-    private const double ButtonSize = 12;
+    private const double ButtonSize = ViewerSession.ExpandButtonSize;
 
     private static readonly IBrush Mark = new SolidColorBrush(Color.Parse("#FFF3C4"));
     private static readonly IBrush SelectionFill = new SolidColorBrush(Color.FromArgb(96, 51, 153, 255));
@@ -50,7 +50,7 @@ public sealed class DocumentSurface : Control
         var y = (ViewerSession.RowHeight - ButtonSize) / 2;
         if (HasExpandButton(row))
         {
-            box = new Rect(2, y, ButtonSize, ButtonSize);
+            box = new Rect(ViewerSession.ExpandButtonInset, y, ButtonSize, ButtonSize);
             return true;
         }
 
