@@ -65,17 +65,33 @@ The character sequence a text search looks for.
 _Avoid_: Query, query string, pattern
 
 **Text search**:
-A search for Find what in attribute values and character data, over the whole document, including tables that are not expanded. It is case-sensitive unless Match case is turned off. Case is compared by ordinal rules. An empty Find what has no hits. Comments are not part of it.
-_Avoid_: XPath, full-text index, grep, query string
+A search for Find what in element names, attribute names, and values over the whole document, including tables that are not expanded, with each of those three able to be turned off. The tested text contains Find what, starts with it, or equals it; comparison is ordinal and case-sensitive unless Match case is turned off; an empty Find what has no hits, and comments are not searched.
+_Avoid_: XPath, full-text index, grep, query string, wildcard
+
+**Field name**:
+The name of the field a hit is on, written as the table shows it, including `@`, `#text`, and a prefix from the file. A text search may require this name. An empty requirement allows every field.
+_Avoid_: Parent element name, query string, XPath
 
 **Field search**:
-A case-sensitive search for a named field over the whole document, including tables that are not expanded. `name = value` matches the whole value. `name ~ value` matches a value that contains the sequence.
-_Avoid_: Column filter, XPath, predicate
+A text search limited by a field name. The value or the name still follows that text search's contains, starts-with, or equals rule.
+_Avoid_: Column filter, XPath, predicate, query string
+
+**Parent element name**:
+The name of the element that directly contains the matched field. A text search may require this name. The name has no list index. A hit with no such element does not qualify.
+_Avoid_: Field name, ancestor, XPath
+
+**Grandfather element name**:
+The name of the element that directly contains the parent element of the matched field. A text search may require this one step and no step further up. A hit with no element at that step does not qualify.
+_Avoid_: Ancestor, XPath
+
+**Parent attribute name**:
+An attribute the parent element has, written as the table shows it, including `@`. A text search may require that the parent has this attribute. The attribute's value is not compared.
+_Avoid_: Field name, attribute value
 
 **Path**:
-The steps from the document element down to a hit or an entry. Each step is a field name and, for a list field, the entry's position among siblings of that same name.
-_Avoid_: XPath, byte offset, row number
+The steps from the document element down to a hit or an entry, written with a leading `/` and the steps joined by `/`. Each step is a field name, a list step is `Name[n]` for the entry's position among siblings of that same name, and a text step is `#text`.
+_Avoid_: XPath, byte offset, row number, `text()`
 
 **Hit**:
-One search match. It remembers its path and the stretch of that field's text that matched. The path lets the viewer expand the embedded tables on that path and scroll that cell into view.
+One search match. It remembers its path and the stretch of that field's text that matched, so the viewer can expand the embedded tables on that path and scroll that cell into view; two matches in one field are two hits, and a hit on a list entry's own element name is that entry.
 _Avoid_: Result row, match span

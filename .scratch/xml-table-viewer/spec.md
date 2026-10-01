@@ -2,6 +2,8 @@
 
 Status: resolved
 
+Search entry in stories 47–54 is superseded by `.scratch/find/spec.md` and ADR-0027. Stories 55–62 still describe revealing a hit.
+
 ## Problem Statement
 
 A person has an XML document too large to open in a text editor or a DOM-based editor. They need to see its structure as tables, move through a very large list, and search the whole document before every nested table has been built. They must not change the document.
