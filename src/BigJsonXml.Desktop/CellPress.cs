@@ -34,7 +34,8 @@ public sealed record CellSelection(
 
 /// <summary>
 /// Decides whether a press toggles the cell or selects its text.
-/// A drag selects. A click expands a collapsed scalar or an embedded table. A click on text that is already fully shown selects that text.
+/// A drag selects. A click on the expand button toggles a node.
+/// A click expands a collapsed scalar. A click on shown text selects that text.
 /// </summary>
 public sealed class CellPress
 {
@@ -84,8 +85,6 @@ public sealed class CellPress
             return _drag ? CellGesture.None : CellGesture.Toggle;
         if (_drag)
             return Selection is { Length: > 0 } ? CellGesture.Select : CellGesture.None;
-        if (Row.CanExpand)
-            return CellGesture.Toggle;
         if (Row.CanGrowValue && !Row.IsExpanded && Row.Kind != SurfaceKind.ValueLine)
             return CellGesture.Toggle;
         if (!HasSelectableText(Row) && !Row.ScalarText)
