@@ -393,6 +393,16 @@ public class ShellTests
 
         var list = note with { Name = "item", Value = "item[2]", CanExpand = true, ScalarText = false };
         press.Begin(list, false, default, 0, "item[2]");
+        Assert.Equal(CellGesture.Select, press.End(0, "item[2]"));
+        Assert.Equal("item[2]", press.Selection!.Label);
+
+        press.Begin(list, true, default, 0, "item[2]");
+        Assert.Equal(CellGesture.Toggle, press.End(0, "item[2]"));
+
+        var openList = list with { IsExpanded = true };
+        press.Begin(openList, false, default, 0, "item[2]");
+        Assert.Equal(CellGesture.Select, press.End(0, "item[2]"));
+        press.Begin(openList, true, default, 0, "item[2]");
         Assert.Equal(CellGesture.Toggle, press.End(0, "item[2]"));
     }
 
