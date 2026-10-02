@@ -9,6 +9,7 @@
   <DockPanel>
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8">
       <Button Content="Open" Click="OpenClicked"/>
+      <Button Content="Find" Click="FindClicked"/>
       <TextBlock Text="{Binding Status}" VerticalAlignment="Center"/>
     </StackPanel>
     <TextBlock DockPanel.Dock="Bottom" Margin="8" Text="{Binding Error}" TextWrapping="Wrap"/>

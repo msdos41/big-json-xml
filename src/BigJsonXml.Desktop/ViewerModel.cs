@@ -46,12 +46,42 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private readonly ObservableCollection<ResultLine> _visible = [];
     private readonly ObservableCollection<string> _findHistory = [];
     private CellSelection? _selection;
+    private bool _findWindowOpen;
+    private bool _resultsWindowOpen;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public bool FindWindowOpen => true;
+    public bool FindWindowOpen => _findWindowOpen;
 
-    public bool ResultsWindowOpen => true;
+    public bool ResultsWindowOpen => _resultsWindowOpen;
+
+    public void ShowFind()
+    {
+        if (_findWindowOpen)
+            return;
+        _findWindowOpen = true;
+        OnPropertyChanged(nameof(FindWindowOpen));
+    }
+
+    public void CloseFind()
+    {
+        var findWasOpen = _findWindowOpen;
+        var resultsWereOpen = _resultsWindowOpen;
+        _findWindowOpen = false;
+        _resultsWindowOpen = false;
+        if (findWasOpen)
+            OnPropertyChanged(nameof(FindWindowOpen));
+        if (resultsWereOpen)
+            OnPropertyChanged(nameof(ResultsWindowOpen));
+    }
+
+    public void CloseResults()
+    {
+        if (!_resultsWindowOpen)
+            return;
+        _resultsWindowOpen = false;
+        OnPropertyChanged(nameof(ResultsWindowOpen));
+    }
 
     public string FindWhat
     {
@@ -334,6 +364,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         });
         CurrentResult = null;
         Tick();
+        OpenResults();
     }
 
     public void FindNext()
@@ -629,6 +660,12 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         }
 
         OnPropertyChanged(nameof(ResultCount));
+    }
+
+    private void OpenResults()
+    {
+        _resultsWindowOpen = true;
+        OnPropertyChanged(nameof(ResultsWindowOpen));
     }
 
     private void ExpandResults()

@@ -21,4 +21,10 @@ public partial class FindWindow : Window
         if (DataContext is ViewerModel model)
             model.FindNext();
     }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        DataContext = null;
+        base.OnClosed(e);
+    }
 }

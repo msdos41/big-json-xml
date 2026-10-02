@@ -101,6 +101,7 @@ public partial class ResultsWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        DataContext = null;
         if (_watched is not null)
             _watched.PropertyChanged -= ModelChanged;
         base.OnClosed(e);
