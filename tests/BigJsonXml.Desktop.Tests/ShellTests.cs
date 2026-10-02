@@ -49,16 +49,91 @@ public class ShellTests
         var nestedField = nested.Rows.Single(row => row.Name == "x" && row.Value == "1");
         Assert.True(nestedField.Y >= openEntry.Y + ViewerSession.RowHeight);
 
-        model.Query = "beta";
-        model.Search();
-        var hit = Assert.Single(model.Hits);
-        model.Reveal(hit);
+        model.FindWhat = "beta";
+        model.FindAll();
+        var hit = Assert.Single(model.Results);
+        model.ChooseResult(hit);
         Assert.Contains(model.Rows, row => row.IsMarked);
         Assert.Equal("Complete", model.Status);
 
-        model.ChooseHit(null);
+        model.ChooseResult(null);
         Assert.DoesNotContain(model.Rows, row => row.IsMarked);
-        Assert.Same(hit, Assert.Single(model.Hits));
+        Assert.Same(hit, Assert.Single(model.Results));
+    }
+
+    [Fact]
+    public void The_find_and_results_windows_list_a_hit_and_choosing_it_marks_the_cell()
+    {
+        var path = Write("<root><item>alpha</item><item>beta</item></root>");
+        using var model = new ViewerModel();
+        Assert.True(model.FindWindowOpen);
+        Assert.True(model.ResultsWindowOpen);
+        model.OpenPath(path);
+
+        model.FindWhat = "";
+        model.FindAll();
+        Assert.Empty(model.Results);
+        Assert.Equal(0, model.ResultCount);
+        Assert.DoesNotContain(model.Rows, row => row.IsMarked);
+
+        model.FindWhat = "beta";
+        model.ResultWidth = 40;
+        model.FindAll();
+        var row = Assert.Single(model.Results);
+        Assert.Equal(1, model.ResultCount);
+        Assert.Equal("beta", row.Text);
+        Assert.Equal(0, row.MarkStart);
+        Assert.Equal(4, row.MarkLength);
+        Assert.Equal("beta", row.Match);
+        Assert.Equal("/root/item[2]/#text", row.Path);
+        Assert.DoesNotContain(model.Rows, row => row.IsMarked);
+
+        model.FindWhat = row.Path;
+        model.FindAll();
+        Assert.Empty(model.Results);
+        Assert.DoesNotContain(model.Rows, row => row.IsMarked);
+
+        model.FindWhat = "beta";
+        model.FindAll();
+        model.ChooseResult(Assert.Single(model.Results));
+        Assert.Contains(model.Rows, row => row.IsMarked && row.Path.Equals(model.Results[0].Hit.Path));
+        Assert.Equal(0, model.Results[0].MarkStart);
+
+        var body = new string('a', 40) + "NEEDLE" + new string('b', 40);
+        var wide = Write($"<root><note>{body}</note></root>");
+        model.OpenPath(wide);
+        model.ResultWidth = 10;
+        model.FindWhat = "NEEDLE";
+        model.FindAll();
+        var window = Assert.Single(model.Results);
+        Assert.Equal(10, window.Text.Length);
+        Assert.Equal("NEEDLE", window.Text.Substring(window.MarkStart, window.MarkLength));
+        Assert.Equal("/root/note", window.Path);
+    }
+
+    [Fact]
+    public void Results_grow_while_the_scan_is_still_reading()
+    {
+        var source = new MemoryByteSource();
+        source.Append("<root><item>findme</item>");
+        using var model = new ViewerModel();
+        model.Open(source);
+        model.FindWhat = "findme";
+        model.FindAll();
+
+        Assert.Equal("Scanning", model.Status);
+        Assert.Equal(1, model.ResultCount);
+        Assert.Equal("findme", Assert.Single(model.Results).Text);
+
+        source.Append("<item>later</item><item>findme</item></root>");
+        source.Complete();
+        for (var i = 0; i < 40 && model.Status == "Scanning"; i++)
+            model.Tick();
+
+        Assert.Equal("Complete", model.Status);
+        Assert.Equal(2, model.ResultCount);
+        Assert.Equal("/root/item[1]/#text", model.Results[0].Path);
+        Assert.Equal("/root/item[3]/#text", model.Results[1].Path);
     }
 
     [Fact]
