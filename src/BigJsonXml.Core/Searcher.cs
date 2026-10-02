@@ -69,6 +69,7 @@ internal sealed class Searcher
             if (ev.Attributes.Count > 0)
                 root.SawAttribute = true;
             _stack.Push(root);
+            SearchDisplayedName(root.Path, ev.Name, element: true);
             SearchAttributes(root, ev);
             if (ev.Empty)
                 OnEnd();
@@ -97,6 +98,7 @@ internal sealed class Searcher
         };
         parent.SawElement = true;
         _stack.Push(frame);
+        SearchDisplayedName(frame.Path, display, element: true);
         SearchAttributes(frame, ev);
         if (ev.Empty)
             OnEnd();
@@ -126,8 +128,10 @@ internal sealed class Searcher
     {
         foreach (var attr in ev.Attributes)
         {
-            var path = frame.Path.Field("@" + attr.Name);
-            SearchValue(path, "@" + attr.Name, attribute: true, attr.Ns, attr.Local, frame.Scope, [attr.Value], simple: false);
+            var shown = "@" + attr.Name;
+            var path = frame.Path.Field(shown);
+            SearchDisplayedName(path, shown, element: false);
+            SearchValue(path, shown, attribute: true, attr.Ns, attr.Local, frame.Scope, [attr.Value], simple: false);
         }
     }
 
@@ -165,10 +169,63 @@ internal sealed class Searcher
         List<TextPiece> pieces,
         bool simple)
     {
-        if (_search.FindWhat.Length == 0)
+        if (!_search.Value || _search.FindWhat.Length == 0)
             return;
         var length = _search.FindWhat.Length;
         ExpandedText.Match(_document, pieces, _search, offset => Add(path, offset, length, simpleText: simple, fieldOnSimple: false));
+    }
+
+    private void SearchDisplayedName(DocumentPath path, string displayed, bool element)
+    {
+        if (element)
+        {
+            if (!_search.ElementName)
+                return;
+        }
+        else if (!_search.AttributeName)
+        {
+            return;
+        }
+
+        var needle = _search.FindWhat;
+        if (needle.Length == 0 || displayed.Length == 0)
+            return;
+        var comparison = _search.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        if (_search.EntireCell)
+        {
+            if (displayed.Equals(needle, comparison))
+                AddName(path, 0, needle.Length, displayed);
+            return;
+        }
+
+        if (_search.StartsWith)
+        {
+            if (displayed.StartsWith(needle, comparison))
+                AddName(path, 0, needle.Length, displayed);
+            return;
+        }
+
+        var from = 0;
+        while (from <= displayed.Length - needle.Length)
+        {
+            var found = displayed.IndexOf(needle, from, comparison);
+            if (found < 0)
+                return;
+            AddName(path, found, needle.Length, displayed);
+            from = found + 1;
+        }
+    }
+
+    private void AddName(DocumentPath path, int offset, int matchLength, string name)
+    {
+        var hit = new Hit(offset, matchLength)
+        {
+            OnName = true,
+            NameText = name,
+        };
+        foreach (var step in path.Steps)
+            hit.Steps.Add(step);
+        _hits.Add(hit);
     }
 
     private void Add(DocumentPath path, int offset, int matchLength, bool simpleText, bool fieldOnSimple)

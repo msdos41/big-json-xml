@@ -310,6 +310,7 @@ internal sealed class XmlParser
         if (_inputs.Count == 0 && !_hasLow && _document.Encoding.CodePage == 65001 && TryPlainMarkup(out var plain))
             return plain;
         var startByte = _byte;
+        var markup = Save();
         if (!ReadChar(out _))
             return SignalEvent();
         if (!TryPeek(out var c))
@@ -320,6 +321,8 @@ internal sealed class XmlParser
             return ReadBang();
         if (c == '?')
         {
+            // '<' is already consumed. The instruction reader expects the whole '<?'.
+            Restore(markup);
             if (!SkipProcessingInstruction(declare: false))
                 return SignalEvent();
             return ReadContent();

@@ -247,6 +247,8 @@ public sealed partial class ViewerSession : IDisposable
         ArgumentNullException.ThrowIfNull(hit);
         if (characterWidth < 1)
             characterWidth = 1;
+        if (hit.OnName)
+            return NameHitText(hit.NameText, hit.CharacterOffset, hit.MatchLength, characterWidth);
         var pieces = Pieces(hit.Path);
         var length = ExpandedText.Count(_document, pieces);
         if (length <= characterWidth)
@@ -275,6 +277,15 @@ public sealed partial class ViewerSession : IDisposable
         if (mark + length > text.Length)
             length = text.Length - mark;
         return new HitText(text, mark, length);
+    }
+
+    private static HitText NameHitText(string name, int offset, int matchLength, int characterWidth)
+    {
+        if (name.Length <= characterWidth)
+            return ClipMark(name, offset, matchLength);
+        var start = Place(offset, matchLength, name.Length, characterWidth);
+        var count = Math.Min(characterWidth, name.Length - start);
+        return ClipMark(name.Substring(start, count), offset - start, matchLength);
     }
 
     public void ClearMark()
@@ -494,6 +505,18 @@ public sealed partial class ViewerSession : IDisposable
         return slot.Text;
     }
 
+    private bool TryScalar(DocumentPath path, out List<TextPiece> pieces)
+    {
+        pieces = [];
+        if (path.Steps.Count == 0)
+            return false;
+        var (_, slot) = Locate(path);
+        if (slot.Kind != SlotKind.Scalar)
+            return false;
+        pieces = slot.Text;
+        return true;
+    }
+
     private void Mark(DocumentPath path, Hit hit)
     {
         if (Marked is DocumentPath previous && !previous.Equals(path) && _chrome.TryGetValue(previous, out var old))
@@ -503,7 +526,17 @@ public sealed partial class ViewerSession : IDisposable
         }
 
         Marked = path;
-        var pieces = Pieces(path);
+        if (hit.OnName || !TryScalar(path, out var pieces))
+        {
+            if (_chrome.TryGetValue(path, out var named))
+            {
+                named.WindowStart = 0;
+                named.HitOffset = null;
+            }
+
+            return;
+        }
+
         var length = ExpandedText.Count(_document, pieces);
         var capacity = Capacity(ScalarWidth(path));
         var matchLength = Math.Max(1, hit.MatchLength);

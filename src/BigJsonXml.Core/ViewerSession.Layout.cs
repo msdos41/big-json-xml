@@ -273,9 +273,9 @@ public sealed partial class ViewerSession
         }
 
         Emit(
-            emit, null, x, top, indexWidth, entryHeight, clipRight,
+            emit, seek, x, top, indexWidth, entryHeight, clipRight,
             (zeroBased + 1).ToString(CultureInfo.InvariantCulture), null,
-            false, false, false, entryPath, SurfaceKind.EntryIndex,
+            false, false, Marks(entryPath), entryPath, SurfaceKind.EntryIndex,
             false, false, WidthAxis.None, null, null);
 
         for (var i = 0; i < count; i++)
@@ -545,7 +545,7 @@ public sealed partial class ViewerSession
     {
         if (seek is null || seek.Found || !seek.Path.Equals(path))
             return;
-        if (kind is not (SurfaceKind.Field or SurfaceKind.Entry or SurfaceKind.ValueLine))
+        if (kind is not (SurfaceKind.Field or SurfaceKind.Entry or SurfaceKind.ValueLine or SurfaceKind.EntryIndex))
             return;
         seek.Found = true;
         seek.X = x;

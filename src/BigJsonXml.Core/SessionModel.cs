@@ -104,6 +104,8 @@ public sealed class Hit
     internal readonly List<DocumentPath.Step> Steps = [];
     internal bool SimpleText;
     internal bool FieldOnSimple;
+    internal bool OnName;
+    internal string NameText = "";
 
     public Hit(int characterOffset, int matchLength)
     {
