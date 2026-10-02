@@ -11,6 +11,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private ViewerSession? _session;
     private string _findWhat = "";
     private bool _matchCase = true;
+    private bool _elementName = true;
+    private bool _attributeName = true;
+    private bool _value = true;
     private bool _startsWith;
     private bool _entireCell;
     private int _resultWidth = 40;
@@ -48,6 +51,24 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         get => _matchCase;
         set => Set(ref _matchCase, value);
+    }
+
+    public bool ElementName
+    {
+        get => _elementName;
+        set => Set(ref _elementName, value);
+    }
+
+    public bool AttributeName
+    {
+        get => _attributeName;
+        set => Set(ref _attributeName, value);
+    }
+
+    public bool Value
+    {
+        get => _value;
+        set => Set(ref _value, value);
     }
 
     public bool StartsWith
@@ -217,6 +238,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         {
             FindWhat = _findWhat,
             MatchCase = _matchCase,
+            ElementName = _elementName,
+            AttributeName = _attributeName,
+            Value = _value,
             StartsWith = _startsWith,
             EntireCell = _entireCell,
         });

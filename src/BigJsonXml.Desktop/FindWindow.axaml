@@ -13,6 +13,9 @@
     <TextBlock Text="Find what"/>
     <TextBox Text="{Binding FindWhat}" PlaceholderText="Find what"/>
     <CheckBox Content="Match case" IsChecked="{Binding MatchCase}"/>
+    <CheckBox Content="Element name" IsChecked="{Binding ElementName}"/>
+    <CheckBox Content="Attribute name" IsChecked="{Binding AttributeName}"/>
+    <CheckBox Content="Value" IsChecked="{Binding Value}"/>
     <CheckBox Content="Start with" IsChecked="{Binding StartsWith}"/>
     <CheckBox Content="Entire cell" IsChecked="{Binding EntireCell}"/>
     <Button Content="Find All" HorizontalAlignment="Left" Click="FindAllClicked"/>
