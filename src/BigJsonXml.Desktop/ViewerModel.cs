@@ -9,7 +9,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     public const int ScanSliceMilliseconds = 32;
     public const int ScanIdleMilliseconds = 16;
     private ViewerSession? _session;
-    private string _query = "";
+    private string _findWhat = "";
+    private int _resultWidth = 40;
+    private int _builtWidth = -1;
     private string _status = "No document";
     private string _error = "";
     private double _scrollX;
@@ -22,18 +24,40 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private double _viewportHeight = 600;
     private bool _refreshing;
     private bool _rebuild;
-    private bool _adjustingHits;
+    private bool _adjustingResults;
     private IReadOnlyList<SurfaceRow> _rows = [];
-    private readonly ObservableCollection<Hit> _hits = [];
+    private readonly ObservableCollection<FindResult> _results = [];
     private CellSelection? _selection;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public string Query
+    public bool FindWindowOpen => true;
+
+    public bool ResultsWindowOpen => true;
+
+    public string FindWhat
     {
-        get => _query;
-        set => Set(ref _query, value);
+        get => _findWhat;
+        set => Set(ref _findWhat, value);
     }
+
+    public int ResultWidth
+    {
+        get => _resultWidth;
+        set
+        {
+            if (value < 1)
+                value = 1;
+            if (_resultWidth == value)
+                return;
+            _resultWidth = value;
+            OnPropertyChanged();
+            if (_session is not null && !_refreshing)
+                Refresh();
+        }
+    }
+
+    public int ResultCount => _results.Count;
 
     public string Status
     {
@@ -101,7 +125,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         private set => Set(ref _rows, value);
     }
 
-    public IReadOnlyList<Hit> Hits => _hits;
+    public IReadOnlyList<FindResult> Results => _results;
 
     public CellSelection? Selection
     {
@@ -111,11 +135,20 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     public void OpenPath(string path)
     {
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 20, FileOptions.SequentialScan);
+        Open(new StreamByteSource(stream));
+    }
+
+    public void Open(IByteSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
         _session?.Dispose();
-        _session = ViewerSession.Open(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 20, FileOptions.SequentialScan));
+        _session = ViewerSession.Open(source);
         _scrollX = 0;
         _scrollY = 0;
         Selection = null;
+        _builtWidth = -1;
+        ReplaceResults();
         Tick();
     }
 
@@ -155,9 +188,11 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         Refresh();
     }
 
-    public void Search()
+    public void FindAll()
     {
-        _session?.Search(_query);
+        if (_session is null)
+            return;
+        _session.Search(new TextSearch { FindWhat = _findWhat });
         Tick();
     }
 
@@ -173,14 +208,14 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(ScrollY));
     }
 
-    public void ChooseHit(Hit? hit)
+    public void ChooseResult(FindResult? result)
     {
-        if (_adjustingHits || _session is null)
+        if (_adjustingResults || _session is null)
             return;
-        if (hit is null)
+        if (result is null)
             ClearMark();
         else
-            Reveal(hit);
+            Reveal(result.Hit);
     }
 
     public void ClearMark()
@@ -312,7 +347,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
                 }
 
                 Rows = frame.Rows;
-                SyncHits();
+                SyncResults();
                 ContentWidth = frame.ContentWidth;
                 ContentHeight = frame.ContentHeight;
                 if (clamped)
@@ -348,37 +383,65 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         return _session.ReadSurface();
     }
 
-    private void SyncHits()
+    private void SyncResults()
     {
         var next = _session!.Hits;
-        if (IsPrefix(next))
+        if (_resultWidth == _builtWidth && IsPrefix(next))
         {
-            for (var i = _hits.Count; i < next.Count; i++)
-                _hits.Add(next[i]);
+            for (var i = 0; i < _results.Count; i++)
+                _results[i].RevisePath(_session.FormatPath(next[i].Path));
+            var grown = false;
+            for (var i = _results.Count; i < next.Count; i++)
+            {
+                _results.Add(Describe(next[i]));
+                grown = true;
+            }
+
+            if (grown)
+                OnPropertyChanged(nameof(ResultCount));
             return;
         }
 
+        ReplaceResults(next);
+    }
+
+    private void ReplaceResults(IReadOnlyList<Hit>? next = null)
+    {
+        next ??= _session?.Hits ?? [];
         // Replacing the list raises selection changes that are not a new choice.
-        _adjustingHits = true;
+        _adjustingResults = true;
         try
         {
-            _hits.Clear();
-            foreach (var hit in next)
-                _hits.Add(hit);
+            _results.Clear();
+            if (_session is not null)
+            {
+                foreach (var hit in next)
+                    _results.Add(Describe(hit));
+            }
+
+            _builtWidth = _resultWidth;
         }
         finally
         {
-            _adjustingHits = false;
+            _adjustingResults = false;
         }
+
+        OnPropertyChanged(nameof(ResultCount));
+    }
+
+    private FindResult Describe(Hit hit)
+    {
+        var text = _session!.ReadHitText(hit, _resultWidth);
+        return new FindResult(hit, text.Text, text.MarkStart, text.MarkLength, _session.FormatPath(hit.Path));
     }
 
     private bool IsPrefix(IReadOnlyList<Hit> next)
     {
-        if (_hits.Count > next.Count)
+        if (_results.Count > next.Count)
             return false;
-        for (var i = 0; i < _hits.Count; i++)
+        for (var i = 0; i < _results.Count; i++)
         {
-            if (!ReferenceEquals(_hits[i], next[i]))
+            if (!ReferenceEquals(_results[i].Hit, next[i]))
                 return false;
         }
 

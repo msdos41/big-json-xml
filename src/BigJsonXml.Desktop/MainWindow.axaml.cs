@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -10,6 +11,8 @@ public partial class MainWindow : Window
 {
     private readonly ViewerModel _model = new();
     private readonly DispatcherTimer _timer;
+    private FindWindow? _find;
+    private ResultsWindow? _results;
 
     public MainWindow()
     {
@@ -18,6 +21,19 @@ public partial class MainWindow : Window
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ViewerModel.ScanIdleMilliseconds) };
         _timer.Tick += (_, _) => _model.Tick();
         _timer.Start();
+    }
+
+    protected override void OnOpened(EventArgs e)
+    {
+        base.OnOpened(e);
+        if (_find is not null)
+            return;
+        _find = new FindWindow { DataContext = _model };
+        _results = new ResultsWindow { DataContext = _model };
+        _find.Show(this);
+        _results.Show(this);
+        _find.Position = new PixelPoint(Position.X + 32, Position.Y + 72);
+        _results.Position = new PixelPoint(Position.X + 420, Position.Y + 72);
     }
 
     private async void OpenClicked(object? sender, RoutedEventArgs e)
@@ -37,31 +53,20 @@ public partial class MainWindow : Window
             _model.OpenPath(path);
     }
 
-    private void SearchClicked(object? sender, RoutedEventArgs e) => _model.Search();
-
-    private void HitSelected(object? sender, SelectionChangedEventArgs e)
-    {
-        if (e.AddedItems.Count > 0 && e.AddedItems[0] is Hit hit)
-            _model.ChooseHit(hit);
-        else if (e.RemovedItems.Count > 0)
-            _model.ChooseHit(null);
-    }
-
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
         if (e.Key != Key.Escape)
             return;
-        if (HitList.SelectedItem is not null)
-            HitList.SelectedItem = null;
-        else
-            _model.ClearMark();
+        _model.ClearMark();
         e.Handled = true;
     }
 
     protected override void OnClosed(EventArgs e)
     {
         _timer.Stop();
+        _find?.Close();
+        _results?.Close();
         _model.Dispose();
         base.OnClosed(e);
     }
