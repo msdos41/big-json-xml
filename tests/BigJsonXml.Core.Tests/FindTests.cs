@@ -80,4 +80,102 @@ public class FindTests
         Assert.Equal(10, window.Text.Length);
         Assert.Equal("NEEDLE", window.Text.Substring(window.MarkStart, window.MarkLength));
     }
+
+    [Fact]
+    public void Match_case_start_with_and_entire_cell_follow_one_switch()
+    {
+        var session = SessionFixture.Scan("""
+            <root>
+              <note>hello world</note>
+              <pad>a </pad>
+              <star>a*b</star>
+              <code>RTM=123</code>
+            </root>
+            """);
+
+        session.Search(new TextSearch { FindWhat = "World" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "World", MatchCase = false });
+        session.PumpAll();
+        Assert.Equal(6, Assert.Single(session.Hits).CharacterOffset);
+
+        session.Search(new TextSearch { FindWhat = "HELLO", StartsWith = true, MatchCase = false });
+        session.PumpAll();
+        Assert.Equal("/root/note", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "world", StartsWith = true });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "123", EntireCell = true });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "RTM=123", EntireCell = true });
+        session.PumpAll();
+        Assert.Equal("/root/code", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "hello", StartsWith = true, EntireCell = true });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "HELLO WORLD", EntireCell = true, MatchCase = false });
+        session.PumpAll();
+        Assert.Single(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "a ", EntireCell = true });
+        session.PumpAll();
+        Assert.Equal("/root/pad", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "a", EntireCell = true });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "a*b", EntireCell = true });
+        session.PumpAll();
+        Assert.Equal("/root/star", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "*", EntireCell = true });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+    }
+
+    [Fact]
+    public void A_match_past_the_visible_window_still_counts_without_one_string()
+    {
+        var body = new string('a', 80) + "NEEDLE" + new string('b', 80);
+        var session = SessionFixture.Scan($"<root><note>{body}</note></root>");
+        var note = DocumentPath.Root.Field("note");
+        Assert.DoesNotContain("NEEDLE", session.ReadScalar(note).Text, StringComparison.Ordinal);
+
+        session.Search(new TextSearch { FindWhat = "NEEDLE" });
+        session.PumpAll();
+        Assert.Single(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "NEEDLE", EntireCell = true });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = body, EntireCell = true });
+        session.PumpAll();
+        Assert.Single(session.Hits);
+
+        var huge = new string('q', 1_500_000) + "Zz";
+        var wide = SessionFixture.Scan($"<root><note>{huge}</note></root>");
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        wide.Search(new TextSearch { FindWhat = "zz", MatchCase = false });
+        wide.PumpAll();
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(1_500_000, Assert.Single(wide.Hits).CharacterOffset);
+        Assert.True(allocated < 1_000_000, $"allocated {allocated} bytes");
+
+        before = GC.GetAllocatedBytesForCurrentThread();
+        wide.Search(new TextSearch { FindWhat = "nope", EntireCell = true });
+        wide.PumpAll();
+        allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Empty(wide.Hits);
+        Assert.True(allocated < 1_000_000, $"allocated {allocated} bytes");
+    }
 }
