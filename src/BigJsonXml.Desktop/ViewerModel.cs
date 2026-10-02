@@ -11,6 +11,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private ViewerSession? _session;
     private string _findWhat = "";
     private string _fieldName = "";
+    private string _parentElementName = "";
+    private string _grandfatherElementName = "";
+    private string _parentAttributeName = "";
     private bool _matchCase = true;
     private bool _elementName = true;
     private bool _attributeName = true;
@@ -52,6 +55,24 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         get => _fieldName;
         set => Set(ref _fieldName, value);
+    }
+
+    public string ParentElementName
+    {
+        get => _parentElementName;
+        set => Set(ref _parentElementName, value);
+    }
+
+    public string GrandfatherElementName
+    {
+        get => _grandfatherElementName;
+        set => Set(ref _grandfatherElementName, value);
+    }
+
+    public string ParentAttributeName
+    {
+        get => _parentAttributeName;
+        set => Set(ref _parentAttributeName, value);
     }
 
     public bool MatchCase
@@ -246,6 +267,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             FindWhat = _findWhat,
             MatchCase = _matchCase,
             FieldName = _fieldName,
+            ParentElementName = _parentElementName,
+            GrandfatherElementName = _grandfatherElementName,
+            ParentAttributeName = _parentAttributeName,
             ElementName = _elementName,
             AttributeName = _attributeName,
             Value = _value,

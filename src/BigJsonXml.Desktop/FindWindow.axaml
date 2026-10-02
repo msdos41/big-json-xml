@@ -14,6 +14,12 @@
     <TextBox Text="{Binding FindWhat}" PlaceholderText="Find what"/>
     <TextBlock Text="Field name"/>
     <TextBox Text="{Binding FieldName}" PlaceholderText="Field name"/>
+    <TextBlock Text="Parent element name"/>
+    <TextBox Text="{Binding ParentElementName}" PlaceholderText="Parent element name"/>
+    <TextBlock Text="Grandfather element name"/>
+    <TextBox Text="{Binding GrandfatherElementName}" PlaceholderText="Grandfather element name"/>
+    <TextBlock Text="Parent attribute name"/>
+    <TextBox Text="{Binding ParentAttributeName}" PlaceholderText="Parent attribute name"/>
     <CheckBox Content="Match case" IsChecked="{Binding MatchCase}"/>
     <CheckBox Content="Element name" IsChecked="{Binding ElementName}"/>
     <CheckBox Content="Attribute name" IsChecked="{Binding AttributeName}"/>
