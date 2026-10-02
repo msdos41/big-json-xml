@@ -1,11 +1,13 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.VisualTree;
 
 namespace BigJsonXml.Desktop.Tests;
 
@@ -775,6 +777,125 @@ public class ShellTests
         Assert.NotEmpty(rects);
         Assert.True(rects[0].Width > 0);
         Assert.Equal(1, CellText.IndexAt(text, rects[0].X + 0.25));
+    }
+
+    [Fact]
+    public void Results_group_under_the_open_document_and_collapse()
+    {
+        var path = Write("<root><item>alpha</item><item>beta</item></root>");
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        var document = Assert.Single(model.ResultDocuments);
+        Assert.Equal(path, document.Path);
+        Assert.True(document.IsExpanded);
+        Assert.Equal("\u2212", document.Glyph);
+        Assert.Equal("0 matches", document.MatchLabel);
+        Assert.IsType<ResultDocumentLine>(Assert.Single(model.VisibleResults));
+
+        model.FindWhat = "item";
+        model.FindAll();
+        Assert.Equal(2, model.ResultCount);
+        Assert.Equal("2 matches", document.MatchLabel);
+        Assert.Equal(3, model.VisibleResults.Count);
+        Assert.IsType<ResultDocumentLine>(model.VisibleResults[0]);
+        Assert.Equal("item", Assert.IsType<ResultHitLine>(model.VisibleResults[1]).Result.Text);
+        Assert.Equal("item", Assert.IsType<ResultHitLine>(model.VisibleResults[2]).Result.Text);
+
+        model.ToggleResultDocument(document);
+        Assert.False(document.IsExpanded);
+        Assert.Equal("+", document.Glyph);
+        Assert.Single(model.VisibleResults);
+        Assert.Equal(2, model.ResultCount);
+
+        model.FindNext();
+        Assert.True(document.IsExpanded);
+        Assert.Equal("\u2212", document.Glyph);
+        Assert.Same(model.Results[0], model.CurrentResult);
+        Assert.Contains(model.VisibleResults, line => line is ResultHitLine hit && ReferenceEquals(hit.Result, model.CurrentResult) && hit.IsCurrent);
+
+        var other = Write("<root><item>gamma</item></root>");
+        model.OpenPath(other);
+        document = Assert.Single(model.ResultDocuments);
+        Assert.Equal(other, document.Path);
+        Assert.True(document.IsExpanded);
+        Assert.Equal("0 matches", document.MatchLabel);
+        Assert.Empty(model.Results);
+        Assert.IsType<ResultDocumentLine>(Assert.Single(model.VisibleResults));
+    }
+
+    [Fact]
+    public void A_source_without_a_path_still_groups_its_hits()
+    {
+        var source = new MemoryByteSource();
+        source.Append("<root><item>findme</item></root>");
+        source.Complete();
+        using var model = new ViewerModel();
+        model.Open(source);
+        var document = Assert.Single(model.ResultDocuments);
+        Assert.Equal("", document.Path);
+        model.FindWhat = "findme";
+        model.FindAll();
+        Assert.Equal("1 match", document.MatchLabel);
+        var hit = Assert.IsType<ResultHitLine>(model.VisibleResults[1]);
+        Assert.Equal("findme", hit.Result.Text);
+        Assert.Equal("/root/item", hit.Result.Path);
+    }
+
+    [Fact]
+    public void The_found_column_keeps_a_width_and_refits_a_long_value()
+    {
+        using var fresh = new ViewerModel();
+        Assert.Equal(40 * ViewerSession.Advance + ViewerModel.FoundColumnPadding, fresh.FoundColumnWidth);
+        fresh.SetFoundColumnWidth(500);
+        Assert.Equal(500, fresh.FoundColumnWidth);
+        fresh.SetFoundColumnWidth(1);
+        Assert.Equal(ViewerModel.FoundColumnMin, fresh.FoundColumnWidth);
+        fresh.SetFoundColumnWidth(9000);
+        Assert.Equal(ViewerModel.FoundColumnMax, fresh.FoundColumnWidth);
+
+        var body = new string('a', 80) + "NEEDLE";
+        var path = Write($"<root><note>{body}</note></root>");
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        model.FindWhat = "NEEDLE";
+        model.FindAll();
+        var wide = Assert.Single(model.Results);
+        Assert.Equal(40, wide.Text.Length);
+        Assert.Contains("NEEDLE", wide.Text, StringComparison.Ordinal);
+
+        model.SetFoundColumnWidth(ViewerModel.FoundColumnMin);
+        model.ApplyFoundColumnWidth();
+        var narrow = Assert.Single(model.Results);
+        Assert.True(narrow.Text.Length < wide.Text.Length);
+        Assert.Contains("NEEDLE", narrow.Text, StringComparison.Ordinal);
+        Assert.Equal("/root/note", narrow.Path);
+    }
+
+    [Fact]
+    public void The_results_table_names_both_columns_and_uses_the_found_width()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var path = Write("<root><item>alpha</item></root>");
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        model.FindWhat = "alpha";
+        model.FindAll();
+        model.SetFoundColumnWidth(180);
+
+        var window = new ResultsWindow { DataContext = model, Width = 760, Height = 420 };
+        window.Measure(new Size(760, 420));
+        window.Arrange(new Rect(0, 0, 760, 420));
+
+        var blocks = window.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text).ToList();
+        Assert.Contains("Found", blocks);
+        Assert.Contains("XPath", blocks);
+        Assert.Contains("1 match", blocks);
+        Assert.Contains(path, blocks);
+        var header = window.GetVisualDescendants().OfType<Grid>().Single(candidate => candidate.Name == "HeaderGrid");
+        Assert.Equal(GridUnitType.Pixel, header.ColumnDefinitions[1].Width.GridUnitType);
+        Assert.Equal(180, header.ColumnDefinitions[1].Width.Value);
     }
 
     private static bool Dark(RenderTargetBitmap bitmap, int x, int y)
