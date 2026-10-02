@@ -329,4 +329,93 @@ public class FindTests
         Assert.Equal(0, scalar.WindowStart);
         Assert.StartsWith("xxxx", scalar.Text, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Field_name_limits_the_hit_to_the_displayed_name()
+    {
+        var session = SessionFixture.Scan("""
+            <root xmlns:a="urn:ex" xmlns:b="urn:ex">
+              <Extended_covering>
+                <Start_node>RTM=123</Start_node>
+              </Extended_covering>
+              <Start_node id="x">RTM=123</Start_node>
+              <a:item>one</a:item>
+              <b:item>two</b:item>
+              <b:note>two</b:note>
+              <box id="2" extra="20"/>
+              <pad>a </pad>
+            </root>
+            """);
+
+        session.Search(new TextSearch { FindWhat = "123" });
+        session.PumpAll();
+        Assert.Equal(2, session.Hits.Count);
+
+        session.Search(new TextSearch { FindWhat = "123", FieldName = "Start_node" });
+        session.PumpAll();
+        var simple = Assert.Single(session.Hits);
+        Assert.Equal("/root/Extended_covering/Start_node", session.FormatPath(simple.Path));
+        Assert.Equal(4, simple.CharacterOffset);
+
+        session.Search(new TextSearch { FindWhat = "123", FieldName = "start_node" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "123", FieldName = "start_node", MatchCase = false });
+        session.PumpAll();
+        Assert.Equal("/root/Extended_covering/Start_node", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "123", FieldName = "#text" });
+        session.PumpAll();
+        Assert.Equal("/root/Start_node/#text", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "123", FieldName = "Start_node", EntireCell = true });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "RTM=123", FieldName = "Start_node", EntireCell = true });
+        session.PumpAll();
+        Assert.Equal("/root/Extended_covering/Start_node", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "one", FieldName = "#text", EntireCell = true });
+        session.PumpAll();
+        Assert.Equal("/root/a:item[1]/#text", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "two", FieldName = "#text", EntireCell = true });
+        session.PumpAll();
+        Assert.Equal("/root/a:item[2]/#text", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "two", FieldName = "b:note", EntireCell = true });
+        session.PumpAll();
+        Assert.Equal("/root/b:note", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "two", FieldName = "a:note", EntireCell = true });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "2", FieldName = "@id", EntireCell = true });
+        session.PumpAll();
+        Assert.Equal("/root/box/@id", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "2", FieldName = "id", EntireCell = true });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "2", FieldName = "@ID", EntireCell = true, MatchCase = false });
+        session.PumpAll();
+        Assert.Equal("/root/box/@id", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "a ", FieldName = "pad", EntireCell = true });
+        session.PumpAll();
+        Assert.Single(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "a", FieldName = "pad", EntireCell = true });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        var plain = SessionFixture.Scan("""<root xmlns="urn:ex"><item>one</item></root>""");
+        plain.Search(new TextSearch { FindWhat = "one", FieldName = "item", EntireCell = true });
+        plain.PumpAll();
+        Assert.Equal("/root/item", plain.FormatPath(Assert.Single(plain.Hits).Path));
+    }
 }

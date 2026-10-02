@@ -212,7 +212,7 @@ public class LargeScanTimeTests
             Assert.True(clock.Elapsed.TotalSeconds < 3, $"Text search took {clock.Elapsed.TotalSeconds:F2} s.");
 
             clock.Restart();
-            session.Search(new TextSearch { FindWhat = "NEEDLE" });
+            session.Search(new TextSearch { FindWhat = "NEEDLE", FieldName = "value" });
             session.PumpAll();
             clock.Stop();
             var fieldHit = Assert.Single(session.Hits);
