@@ -12,6 +12,10 @@ _Avoid_: File (when you mean the opened XML), payload, dump, editor buffer
 The one forward reading of a document, during which the viewer is scanning. It leaves an outline, and it ends when the end of the document is reached.
 _Avoid_: Index, import, load, parse
 
+**Scan fraction**:
+How far the scan has read, as the bytes already reached divided by the document's length. It exists only while that length is fixed.
+_Avoid_: Progress, percent complete, load progress
+
 **Outline**:
 What the scan keeps of an element: each field's name and kind, and for a list field its count, columns, and enough to open any entry without reading the other entries. A closed record has an outline and no second copy of that element.
 _Avoid_: DOM, tree, cache, body
