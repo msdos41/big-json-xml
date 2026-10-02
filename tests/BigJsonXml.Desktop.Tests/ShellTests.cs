@@ -112,6 +112,35 @@ public class ShellTests
     }
 
     [Fact]
+    public void Match_case_on_the_find_window_is_passed_to_the_search()
+    {
+        var path = Write("<root><item>beta</item></root>");
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        model.FindWhat = "Beta";
+        model.FindAll();
+        Assert.Empty(model.Results);
+
+        model.MatchCase = false;
+        model.FindAll();
+        Assert.Equal("beta", Assert.Single(model.Results).Text);
+
+        model.MatchCase = true;
+        model.StartsWith = true;
+        model.FindWhat = "b";
+        model.FindAll();
+        Assert.Single(model.Results);
+
+        model.EntireCell = true;
+        model.FindAll();
+        Assert.Empty(model.Results);
+
+        model.FindWhat = "beta";
+        model.FindAll();
+        Assert.Single(model.Results);
+    }
+
+    [Fact]
     public void Results_grow_while_the_scan_is_still_reading()
     {
         var source = new MemoryByteSource();
