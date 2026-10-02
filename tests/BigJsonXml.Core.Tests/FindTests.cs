@@ -524,4 +524,40 @@ public class FindTests
         session.PumpAll();
         Assert.Single(session.Hits);
     }
+
+    [Fact]
+    public void A_promoted_simple_value_uses_the_text_field_parent()
+    {
+        var session = SessionFixture.Scan("""
+            <root id="keep">
+              <item>AAA</item>
+              <item>BBB</item>
+            </root>
+            """);
+
+        session.Search(new TextSearch { FindWhat = "AAA", ParentElementName = "item" });
+        session.PumpAll();
+        Assert.Equal("/root/item[1]/#text", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "AAA", ParentElementName = "root" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "AAA", ParentAttributeName = "@id" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch
+        {
+            FindWhat = "AAA",
+            ParentElementName = "item",
+            GrandfatherElementName = "root",
+        });
+        session.PumpAll();
+        Assert.Equal("/root/item[1]/#text", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "BBB", ParentElementName = "item" });
+        session.PumpAll();
+        Assert.Equal("/root/item[2]/#text", session.FormatPath(Assert.Single(session.Hits).Path));
+    }
 }
