@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Data;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
@@ -145,6 +146,56 @@ public class ShellTests
         model.CloseFind();
         Assert.False(model.FindWindowOpen);
         Assert.False(model.ResultsWindowOpen);
+    }
+
+    [Fact]
+    public void The_find_button_shows_find_and_find_all_can_reopen_results()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var window = new MainWindow();
+        window.Show();
+        try
+        {
+            var model = Assert.IsType<ViewerModel>(window.DataContext);
+            Assert.False(model.FindWindowOpen);
+            Assert.False(model.ResultsWindowOpen);
+
+            Click(window, "Find");
+            Assert.True(model.FindWindowOpen);
+            Assert.False(model.ResultsWindowOpen);
+            var find = Assert.Single(window.OwnedWindows.OfType<FindWindow>(), candidate => candidate.IsVisible);
+
+            var path = Write("<root><item>beta</item></root>");
+            model.OpenPath(path);
+            model.FindWhat = "beta";
+            Click(find, "Find All");
+            Assert.True(model.ResultsWindowOpen);
+            Assert.Equal("beta", Assert.Single(model.Results).Text);
+            var results = VisibleResults(find, window);
+            Assert.Single(results);
+
+            results[0].Close();
+            Assert.True(model.FindWindowOpen);
+            Assert.False(model.ResultsWindowOpen);
+            Assert.Equal("beta", model.FindWhat);
+
+            Click(find, "Find All");
+            Assert.True(model.ResultsWindowOpen);
+            Assert.Equal("beta", Assert.Single(model.Results).Text);
+            Assert.Single(VisibleResults(find, window));
+
+            find.Close();
+            Assert.Equal("beta", model.FindWhat);
+            Assert.False(model.FindWindowOpen);
+            Assert.False(model.ResultsWindowOpen);
+            Assert.Empty(VisibleResults(find, window));
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [Fact]
@@ -948,6 +999,18 @@ public class ShellTests
 
         return pixel[0] < 200 && pixel[1] < 200 && pixel[2] < 200;
     }
+
+    private static void Click(Control root, string content)
+    {
+        var button = root.GetVisualDescendants().OfType<Button>().Single(candidate => Equals(candidate.Content, content));
+        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+    }
+
+    private static List<ResultsWindow> VisibleResults(FindWindow find, Window main) =>
+        find.OwnedWindows.OfType<ResultsWindow>()
+            .Concat(main.OwnedWindows.OfType<ResultsWindow>())
+            .Where(candidate => candidate.IsVisible)
+            .ToList();
 
     private static string Write(string xml)
     {
