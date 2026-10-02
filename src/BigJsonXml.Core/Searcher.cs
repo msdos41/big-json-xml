@@ -69,7 +69,7 @@ internal sealed class Searcher
             if (ev.Attributes.Count > 0)
                 root.SawAttribute = true;
             _stack.Push(root);
-            SearchDisplayedName(root.Path, ev.Name, element: true);
+            SearchDisplayedName(root.Path, ev.Name, element: true, container: null);
             SearchAttributes(root, ev);
             if (ev.Empty)
                 OnEnd();
@@ -95,10 +95,11 @@ internal sealed class Searcher
             Local = ev.Local,
             Index = index,
             SawAttribute = ev.Attributes.Count > 0,
+            Parent = parent,
         };
         parent.SawElement = true;
         _stack.Push(frame);
-        SearchDisplayedName(frame.Path, display, element: true);
+        SearchDisplayedName(frame.Path, display, element: true, container: parent);
         SearchAttributes(frame, ev);
         if (ev.Empty)
             OnEnd();
@@ -129,9 +130,10 @@ internal sealed class Searcher
         foreach (var attr in ev.Attributes)
         {
             var shown = "@" + attr.Name;
+            frame.AttributeNames.Add(shown);
             var path = frame.Path.Field(shown);
-            SearchDisplayedName(path, shown, element: false);
-            SearchValue(path, shown, attribute: true, attr.Ns, attr.Local, frame.Scope, [attr.Value], simple: false);
+            SearchDisplayedName(path, shown, element: false, container: frame);
+            SearchValue(path, shown, attribute: true, attr.Ns, attr.Local, frame.Scope, [attr.Value], simple: false, container: frame);
         }
     }
 
@@ -140,7 +142,7 @@ internal sealed class Searcher
         if (frame.Text.Count == 0)
             return;
         var path = frame.Path.Field("#text");
-        SearchValue(path, "#text", attribute: false, "", "#text", frame.Scope, frame.Text, simple: false);
+        SearchValue(path, "#text", attribute: false, "", "#text", frame.Scope, frame.Text, simple: false, container: frame);
     }
 
     private void SearchSimple(SFrame frame)
@@ -156,7 +158,7 @@ internal sealed class Searcher
             };
         }
 
-        SearchValue(frame.Path, frame.Name, attribute: false, frame.Ns, frame.Local, frame.Scope, frame.Text, simple: true);
+        SearchValue(frame.Path, frame.Name, attribute: false, frame.Ns, frame.Local, frame.Scope, frame.Text, simple: true, container: frame.Parent);
     }
 
     private void SearchValue(
@@ -167,16 +169,17 @@ internal sealed class Searcher
         string local,
         NsScope scope,
         List<TextPiece> pieces,
-        bool simple)
+        bool simple,
+        SFrame? container)
     {
-        if (!_search.Value || _search.FindWhat.Length == 0 || !Allows(name))
+        if (!_search.Value || _search.FindWhat.Length == 0 || !Allows(name) || !Passes(container))
             return;
         var length = _search.FindWhat.Length;
         var dropOnPromote = simple && _search.FieldName.Length > 0;
         ExpandedText.Match(_document, pieces, _search, offset => Add(path, offset, length, simpleText: simple, fieldOnSimple: dropOnPromote));
     }
 
-    private void SearchDisplayedName(DocumentPath path, string displayed, bool element)
+    private void SearchDisplayedName(DocumentPath path, string displayed, bool element, SFrame? container)
     {
         if (element)
         {
@@ -189,7 +192,7 @@ internal sealed class Searcher
         }
 
         var needle = _search.FindWhat;
-        if (needle.Length == 0 || displayed.Length == 0 || !Allows(displayed))
+        if (needle.Length == 0 || displayed.Length == 0 || !Allows(displayed) || !Passes(container))
             return;
         var comparison = _search.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
         if (_search.EntireCell)
@@ -271,7 +274,43 @@ internal sealed class Searcher
         if (_search.FieldName.Length == 0 || !Allows("#text"))
             return;
         var textPath = parent.Path.Field(name, 1).Field("#text");
-        SearchValue(textPath, "#text", attribute: false, "", "#text", pending.Scope, pending.Text, simple: false);
+        var entry = new SFrame { Name = name, Parent = parent };
+        SearchValue(textPath, "#text", attribute: false, "", "#text", pending.Scope, pending.Text, simple: false, container: entry);
+    }
+
+    private bool Passes(SFrame? container)
+    {
+        if (!MatchesName(_search.ParentElementName, container?.Name))
+            return false;
+        if (!MatchesName(_search.GrandfatherElementName, container?.Parent?.Name))
+            return false;
+        return MatchesAttribute(_search.ParentAttributeName, container);
+    }
+
+    private bool MatchesName(string required, string? actual)
+    {
+        if (required.Length == 0)
+            return true;
+        if (actual is null)
+            return false;
+        var comparison = _search.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        return actual.Equals(required, comparison);
+    }
+
+    private bool MatchesAttribute(string required, SFrame? container)
+    {
+        if (required.Length == 0)
+            return true;
+        if (container is null)
+            return false;
+        var comparison = _search.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        foreach (var name in container.AttributeNames)
+        {
+            if (name.Equals(required, comparison))
+                return true;
+        }
+
+        return false;
     }
 
     private bool Allows(string displayedName)
@@ -291,10 +330,12 @@ internal sealed class Searcher
         public string Ns = "";
         public string Local = "";
         public int? Index;
+        public SFrame? Parent;
         public bool SawAttribute;
         public bool SawElement;
         public bool IsSimple => !SawAttribute && !SawElement;
         public List<TextPiece> Text { get; } = [];
+        public List<string> AttributeNames { get; } = [];
         public Dictionary<FieldKey, int> Counts { get; } = [];
         public Dictionary<FieldKey, string> Names { get; } = [];
         public Dictionary<FieldKey, PendingSimple> Pending { get; } = [];
