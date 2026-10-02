@@ -255,23 +255,16 @@ internal sealed class Searcher
             var step = hit.Steps[depth];
             if (step.Name != name || step.OneBasedIndex is not null)
                 continue;
-            if (hit.FieldOnSimple && hit.Steps.Count == depth + 1)
+            if ((hit.FieldOnSimple || hit.SimpleText) && hit.Steps.Count == depth + 1)
             {
                 _hits.RemoveAt(i);
                 continue;
             }
 
             hit.Steps[depth] = step with { OneBasedIndex = 1 };
-            if (hit.SimpleText && hit.Steps.Count == depth + 1)
-            {
-                hit.Steps.Add(new DocumentPath.Step("#text", null));
-                hit.SimpleText = false;
-            }
         }
 
         if (!parent.Pending.Remove(key, out var pending))
-            return;
-        if (_search.FieldName.Length == 0 || !Allows("#text"))
             return;
         var textPath = parent.Path.Field(name, 1).Field("#text");
         var entry = new SFrame { Name = name, Parent = parent };
