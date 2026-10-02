@@ -176,6 +176,29 @@ public class ShellTests
     }
 
     [Fact]
+    public void Field_name_on_the_find_window_limits_the_hits()
+    {
+        var path = Write("""
+            <root>
+              <Start_node>RTM=123</Start_node>
+              <other>RTM=123</other>
+            </root>
+            """);
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        model.FindWhat = "123";
+        model.FieldName = "Start_node";
+        model.FindAll();
+        var hit = Assert.Single(model.Results);
+        Assert.Equal("/root/Start_node", hit.Path);
+        Assert.Equal("RTM=123", hit.Text);
+
+        model.FieldName = "";
+        model.FindAll();
+        Assert.Equal(2, model.ResultCount);
+    }
+
+    [Fact]
     public void Results_grow_while_the_scan_is_still_reading()
     {
         var source = new MemoryByteSource();
