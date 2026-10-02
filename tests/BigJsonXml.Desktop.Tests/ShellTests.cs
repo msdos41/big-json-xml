@@ -199,6 +199,37 @@ public class ShellTests
     }
 
     [Fact]
+    public void Parent_element_name_on_the_find_window_limits_the_hits()
+    {
+        var path = Write("""
+            <root>
+              <Extended_covering>
+                <Start_node>RTM=123</Start_node>
+              </Extended_covering>
+              <other>
+                <Start_node>RTM=123</Start_node>
+              </other>
+            </root>
+            """);
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        model.FindWhat = "123";
+        model.ParentElementName = "Extended_covering";
+        model.FindAll();
+        Assert.Equal("/root/Extended_covering/Start_node", Assert.Single(model.Results).Path);
+
+        model.ParentElementName = "";
+        model.GrandfatherElementName = "root";
+        model.FindAll();
+        Assert.Equal(2, model.ResultCount);
+
+        model.GrandfatherElementName = "";
+        model.ParentAttributeName = "@id";
+        model.FindAll();
+        Assert.Empty(model.Results);
+    }
+
+    [Fact]
     public void Results_grow_while_the_scan_is_still_reading()
     {
         var source = new MemoryByteSource();
