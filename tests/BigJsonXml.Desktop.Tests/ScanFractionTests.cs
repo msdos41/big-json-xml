@@ -13,15 +13,22 @@ public class ScanFractionTests
         source.Complete();
         using var model = new ViewerModel();
         var sawEmpty = false;
-        model.PropertyChanged += (_, _) =>
+        string? beforeAnyByte = null;
+        model.PropertyChanged += (_, e) =>
         {
-            if (model.Status == "Scanning" && model.ScanFractionShown && model.ScanFraction == 0)
-                sawEmpty = true;
+            if (e.PropertyName != nameof(ViewerModel.Status))
+                return;
+            if (model.Status != "Scanning" || !model.ScanFractionShown || model.ScanFraction != 0 || beforeAnyByte is not null)
+                return;
+            sawEmpty = true;
+            model.SetScanElapsed(5_000);
+            beforeAnyByte = model.RemainingTime;
         };
 
         model.Open(source);
 
         Assert.True(sawEmpty);
+        Assert.Equal("", beforeAnyByte);
         Assert.Equal("Complete", model.Status);
         Assert.False(model.ScanFractionShown);
         Assert.Equal(0, model.ScanFraction);
