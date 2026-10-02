@@ -13,12 +13,12 @@ The one forward reading of a document, during which the viewer is scanning. It l
 _Avoid_: Index, import, load, parse
 
 **Scan fraction**:
-How far the scan has read, as the bytes already reached divided by the document's length. It exists only while that length is fixed.
+How far the scan has read, as the bytes already reached divided by the document's length. It exists only while that length is fixed and greater than zero.
 _Avoid_: Progress, percent complete, load progress
 
 **Remaining time**:
 The wall-clock time the scan is expected to need for the bytes still ahead, using how fast it has read since it started.
-_Avoid_: ETA, countdown
+_Avoid_: ETA, countdown, time left
 
 **Outline**:
 What the scan keeps of an element: each field's name and kind, and for a list field its count, columns, and enough to open any entry without reading the other entries. A closed record has an outline and no second copy of that element.
