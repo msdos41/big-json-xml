@@ -169,10 +169,11 @@ internal sealed class Searcher
         List<TextPiece> pieces,
         bool simple)
     {
-        if (!_search.Value || _search.FindWhat.Length == 0)
+        if (!_search.Value || _search.FindWhat.Length == 0 || !Allows(name))
             return;
         var length = _search.FindWhat.Length;
-        ExpandedText.Match(_document, pieces, _search, offset => Add(path, offset, length, simpleText: simple, fieldOnSimple: false));
+        var dropOnPromote = simple && _search.FieldName.Length > 0;
+        ExpandedText.Match(_document, pieces, _search, offset => Add(path, offset, length, simpleText: simple, fieldOnSimple: dropOnPromote));
     }
 
     private void SearchDisplayedName(DocumentPath path, string displayed, bool element)
@@ -188,7 +189,7 @@ internal sealed class Searcher
         }
 
         var needle = _search.FindWhat;
-        if (needle.Length == 0 || displayed.Length == 0)
+        if (needle.Length == 0 || displayed.Length == 0 || !Allows(displayed))
             return;
         var comparison = _search.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
         if (_search.EntireCell)
@@ -265,7 +266,21 @@ internal sealed class Searcher
             }
         }
 
-        _ = parent.Pending.Remove(key);
+        if (!parent.Pending.Remove(key, out var pending))
+            return;
+        if (_search.FieldName.Length == 0 || !Allows("#text"))
+            return;
+        var textPath = parent.Path.Field(name, 1).Field("#text");
+        SearchValue(textPath, "#text", attribute: false, "", "#text", pending.Scope, pending.Text, simple: false);
+    }
+
+    private bool Allows(string displayedName)
+    {
+        var required = _search.FieldName;
+        if (required.Length == 0)
+            return true;
+        var comparison = _search.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        return displayedName.Equals(required, comparison);
     }
 
     private sealed class SFrame
