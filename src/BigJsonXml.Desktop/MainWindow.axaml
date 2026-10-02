@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:BigJsonXml.Desktop"
+        xmlns:conv="using:Avalonia.Data.Converters"
         x:Class="BigJsonXml.Desktop.MainWindow"
         x:DataType="local:ViewerModel"
         Title="BigJsonXml"
@@ -11,6 +12,16 @@
       <Button Content="Open" Click="OpenClicked"/>
       <Button Content="Find" Click="FindClicked"/>
       <TextBlock Text="{Binding Status}" VerticalAlignment="Center"/>
+      <ProgressBar Width="120" MinWidth="120" MaxWidth="120" Height="8"
+                   Minimum="0" Maximum="1"
+                   Value="{Binding ScanFraction}"
+                   IsIndeterminate="False"
+                   ShowProgressText="False"
+                   IsVisible="{Binding ScanFractionShown}"
+                   VerticalAlignment="Center"/>
+      <TextBlock Text="{Binding RemainingTime}"
+                 IsVisible="{Binding RemainingTime, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                 VerticalAlignment="Center"/>
     </StackPanel>
     <TextBlock DockPanel.Dock="Bottom" Margin="8" Text="{Binding Error}" TextWrapping="Wrap"/>
     <Grid ColumnDefinitions="*,Auto" RowDefinitions="*,Auto">

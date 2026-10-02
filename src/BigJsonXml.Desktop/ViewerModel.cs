@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 
 namespace BigJsonXml.Desktop;
@@ -27,6 +28,11 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private int _builtWidth = -1;
     private string _status = "No document";
     private string _error = "";
+    private bool _scanFractionShown;
+    private double _scanFraction;
+    private string _remainingTime = "";
+    private long? _scanElapsed;
+    private long _scanStartedAt;
     private double _scrollX;
     private double _scrollY;
     private double _scrollMaxX;
@@ -212,6 +218,31 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         private set => Set(ref _error, value);
     }
 
+    public bool ScanFractionShown
+    {
+        get => _scanFractionShown;
+        private set => Set(ref _scanFractionShown, value);
+    }
+
+    public double ScanFraction
+    {
+        get => _scanFraction;
+        private set => Set(ref _scanFraction, value);
+    }
+
+    public string RemainingTime
+    {
+        get => _remainingTime;
+        private set => Set(ref _remainingTime, value);
+    }
+
+    public void SetScanElapsed(long milliseconds)
+    {
+        _scanElapsed = milliseconds;
+        if (_session is not null && !_refreshing)
+            Refresh();
+    }
+
     public double ScrollX
     {
         get => _scrollX;
@@ -302,6 +333,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         _documents.Clear();
         _documents.Add(new ResultDocument(documentPath));
         ReplaceResults();
+        _scanStartedAt = Environment.TickCount64;
+        _scanElapsed = null;
+        Refresh();
         Tick();
     }
 
@@ -574,15 +608,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
                 ScrollMaxX = maxX;
                 ScrollMaxY = maxY;
-                Error = _session.Error is null
-                    ? ""
-                    : $"{_session.Error.Message} (line {_session.Error.Line}, column {_session.Error.Column})";
-                Status = _session.Progress switch
-                {
-                    ScanProgress.Scanning => "Scanning",
-                    ScanProgress.Completed => "Complete",
-                    _ => "Stopped",
-                };
+                PublishScan();
                 if (!_rebuild)
                     break;
             }
@@ -788,6 +814,59 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         }
 
         return true;
+    }
+
+    private void PublishScan()
+    {
+        var progress = _session!.Progress;
+        var length = _session.DocumentLength;
+        var reached = _session.BytesReached;
+        var show = _session.LengthIsFixed
+            && length > 0
+            && progress is ScanProgress.Scanning or ScanProgress.Stopped;
+        var fraction = 0d;
+        if (show && length > 0)
+        {
+            fraction = (double)reached / length;
+            if (fraction < 0)
+                fraction = 0;
+            else if (fraction > 1)
+                fraction = 1;
+        }
+
+        var elapsed = _scanElapsed ?? Environment.TickCount64 - _scanStartedAt;
+        if (elapsed < 0)
+            elapsed = 0;
+        var text = "";
+        if (progress == ScanProgress.Scanning && show && elapsed >= 1000 && reached > 0)
+            text = RemainingText(length, reached, elapsed);
+
+        ScanFraction = fraction;
+        ScanFractionShown = show;
+        RemainingTime = text;
+        Error = _session.Error is null
+            ? ""
+            : $"{_session.Error.Message} (line {_session.Error.Line}, column {_session.Error.Column})";
+        Status = progress switch
+        {
+            ScanProgress.Scanning => "Scanning",
+            ScanProgress.Completed => "Complete",
+            _ => "Stopped",
+        };
+    }
+
+    private static string RemainingText(long length, long reached, long elapsed)
+    {
+        var ahead = length - reached;
+        if (ahead <= 0 || reached <= 0)
+            return "";
+        var quotient = (decimal)ahead * elapsed / reached;
+        if (quotient <= 0)
+            return "";
+        if (quotient < 1000)
+            return "<1s remaining";
+        var seconds = (long)decimal.Ceiling(quotient / 1000m);
+        return seconds.ToString(CultureInfo.InvariantCulture) + "s remaining";
     }
 
     private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
