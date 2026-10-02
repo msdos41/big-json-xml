@@ -2,31 +2,114 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:BigJsonXml.Desktop"
         x:Class="BigJsonXml.Desktop.ResultsWindow"
+        x:Name="Root"
         x:DataType="local:ViewerModel"
         Title="Results"
-        Width="440"
+        Width="760"
         Height="480"
+        MinWidth="280"
+        MinHeight="200"
+        FontFamily="Segoe UI, Inter"
+        FontSize="12"
+        Background="White"
         ShowInTaskbar="False"
         WindowStartupLocation="Manual">
-  <DockPanel Margin="12">
-    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
-      <TextBlock Text="Results" FontWeight="Bold"/>
-      <TextBlock Text="{Binding ResultCount}" VerticalAlignment="Center"/>
-    </StackPanel>
-    <TextBlock DockPanel.Dock="Top" Text="Path" HorizontalAlignment="Right" Margin="0,0,0,4"/>
-    <ListBox x:Name="ResultsList" ItemsSource="{Binding Results}" SelectedItem="{Binding CurrentResult, Mode=OneWay}" SelectionChanged="ResultSelected">
-      <ListBox.ItemTemplate>
-        <DataTemplate x:DataType="local:FindResult">
-          <Grid ColumnDefinitions="*,*">
-            <StackPanel Grid.Column="0" Orientation="Horizontal">
-              <TextBlock Text="{Binding Before}"/>
-              <TextBlock Text="{Binding Match}" Background="#FFFFF3B0"/>
-              <TextBlock Text="{Binding After}"/>
-            </StackPanel>
-            <TextBlock Grid.Column="1" Text="{Binding Path}" Margin="8,0,0,0"/>
-          </Grid>
-        </DataTemplate>
-      </ListBox.ItemTemplate>
-    </ListBox>
-  </DockPanel>
+  <Window.Resources>
+    <local:ResultChromeConverter x:Key="Chrome"/>
+    <local:PixelWidthConverter x:Key="Pixels"/>
+  </Window.Resources>
+  <Border Margin="8" BorderBrush="#A0A0A0" BorderThickness="1" Background="White">
+    <DockPanel>
+      <Grid x:Name="HeaderGrid" DockPanel.Dock="Top" Height="24" Background="#F0F0F0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="22"/>
+          <ColumnDefinition Width="{Binding FoundColumnWidth, Converter={StaticResource Pixels}}"/>
+          <ColumnDefinition Width="*" MinWidth="80"/>
+        </Grid.ColumnDefinitions>
+        <Border Grid.Column="0" BorderBrush="#C0C0C0" BorderThickness="0,0,1,1" Background="#F0F0F0"/>
+        <Border Grid.Column="1" BorderBrush="#C0C0C0" BorderThickness="0,0,1,1" Background="#F0F0F0">
+          <TextBlock Text="Found" Margin="4,0" VerticalAlignment="Center"/>
+        </Border>
+        <Border Grid.Column="2" BorderBrush="#C0C0C0" BorderThickness="0,0,0,1" Background="#F0F0F0">
+          <TextBlock Text="XPath" Margin="4,0" VerticalAlignment="Center"/>
+        </Border>
+        <Border Grid.Column="1" Width="6" HorizontalAlignment="Right" Margin="0,0,-3,0" ZIndex="2"
+                Background="Transparent" Cursor="SizeWestEast"
+                PointerPressed="SplitterPressed" PointerMoved="SplitterMoved"
+                PointerReleased="SplitterReleased" PointerCaptureLost="SplitterCaptureLost"/>
+      </Grid>
+      <ListBox x:Name="ResultsList" ItemsSource="{Binding VisibleResults}"
+               Background="White" BorderThickness="0"
+               ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+               SelectionChanged="ResultSelected">
+        <ListBox.Styles>
+          <Style Selector="ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Background" Value="Transparent"/>
+          </Style>
+          <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+          </Style>
+          <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+          </Style>
+          <Style Selector="ListBoxItem:selected:focus /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+          </Style>
+        </ListBox.Styles>
+        <ListBox.DataTemplates>
+          <DataTemplate x:DataType="local:ResultDocumentLine">
+            <Grid MinHeight="22" Background="White" PointerPressed="GroupPressed">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="22"/>
+                <ColumnDefinition Width="{Binding $parent[local:ResultsWindow].((local:ViewerModel)DataContext).FoundColumnWidth, Converter={StaticResource Pixels}}"/>
+                <ColumnDefinition Width="*" MinWidth="80"/>
+              </Grid.ColumnDefinitions>
+              <Border Grid.Column="0" BorderBrush="#C0C0C0" BorderThickness="0,0,1,1" Background="White">
+                <Border Width="14" Height="14" BorderBrush="#808080" BorderThickness="1" Background="White"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                  <TextBlock Text="{Binding Document.Glyph}" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="Black"/>
+                </Border>
+              </Border>
+              <Border Grid.Column="1" BorderBrush="#C0C0C0" BorderThickness="0,0,1,1" Background="White" ClipToBounds="True">
+                <TextBlock Text="{Binding Document.Path}" Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           ToolTip.Tip="{Binding Document.Path}"/>
+              </Border>
+              <Border Grid.Column="2" BorderBrush="#C0C0C0" BorderThickness="0,0,0,1" Background="White" ClipToBounds="True">
+                <TextBlock Text="{Binding Document.MatchLabel}" Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+              </Border>
+            </Grid>
+          </DataTemplate>
+          <DataTemplate x:DataType="local:ResultHitLine">
+            <Grid MinHeight="22" Background="{Binding IsCurrent, Converter={StaticResource Chrome}, ConverterParameter=back}">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="22"/>
+                <ColumnDefinition Width="{Binding $parent[local:ResultsWindow].((local:ViewerModel)DataContext).FoundColumnWidth, Converter={StaticResource Pixels}}"/>
+                <ColumnDefinition Width="*" MinWidth="80"/>
+              </Grid.ColumnDefinitions>
+              <Border Grid.Column="0" BorderBrush="#C0C0C0" BorderThickness="0,0,1,1" Background="Transparent"/>
+              <Border Grid.Column="1" BorderBrush="#C0C0C0" BorderThickness="0,0,1,1" Background="Transparent" ClipToBounds="True"
+                      ToolTip.Tip="{Binding Result.Text}">
+                <StackPanel Orientation="Horizontal" Margin="4,0" VerticalAlignment="Center">
+                  <TextBlock Text="{Binding Result.Before}" VerticalAlignment="Center"
+                             Foreground="{Binding IsCurrent, Converter={StaticResource Chrome}}"/>
+                  <TextBlock Text="{Binding Result.Match}" VerticalAlignment="Center" Background="#FFF3B0" Foreground="Black"/>
+                  <TextBlock Text="{Binding Result.After}" VerticalAlignment="Center"
+                             Foreground="{Binding IsCurrent, Converter={StaticResource Chrome}}"/>
+                </StackPanel>
+              </Border>
+              <Border Grid.Column="2" BorderBrush="#C0C0C0" BorderThickness="0,0,0,1" Background="Transparent" ClipToBounds="True">
+                <TextBlock Text="{Binding Result.Path}" Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           Foreground="{Binding IsCurrent, Converter={StaticResource Chrome}}"
+                           ToolTip.Tip="{Binding Result.Path}"/>
+              </Border>
+            </Grid>
+          </DataTemplate>
+        </ListBox.DataTemplates>
+      </ListBox>
+    </DockPanel>
+  </Border>
 </Window>

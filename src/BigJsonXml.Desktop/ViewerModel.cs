@@ -8,6 +8,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 {
     public const int ScanSliceMilliseconds = 32;
     public const int ScanIdleMilliseconds = 16;
+    public const double FoundColumnMin = 64;
+    public const double FoundColumnMax = 4000;
+    public const double FoundColumnPadding = 8;
     private ViewerSession? _session;
     private string _findWhat = "";
     private string _fieldName = "";
@@ -36,8 +39,11 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private bool _rebuild;
     private bool _adjustingResults;
     private FindResult? _current;
+    private double _foundColumnWidth = 40 * ViewerSession.Advance + FoundColumnPadding;
     private IReadOnlyList<SurfaceRow> _rows = [];
     private readonly ObservableCollection<FindResult> _results = [];
+    private readonly ObservableCollection<ResultDocument> _documents = [];
+    private readonly ObservableCollection<ResultLine> _visible = [];
     private readonly ObservableCollection<string> _findHistory = [];
     private CellSelection? _selection;
 
@@ -135,10 +141,33 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     public int ResultCount => _results.Count;
 
+    public bool IsAdjustingResults => _adjustingResults;
+
+    public double FoundColumnWidth => _foundColumnWidth;
+
+    public void SetFoundColumnWidth(double width)
+    {
+        width = Math.Clamp(width, FoundColumnMin, FoundColumnMax);
+        if (Math.Abs(_foundColumnWidth - width) < 0.5)
+            return;
+        _foundColumnWidth = width;
+        OnPropertyChanged(nameof(FoundColumnWidth));
+    }
+
+    public void ApplyFoundColumnWidth()
+    {
+        var characters = Math.Max(1, (int)((_foundColumnWidth - FoundColumnPadding) / ViewerSession.Advance));
+        ResultWidth = characters;
+    }
+
     public FindResult? CurrentResult
     {
         get => _current;
-        private set => Set(ref _current, value);
+        private set
+        {
+            Set(ref _current, value);
+            MarkCurrent();
+        }
     }
 
     public string Status
@@ -209,6 +238,10 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     public IReadOnlyList<FindResult> Results => _results;
 
+    public ObservableCollection<ResultDocument> ResultDocuments => _documents;
+
+    public ObservableCollection<ResultLine> VisibleResults => _visible;
+
     public CellSelection? Selection
     {
         get => _selection;
@@ -218,12 +251,17 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     public void OpenPath(string path)
     {
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 20, FileOptions.SequentialScan);
-        Open(new StreamByteSource(stream));
+        Open(new StreamByteSource(stream), path);
     }
 
     public void Open(IByteSource source)
     {
         ArgumentNullException.ThrowIfNull(source);
+        Open(source, "");
+    }
+
+    private void Open(IByteSource source, string documentPath)
+    {
         _session?.Dispose();
         _session = ViewerSession.Open(source);
         _findHistory.Clear();
@@ -231,6 +269,8 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         _scrollY = 0;
         Selection = null;
         _builtWidth = -1;
+        _documents.Clear();
+        _documents.Add(new ResultDocument(documentPath));
         ReplaceResults();
         Tick();
     }
@@ -276,6 +316,8 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         if (_session is null)
             return;
         RememberFindWhat();
+        if (_documents.Count > 0)
+            _documents[0].SetExpanded(true);
         _session.Search(new TextSearch
         {
             FindWhat = _findWhat,
@@ -307,6 +349,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         if (index + 1 >= _results.Count)
             return;
         var result = _results[index + 1];
+        ExpandResults();
         _adjustingResults = true;
         try
         {
@@ -336,11 +379,28 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         if (_adjustingResults || _session is null)
             return;
+        if (result is not null)
+            ExpandResults();
         CurrentResult = result;
         if (result is null)
             ClearMark();
         else
             Reveal(result.Hit);
+    }
+
+    public void ToggleResultDocument(ResultDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        document.SetExpanded(!document.IsExpanded);
+        _adjustingResults = true;
+        try
+        {
+            SyncVisibleHits();
+        }
+        finally
+        {
+            _adjustingResults = false;
+        }
     }
 
     public void ClearMark()
@@ -524,6 +584,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
             if (grown)
                 OnPropertyChanged(nameof(ResultCount));
+            SyncVisibleHits();
             return;
         }
 
@@ -537,6 +598,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         _adjustingResults = true;
         try
         {
+            var currentHit = _current?.Hit;
             _results.Clear();
             if (_session is not null)
             {
@@ -545,6 +607,21 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             }
 
             _builtWidth = _resultWidth;
+            SyncVisibleHits();
+            if (currentHit is not null)
+            {
+                FindResult? again = null;
+                for (var i = 0; i < _results.Count; i++)
+                {
+                    if (!ReferenceEquals(_results[i].Hit, currentHit))
+                        continue;
+                    again = _results[i];
+                    break;
+                }
+
+                if (again is not null)
+                    CurrentResult = again;
+            }
         }
         finally
         {
@@ -552,6 +629,76 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         }
 
         OnPropertyChanged(nameof(ResultCount));
+    }
+
+    private void ExpandResults()
+    {
+        if (_documents.Count == 0 || _documents[0].IsExpanded)
+            return;
+        _documents[0].SetExpanded(true);
+        _adjustingResults = true;
+        try
+        {
+            SyncVisibleHits();
+        }
+        finally
+        {
+            _adjustingResults = false;
+        }
+    }
+
+    private void SyncVisibleHits()
+    {
+        if (_documents.Count == 0)
+        {
+            if (_visible.Count > 0)
+                _visible.Clear();
+            return;
+        }
+
+        var document = _documents[0];
+        document.SetMatchCount(_results.Count);
+        if (_visible.Count == 0 || _visible[0] is not ResultDocumentLine group || !ReferenceEquals(group.Document, document))
+        {
+            _visible.Clear();
+            _visible.Add(new ResultDocumentLine(document));
+        }
+
+        if (!document.IsExpanded)
+        {
+            while (_visible.Count > 1)
+                _visible.RemoveAt(_visible.Count - 1);
+            MarkCurrent();
+            return;
+        }
+
+        var shown = _visible.Count - 1;
+        var prefix = shown <= _results.Count;
+        for (var i = 0; prefix && i < shown; i++)
+        {
+            if (_visible[i + 1] is not ResultHitLine hit || !ReferenceEquals(hit.Result, _results[i]))
+                prefix = false;
+        }
+
+        if (!prefix)
+        {
+            while (_visible.Count > 1)
+                _visible.RemoveAt(_visible.Count - 1);
+            shown = 0;
+        }
+
+        for (var i = shown; i < _results.Count; i++)
+            _visible.Add(new ResultHitLine(_results[i]));
+        MarkCurrent();
+    }
+
+    private void MarkCurrent()
+    {
+        for (var i = 0; i < _visible.Count; i++)
+        {
+            if (_visible[i] is ResultHitLine hit)
+                hit.SetCurrent(ReferenceEquals(hit.Result, _current));
+        }
     }
 
     private FindResult Describe(Hit hit)

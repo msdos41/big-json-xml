@@ -12,7 +12,7 @@ Two modeless windows sit over the document surface. The find window edits one te
 
 The tested text contains Find what, starts with it, or equals it. Entire cell means the whole field text equals Find what, and Start with then adds nothing. There is no wildcard. Comparison walks the field text and does not assemble a multi-megabyte value into one string.
 
-Each hit is one match, in document order, including while the scan is still running. The results window shows the matched field text and the path. The matched stretch is marked in that text. A short value is shown whole. A long value is shown as a window around the match, as wide as the results column, per ADR-0023. The path is the slash form in ADR-0028. Choosing a hit, or Find Next, reveals it as ADR-0013 describes: expand the embedded tables on that path and scroll the one document surface to that cell. The document cell is marked as a whole cell. Find does not edit the document, does not search another document, and does not replace text.
+Each hit is one match, in document order, including while the scan is still running. The results window shows the matched field text and the path. The matched stretch is marked in that text. The results window is a table whose columns are headed Found and XPath. Dragging the boundary between them changes the Found column's width, and releasing that drag refits a long value to the column. Hits are listed under one group for the open document. The group row shows that document's path and the match count, and it expands and collapses. A later open document can be another group. Search still reads only the one open document. A short value is shown whole. A long value is shown as a window around the match, as wide as the results column, per ADR-0023. The path is the slash form in ADR-0028. Choosing a hit, or Find Next, reveals it as ADR-0013 describes: expand the embedded tables on that path and scroll the one document surface to that cell. The document cell is marked as a whole cell. Find does not edit the document, does not search another document, and does not replace text.
 
 ## User Stories
 
@@ -50,7 +50,7 @@ Each hit is one match, in document order, including while the scan is still runn
 32. As a person inspecting a document, I want the results text for a value hit to be that value, with the matched stretch marked, so that `RTM=123` shows `123` marked.
 33. As a person inspecting a document, I want the results text for a name hit to be that field name, with the matched stretch marked, so that a hit on `@id` shows the name rather than the attribute value.
 34. As a person inspecting a document, I want a long value in the results to show only the window around the match that fits the column, so that the row does not hold a multi-megabyte string.
-35. As a person inspecting a document, I want the path column headed Path and written as `/DIH_XML_schema/Harness/Extended_covering[6]/Start_node/#text`, so that the hierarchy is visible and the line is not an XPath.
+35. As a person inspecting a document, I want the path column headed XPath and written as `/DIH_XML_schema/Harness/Extended_covering[6]/Start_node/#text`, so that the heading matches the find-all reference and the line stays a Path.
 36. As a person inspecting a document, I want an attribute path step to keep `@`, so that `/.../Extended_covering[6]/@id` matches the field name.
 37. As a person inspecting a document, I want that path line to be display only, so that pasting it into Find what does not jump to the cell.
 38. As a person inspecting a document, I want Find All to list hits as they are found and to show the count while the scan continues, so that I need not wait for the end of the file.
@@ -68,6 +68,9 @@ Each hit is one match, in document order, including while the scan is still runn
 50. As a person inspecting a document, I want that list dropped when the document closes and never written to disk, so that history stays with this opening.
 51. As a person inspecting a document, I want search limited to the one open document, so that there is no search across files.
 52. As a person inspecting a document, I want no replace controls, so that the viewer still cannot change the document.
+53. As a person inspecting a document, I want the results columns headed Found and XPath, so that both columns have names.
+54. As a person inspecting a document, I want to drag the boundary between those columns, so that a long value or a long path can have more room.
+55. As a person inspecting a document, I want hits grouped under the document path with a match count, and that group to expand and collapse, so that a later document can sit as another group.
 
 ## Implementation Decisions
 
