@@ -76,7 +76,7 @@ public class LargeScanRuleTests
         Assert.True(allocated < 400_000, $"Reading the tail after collapse allocated {allocated} bytes.");
 
         session.Collapse(list);
-        session.Search("end");
+        session.Search(new TextSearch { FindWhat = "end" });
         session.PumpAll();
         var hit = Assert.Single(session.Hits);
         Assert.Equal(list.WithIndex(count).Field("#text"), hit.Path);
@@ -204,7 +204,7 @@ public class LargeScanTimeTests
             var count = session.ReadRecord(DocumentPath.Root).Fields.Single().ListCount!.Value;
 
             var clock = Stopwatch.StartNew();
-            session.Search("NEEDLE");
+            session.Search(new TextSearch { FindWhat = "NEEDLE" });
             session.PumpAll();
             clock.Stop();
             var textHit = Assert.Single(session.Hits);
@@ -212,7 +212,7 @@ public class LargeScanTimeTests
             Assert.True(clock.Elapsed.TotalSeconds < 3, $"Text search took {clock.Elapsed.TotalSeconds:F2} s.");
 
             clock.Restart();
-            session.Search("value = NEEDLE");
+            session.Search(new TextSearch { FindWhat = "NEEDLE" });
             session.PumpAll();
             clock.Stop();
             var fieldHit = Assert.Single(session.Hits);

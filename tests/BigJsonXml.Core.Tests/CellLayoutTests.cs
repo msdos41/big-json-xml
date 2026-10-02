@@ -281,7 +281,7 @@ public class CellLayoutTests
         Assert.Contains(bottom.Rows, row => row.Kind == SurfaceKind.EntryIndex && int.Parse(row.Name, CultureInfo.InvariantCulture) > 490);
         Assert.InRange(bottom.Rows.Count(row => row.Kind == SurfaceKind.Entry), 1, 12);
 
-        session.Search("499");
+        session.Search(new TextSearch { FindWhat = "499" });
         session.PumpAll();
         var hit = Assert.Single(session.Hits);
         session.Reveal(hit);
@@ -445,7 +445,7 @@ public class CellLayoutTests
         var hitBody = new string('a', 150) + "NEEDLE" + new string('b', 80);
         var hits = SessionFixture.Scan($"<root><item>{hitBody}</item><item>x</item></root>");
         hits.Expand(DocumentPath.Root.Field("item"));
-        hits.Search("NEEDLE");
+        hits.Search(new TextSearch { FindWhat = "NEEDLE" });
         hits.PumpAll();
         var hit = Assert.Single(hits.Hits);
         hits.Reveal(hit);
@@ -524,7 +524,7 @@ public class CellLayoutTests
         var first = new string('a', 80) + token + new string('b', 80);
         var second = new string('c', 80) + token + new string('d', 80);
         var session = SessionFixture.Scan($"<root><item>{first}</item><item>{second}</item></root>");
-        session.Search(token);
+        session.Search(new TextSearch { FindWhat = token });
         session.PumpAll();
         Assert.Equal(2, session.Hits.Count);
         session.Reveal(session.Hits[0]);
@@ -538,7 +538,7 @@ public class CellLayoutTests
 
         var fit = new string('N', 20);
         var fitted = SessionFixture.Scan($"<root><note>{new string('a', 40)}{fit}{new string('b', 40)}</note></root>");
-        fitted.Search(fit);
+        fitted.Search(new TextSearch { FindWhat = fit });
         fitted.PumpAll();
         fitted.Reveal(Assert.Single(fitted.Hits));
         var fittedWindow = fitted.ReadScalar(DocumentPath.Root.Field("note"));
@@ -547,7 +547,7 @@ public class CellLayoutTests
 
         var wide = new string('Q', 30);
         var overflow = SessionFixture.Scan($"<root><note>{new string('a', 40)}{wide}{new string('b', 40)}</note></root>");
-        overflow.Search(wide);
+        overflow.Search(new TextSearch { FindWhat = wide });
         overflow.PumpAll();
         overflow.Reveal(Assert.Single(overflow.Hits));
         var overflowWindow = overflow.ReadScalar(DocumentPath.Root.Field("note"));
@@ -588,7 +588,7 @@ public class CellLayoutTests
         var hitBody = new string('a', 80) + "NEEDLE" + new string('b', 40);
         var hits = SessionFixture.Scan($"<root><item>{hitBody}</item><item>x</item></root>");
         hits.Expand(DocumentPath.Root.Field("item"));
-        hits.Search("NEEDLE");
+        hits.Search(new TextSearch { FindWhat = "NEEDLE" });
         hits.PumpAll();
         hits.Reveal(Assert.Single(hits.Hits));
         var window = hits.ReadScalar(hits.Hits[0].Path);

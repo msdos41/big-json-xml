@@ -42,7 +42,7 @@ public class NamespaceAndSearchTests
     public void Text_search_is_case_sensitive_and_skips_names()
     {
         var session = SessionFixture.Scan("<root><item id=\"Ada\">ada</item><item id=\"ADA\">Ada</item></root>");
-        session.Search("Ada");
+        session.Search(new TextSearch { FindWhat = "Ada" });
         session.PumpAll();
 
         Assert.Equal(2, session.Hits.Count);
@@ -52,7 +52,7 @@ public class NamespaceAndSearchTests
     }
 
     [Fact]
-    public void Field_search_is_exact_or_contains_and_keeps_trailing_spaces()
+    public void Equals_and_tilde_are_ordinary_characters()
     {
         var session = SessionFixture.Scan("""
             <root>
@@ -63,41 +63,25 @@ public class NamespaceAndSearchTests
             </root>
             """);
 
-        session.Search("@missing = 2");
+        session.Search(new TextSearch { FindWhat = "@id = 2" });
         session.PumpAll();
         Assert.Empty(session.Hits);
 
-        session.Search("@id = 2");
-        session.PumpAll();
-        Assert.Equal("box[1] / @id", Assert.Single(session.Hits).Path.ToString());
-
-        session.Search("@id = 20");
-        session.PumpAll();
-        Assert.Equal("box[2] / @id", Assert.Single(session.Hits).Path.ToString());
-
-        session.Search("box = 2");
+        session.Search(new TextSearch { FindWhat = "note ~ world" });
         session.PumpAll();
         Assert.Empty(session.Hits);
 
-        session.Search("note ~ world");
+        session.Search(new TextSearch { FindWhat = "world" });
         session.PumpAll();
         Assert.Equal(6, Assert.Single(session.Hits).CharacterOffset);
 
-        session.Search("note ~ World");
-        session.PumpAll();
-        Assert.Empty(session.Hits);
-
-        session.Search("pad = a ");
-        session.PumpAll();
-        Assert.Single(session.Hits);
-
-        session.Search("pad = a");
+        session.Search(new TextSearch { FindWhat = "World" });
         session.PumpAll();
         Assert.Empty(session.Hits);
     }
 
     [Fact]
-    public void Field_names_use_the_displayed_spelling_and_namespace_identity()
+    public void A_value_containing_the_sequence_is_a_hit()
     {
         var session = SessionFixture.Scan("""
             <root xmlns:a="urn:ex" xmlns:b="urn:ex">
@@ -108,23 +92,7 @@ public class NamespaceAndSearchTests
             </root>
             """);
 
-        session.Search("#text = two");
-        session.PumpAll();
-        Assert.Equal("a:item[2] / #text", Assert.Single(session.Hits).Path.ToString());
-
-        session.Search("#text = one");
-        session.PumpAll();
-        Assert.Equal("a:item[1] / #text", Assert.Single(session.Hits).Path.ToString());
-
-        session.Search("a:note = two");
-        session.PumpAll();
-        Assert.Equal("b:note", Assert.Single(session.Hits).Path.ToString());
-
-        session.Search("@id = 2");
-        session.PumpAll();
-        Assert.Equal("box / @id", Assert.Single(session.Hits).Path.ToString());
-
-        session.Search("2");
+        session.Search(new TextSearch { FindWhat = "2" });
         session.PumpAll();
         Assert.Equal(2, session.Hits.Count);
     }
@@ -133,7 +101,7 @@ public class NamespaceAndSearchTests
     public void Default_namespace_matches_an_unprefixed_field_name()
     {
         var session = SessionFixture.Scan("""<root xmlns="urn:ex"><item>one</item></root>""");
-        session.Search("item = one");
+        session.Search(new TextSearch { FindWhat = "one" });
         session.PumpAll();
 
         Assert.Equal("item", Assert.Single(session.Hits).Path.ToString());
@@ -146,7 +114,7 @@ public class NamespaceAndSearchTests
         var session = ViewerSession.Open(source);
         source.Append("<root><item>findme</item><item>later</item>");
         session.PumpAll();
-        session.Search("findme");
+        session.Search(new TextSearch { FindWhat = "findme" });
         session.PumpAll();
 
         Assert.Single(session.Hits);
@@ -158,7 +126,7 @@ public class NamespaceAndSearchTests
         Assert.Equal("item[1] / #text", session.Hits[0].Path.ToString());
         Assert.Equal("item[3] / #text", session.Hits[1].Path.ToString());
 
-        session.Search("item[3]");
+        session.Search(new TextSearch { FindWhat = "item[3]" });
         session.PumpAll();
         Assert.Empty(session.Hits);
 
@@ -174,7 +142,7 @@ public class NamespaceAndSearchTests
         var items = string.Concat(Enumerable.Range(0, 40).Select(i => i == 30 ? $"<item>{body}</item>" : "<item>x</item>"));
         var session = SessionFixture.Scan($"<root>{items}</root>");
         session.SetViewport(0, 0, 800, ViewerSession.RowHeight * 5);
-        session.Search("NEEDLE");
+        session.Search(new TextSearch { FindWhat = "NEEDLE" });
         session.PumpAll();
 
         var hit = Assert.Single(session.Hits);
@@ -201,7 +169,7 @@ public class NamespaceAndSearchTests
         var items = string.Concat(Enumerable.Range(0, 4).Select(i => i == 2 ? $"<item>{body}</item>" : "<item>x</item>"));
         var session = SessionFixture.Scan($"<root>{items}</root>");
         session.SetViewport(0, 0, 900, ViewerSession.RowHeight * 12);
-        session.Search("NEEDLE");
+        session.Search(new TextSearch { FindWhat = "NEEDLE" });
         session.PumpAll();
 
         var hit = Assert.Single(session.Hits);
@@ -220,7 +188,7 @@ public class NamespaceAndSearchTests
         Assert.Equal(hit, Assert.Single(session.Hits));
 
         session.Reveal(hit);
-        session.Search("absent");
+        session.Search(new TextSearch { FindWhat = "absent" });
         session.PumpAll();
         Assert.Null(session.Marked);
         Assert.Equal(0, session.ReadScalar(hit.Path).WindowStart);
