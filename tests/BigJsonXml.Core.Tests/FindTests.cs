@@ -178,4 +178,155 @@ public class FindTests
         Assert.Empty(wide.Hits);
         Assert.True(allocated < 1_000_000, $"allocated {allocated} bytes");
     }
+
+    [Fact]
+    public void Element_names_attribute_names_and_values_are_separate_targets()
+    {
+        var session = SessionFixture.Scan("""
+            <root xmlns:a="urn:ex" xmlns:b="urn:ex">
+              <!-- secret -->
+              <?pi secret?>
+              <box>
+                <title>hello</title>
+              </box>
+              <a:item id="id">item</a:item>
+              <b:item>other</b:item>
+              <note>note</note>
+            </root>
+            """);
+
+        session.Search(new TextSearch { FindWhat = "secret" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "note", EntireCell = true });
+        session.PumpAll();
+        Assert.Equal(2, session.Hits.Count);
+        Assert.All(session.Hits, hit => Assert.Equal("/root/note", session.FormatPath(hit.Path)));
+        Assert.Equal("note", session.ReadHitText(session.Hits[0], 40).Text);
+        Assert.Equal("note", session.ReadHitText(session.Hits[1], 40).Text);
+
+        session.Search(new TextSearch { FindWhat = "note", EntireCell = true, ElementName = false });
+        session.PumpAll();
+        Assert.Single(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "note", EntireCell = true, Value = false });
+        session.PumpAll();
+        Assert.Single(session.Hits);
+
+        session.Search(new TextSearch
+        {
+            FindWhat = "note",
+            ElementName = false,
+            AttributeName = false,
+            Value = false,
+        });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "not", Value = false });
+        session.PumpAll();
+        var noteName = Assert.Single(session.Hits);
+        var noteText = session.ReadHitText(noteName, 40);
+        Assert.Equal("note", noteText.Text);
+        Assert.Equal(0, noteText.MarkStart);
+        Assert.Equal(3, noteText.MarkLength);
+
+        session.Search(new TextSearch { FindWhat = "id" });
+        session.PumpAll();
+        Assert.Equal(2, session.Hits.Count);
+        Assert.Equal("/root/a:item[1]/@id", session.FormatPath(session.Hits[0].Path));
+        Assert.Equal("/root/a:item[1]/@id", session.FormatPath(session.Hits[1].Path));
+        var attrName = session.ReadHitText(session.Hits[0], 40);
+        Assert.Equal("@id", attrName.Text);
+        Assert.Equal(1, attrName.MarkStart);
+        Assert.Equal(2, attrName.MarkLength);
+        var attrValue = session.ReadHitText(session.Hits[1], 40);
+        Assert.Equal("id", attrValue.Text);
+        Assert.Equal(0, attrValue.MarkStart);
+
+        session.Search(new TextSearch { FindWhat = "id", AttributeName = false });
+        session.PumpAll();
+        Assert.Equal("id", session.ReadHitText(Assert.Single(session.Hits), 40).Text);
+
+        session.Search(new TextSearch { FindWhat = "@id", EntireCell = true });
+        session.PumpAll();
+        var wholeName = session.ReadHitText(Assert.Single(session.Hits), 40);
+        Assert.Equal("@id", wholeName.Text);
+        Assert.Equal(0, wholeName.MarkStart);
+        Assert.Equal(3, wholeName.MarkLength);
+
+        session.Search(new TextSearch { FindWhat = "id", EntireCell = true, ElementName = false });
+        session.PumpAll();
+        Assert.Equal("id", session.ReadHitText(Assert.Single(session.Hits), 40).Text);
+
+        session.Search(new TextSearch { FindWhat = "id", StartsWith = true, ElementName = false, Value = false });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "a:item", EntireCell = true, Value = false });
+        session.PumpAll();
+        Assert.Equal(2, session.Hits.Count);
+        Assert.Equal("/root/a:item[1]", session.FormatPath(session.Hits[0].Path));
+        Assert.Equal("/root/a:item[2]", session.FormatPath(session.Hits[1].Path));
+        Assert.Equal("a:item", session.ReadHitText(session.Hits[0], 40).Text);
+        Assert.Equal("a:item", session.ReadHitText(session.Hits[1], 40).Text);
+
+        session.Search(new TextSearch { FindWhat = "b:item", EntireCell = true });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "A:ITEM", EntireCell = true, MatchCase = false, Value = false });
+        session.PumpAll();
+        Assert.Equal(2, session.Hits.Count);
+        Assert.Equal("a:item", session.ReadHitText(session.Hits[0], 40).Text);
+    }
+
+    [Fact]
+    public void Revealing_a_name_lands_on_the_field_row_or_the_list_entry()
+    {
+        var xs = new string('x', 40);
+        var session = SessionFixture.Scan($"""
+            <root>
+              <box>
+                <title>hello</title>
+              </box>
+              <item>one</item>
+              <item>two</item>
+              <flag verylongattributenameprefix="{xs}">z</flag>
+            </root>
+            """);
+        session.SetViewport(0, 0, 900, 800);
+
+        session.Search(new TextSearch { FindWhat = "box", EntireCell = true, Value = false });
+        session.PumpAll();
+        var box = Assert.Single(session.Hits);
+        Assert.Equal("/root/box", session.FormatPath(box.Path));
+        Assert.Equal("box", session.ReadHitText(box, 40).Text);
+        session.Reveal(box);
+        Assert.Equal(box.Path, session.Marked);
+        Assert.Contains(session.ReadSurface().Rows, row => row.IsMarked && row.Path.Equals(box.Path));
+
+        session.Search(new TextSearch { FindWhat = "item", EntireCell = true, Value = false });
+        session.PumpAll();
+        Assert.Equal("/root/item[1]", session.FormatPath(session.Hits[0].Path));
+        Assert.Equal("/root/item[2]", session.FormatPath(session.Hits[1].Path));
+        session.Reveal(session.Hits[0]);
+        Assert.True(session.Field("item").IsExpanded);
+        Assert.Equal(session.Hits[0].Path, session.Marked);
+        Assert.Contains(
+            session.ReadSurface().Rows,
+            row => row.IsMarked && row.Kind == SurfaceKind.EntryIndex && row.Path.Equals(session.Hits[0].Path));
+
+        session.Search(new TextSearch { FindWhat = "prefix", ElementName = false, Value = false });
+        session.PumpAll();
+        var attr = Assert.Single(session.Hits);
+        var shown = session.ReadHitText(attr, 40);
+        Assert.Equal("prefix", shown.Text.Substring(shown.MarkStart, shown.MarkLength));
+        Assert.DoesNotContain("xxxx", shown.Text, StringComparison.Ordinal);
+        session.Reveal(attr);
+        var scalar = session.ReadScalar(attr.Path);
+        Assert.Equal(0, scalar.WindowStart);
+        Assert.StartsWith("xxxx", scalar.Text, StringComparison.Ordinal);
+    }
 }
