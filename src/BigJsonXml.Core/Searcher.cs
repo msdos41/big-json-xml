@@ -168,7 +168,7 @@ internal sealed class Searcher
         if (_search.FindWhat.Length == 0)
             return;
         var length = _search.FindWhat.Length;
-        ExpandedText.Find(_document, pieces, _search.FindWhat, offset => Add(path, offset, length, simpleText: simple, fieldOnSimple: false));
+        ExpandedText.Match(_document, pieces, _search, offset => Add(path, offset, length, simpleText: simple, fieldOnSimple: false));
     }
 
     private void Add(DocumentPath path, int offset, int matchLength, bool simpleText, bool fieldOnSimple)

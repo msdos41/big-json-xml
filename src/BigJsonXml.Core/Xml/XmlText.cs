@@ -489,21 +489,58 @@ internal static class ExpandedText
         return count;
     }
 
-    public static bool EqualsExact(XmlDocument document, IReadOnlyList<TextPiece> pieces, string expected)
+    public static bool EqualsExact(XmlDocument document, IReadOnlyList<TextPiece> pieces, string expected) =>
+        EqualsValue(document, pieces, expected, matchCase: true);
+
+    public static void Match(XmlDocument document, IReadOnlyList<TextPiece> pieces, TextSearch search, Action<int> onMatch)
     {
-        var cursor = new ExpandedCursor(document, pieces);
-        var index = 0;
-        while (cursor.TryRead(out var ch))
+        var needle = search.FindWhat;
+        if (needle.Length == 0)
+            return;
+        if (search.EntireCell)
         {
-            if (index >= expected.Length || ch != expected[index])
-                return false;
-            index++;
+            if (EqualsValue(document, pieces, needle, search.MatchCase))
+                onMatch(0);
+            return;
         }
 
-        return index == expected.Length;
+        if (search.StartsWith)
+        {
+            if (StartsWith(document, pieces, needle, search.MatchCase))
+                onMatch(0);
+            return;
+        }
+
+        Find(document, pieces, needle, search.MatchCase, onMatch);
     }
 
-    public static void Find(XmlDocument document, IReadOnlyList<TextPiece> pieces, string query, Action<int> onMatch)
+    public static bool EqualsValue(XmlDocument document, IReadOnlyList<TextPiece> pieces, string expected, bool matchCase)
+    {
+        if (expected.Length == 0)
+            return false;
+        var cursor = new ExpandedCursor(document, pieces);
+        var window = new char[expected.Length];
+        var filled = 0;
+        while (filled < expected.Length && cursor.TryRead(out var ch))
+            window[filled++] = ch;
+        if (filled != expected.Length || !Same(window, expected, matchCase))
+            return false;
+        return !cursor.TryRead(out _);
+    }
+
+    public static bool StartsWith(XmlDocument document, IReadOnlyList<TextPiece> pieces, string expected, bool matchCase)
+    {
+        if (expected.Length == 0)
+            return false;
+        var cursor = new ExpandedCursor(document, pieces);
+        var window = new char[expected.Length];
+        var filled = 0;
+        while (filled < expected.Length && cursor.TryRead(out var ch))
+            window[filled++] = ch;
+        return filled == expected.Length && Same(window, expected, matchCase);
+    }
+
+    public static void Find(XmlDocument document, IReadOnlyList<TextPiece> pieces, string query, bool matchCase, Action<int> onMatch)
     {
         if (query.Length == 0)
             return;
@@ -524,8 +561,15 @@ internal static class ExpandedText
             }
 
             index++;
-            if (filled == query.Length && window.AsSpan().SequenceEqual(query))
+            if (filled == query.Length && Same(window, query, matchCase))
                 onMatch(index - query.Length);
         }
+    }
+
+    private static bool Same(ReadOnlySpan<char> window, string query, bool matchCase)
+    {
+        if (matchCase)
+            return window.SequenceEqual(query);
+        return window.Equals(query, StringComparison.OrdinalIgnoreCase);
     }
 }
