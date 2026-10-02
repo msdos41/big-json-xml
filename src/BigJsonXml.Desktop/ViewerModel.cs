@@ -239,8 +239,15 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     public void SetScanElapsed(long milliseconds)
     {
         _scanElapsed = milliseconds;
-        if (_session is not null && !_refreshing)
-            Refresh();
+        if (_session is null)
+            return;
+        if (_refreshing)
+        {
+            RemainingTime = ScanRemainingTime();
+            return;
+        }
+
+        Refresh();
     }
 
     public double ScrollX
@@ -834,16 +841,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
                 fraction = 1;
         }
 
-        var elapsed = _scanElapsed ?? Environment.TickCount64 - _scanStartedAt;
-        if (elapsed < 0)
-            elapsed = 0;
-        var text = "";
-        if (progress == ScanProgress.Scanning && show && elapsed >= 1000 && reached > 0)
-            text = RemainingText(length, reached, elapsed);
-
         ScanFraction = fraction;
         ScanFractionShown = show;
-        RemainingTime = text;
+        RemainingTime = ScanRemainingTime();
         Error = _session.Error is null
             ? ""
             : $"{_session.Error.Message} (line {_session.Error.Line}, column {_session.Error.Column})";
@@ -853,6 +853,22 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             ScanProgress.Completed => "Complete",
             _ => "Stopped",
         };
+    }
+
+    private string ScanRemainingTime()
+    {
+        var progress = _session!.Progress;
+        var length = _session.DocumentLength;
+        var reached = _session.BytesReached;
+        var show = _session.LengthIsFixed
+            && length > 0
+            && progress is ScanProgress.Scanning or ScanProgress.Stopped;
+        var elapsed = _scanElapsed ?? Environment.TickCount64 - _scanStartedAt;
+        if (elapsed < 0)
+            elapsed = 0;
+        if (progress != ScanProgress.Scanning || !show || elapsed < 1000 || reached <= 0)
+            return "";
+        return RemainingText(length, reached, elapsed);
     }
 
     private static string RemainingText(long length, long reached, long elapsed)
