@@ -68,8 +68,8 @@ public class ShellTests
     {
         var path = Write("<root><item>alpha</item><item>beta</item></root>");
         using var model = new ViewerModel();
-        Assert.True(model.FindWindowOpen);
-        Assert.True(model.ResultsWindowOpen);
+        Assert.False(model.FindWindowOpen);
+        Assert.False(model.ResultsWindowOpen);
         model.OpenPath(path);
 
         model.FindWhat = "";
@@ -111,6 +111,40 @@ public class ShellTests
         Assert.Equal(10, window.Text.Length);
         Assert.Equal("NEEDLE", window.Text.Substring(window.MarkStart, window.MarkLength));
         Assert.Equal("/root/note", window.Path);
+    }
+
+    [Fact]
+    public void Find_opens_on_request_and_results_follow_find_all()
+    {
+        var path = Write("<root><item>beta</item></root>");
+        using var model = new ViewerModel();
+        Assert.False(model.FindWindowOpen);
+        Assert.False(model.ResultsWindowOpen);
+
+        model.ShowFind();
+        Assert.True(model.FindWindowOpen);
+        Assert.False(model.ResultsWindowOpen);
+        model.ShowFind();
+        Assert.True(model.FindWindowOpen);
+
+        model.OpenPath(path);
+        model.FindWhat = "beta";
+        model.FindAll();
+        Assert.True(model.FindWindowOpen);
+        Assert.True(model.ResultsWindowOpen);
+        Assert.Equal("beta", Assert.Single(model.Results).Text);
+
+        model.CloseResults();
+        Assert.True(model.FindWindowOpen);
+        Assert.False(model.ResultsWindowOpen);
+
+        model.FindAll();
+        Assert.True(model.ResultsWindowOpen);
+        Assert.Equal("beta", Assert.Single(model.Results).Text);
+
+        model.CloseFind();
+        Assert.False(model.FindWindowOpen);
+        Assert.False(model.ResultsWindowOpen);
     }
 
     [Fact]
