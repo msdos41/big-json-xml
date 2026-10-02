@@ -890,7 +890,8 @@ public class ShellTests
 
         var blocks = window.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text).ToList();
         Assert.Contains("Found", blocks);
-        Assert.Contains("XPath", blocks);
+        Assert.Contains("Path", blocks);
+        Assert.DoesNotContain("XPath", blocks);
         Assert.Contains("1 match", blocks);
         Assert.Contains(path, blocks);
         var header = window.GetVisualDescendants().OfType<Grid>().Single(candidate => candidate.Name == "HeaderGrid");
