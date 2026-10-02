@@ -89,8 +89,8 @@ An attribute the parent element has, written as the table shows it, including `@
 _Avoid_: Field name, attribute value
 
 **Path**:
-The steps from the document element down to a hit or an entry, written with a leading `/` and the steps joined by `/`. Each step is a field name, a list step is `Name[n]` for the entry's position among siblings of that same name, and a text step is `#text`. The results column that shows a path is headed XPath. The text under that heading is still a Path.
-_Avoid_: byte offset, row number, `text()`
+The steps from the document element down to a hit or an entry, written with a leading `/` and the steps joined by `/`. Each step is a field name, a list step is `Name[n]` for the entry's position among siblings of that same name, and a text step is `#text`.
+_Avoid_: XPath, byte offset, row number, `text()`
 
 **Hit**:
 One search match. It remembers its path and the stretch of that field's text that matched, so the viewer can expand the embedded tables on that path and scroll that cell into view; two matches in one field are two hits, and a hit on a list entry's own element name is that entry.

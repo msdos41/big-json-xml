@@ -31,7 +31,7 @@
           <TextBlock Text="Found" Margin="4,0" VerticalAlignment="Center"/>
         </Border>
         <Border Grid.Column="2" BorderBrush="#C0C0C0" BorderThickness="0,0,0,1" Background="#F0F0F0">
-          <TextBlock Text="XPath" Margin="4,0" VerticalAlignment="Center"/>
+          <TextBlock Text="Path" Margin="4,0" VerticalAlignment="Center"/>
         </Border>
         <Border Grid.Column="1" Width="6" HorizontalAlignment="Right" Margin="0,0,-3,0" ZIndex="2"
                 Background="Transparent" Cursor="SizeWestEast"
