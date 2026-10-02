@@ -63,8 +63,41 @@ public sealed record ListView(
 public sealed record RecordView(IReadOnlyList<FieldView> Fields);
 
 /// <summary>
+/// One text search. Find what is a character sequence. Empty name limits add nothing.
+/// </summary>
+public sealed record TextSearch
+{
+    public string FindWhat { get; init; } = "";
+
+    public bool MatchCase { get; init; } = true;
+
+    public bool ElementName { get; init; } = true;
+
+    public bool AttributeName { get; init; } = true;
+
+    public bool Value { get; init; } = true;
+
+    public bool StartsWith { get; init; }
+
+    public bool EntireCell { get; init; }
+
+    public string FieldName { get; init; } = "";
+
+    public string ParentElementName { get; init; } = "";
+
+    public string GrandfatherElementName { get; init; } = "";
+
+    public string ParentAttributeName { get; init; } = "";
+}
+
+/// <summary>
+/// Field text for one result row. The mark is the matched stretch inside <see cref="Text"/>.
+/// </summary>
+public readonly record struct HitText(string Text, int MarkStart, int MarkLength);
+
+/// <summary>
 /// One search match. The path is enough to open the cell later.
-/// CharacterOffset is the match in the expanded scalar value.
+/// CharacterOffset is the match in the field text. MatchLength is that stretch.
 /// </summary>
 public sealed class Hit
 {
@@ -72,19 +105,17 @@ public sealed class Hit
     internal bool SimpleText;
     internal bool FieldOnSimple;
 
-    public Hit(int characterOffset, string snippet)
+    public Hit(int characterOffset, int matchLength)
     {
         CharacterOffset = characterOffset;
-        Snippet = snippet;
+        MatchLength = matchLength;
     }
 
     public DocumentPath Path => DocumentPath.From(Steps);
 
     public int CharacterOffset { get; }
 
-    public string Snippet { get; }
-
-    internal int MatchLength { get; init; }
+    public int MatchLength { get; }
 
     public override string ToString() => $"{Path} @{CharacterOffset}";
 }

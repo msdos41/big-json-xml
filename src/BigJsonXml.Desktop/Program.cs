@@ -34,7 +34,7 @@ public static class SessionCheck
             break;
         }
 
-        session.Search("a");
+        session.Search(new TextSearch { FindWhat = "a" });
         session.PumpAll();
         if (session.Hits.Count > 0)
             session.Reveal(session.Hits[0]);

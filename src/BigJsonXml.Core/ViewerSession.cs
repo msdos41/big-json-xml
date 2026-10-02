@@ -207,12 +207,74 @@ public sealed partial class ViewerSession : IDisposable
             chrome.WindowStart = 0;
     }
 
-    public void Search(string query)
+    public void Search(TextSearch search)
     {
-        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(search);
         ClearMark();
         _hits.Clear();
-        _search = new Searcher(_document, query, _hits);
+        if (search.FindWhat.Length == 0)
+        {
+            _search = null;
+            return;
+        }
+
+        _search = new Searcher(_document, search, _hits);
+    }
+
+    public string FormatPath(DocumentPath path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        var builder = new System.Text.StringBuilder();
+        builder.Append('/');
+        builder.Append(_tree.Root?.Name ?? "");
+        foreach (var step in path.Steps)
+        {
+            builder.Append('/');
+            builder.Append(step.Name);
+            if (step.OneBasedIndex is int index)
+            {
+                builder.Append('[');
+                builder.Append(index.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                builder.Append(']');
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    public HitText ReadHitText(Hit hit, int characterWidth)
+    {
+        ArgumentNullException.ThrowIfNull(hit);
+        if (characterWidth < 1)
+            characterWidth = 1;
+        var pieces = Pieces(hit.Path);
+        var length = ExpandedText.Count(_document, pieces);
+        if (length <= characterWidth)
+        {
+            var whole = ExpandedText.Slice(_document, pieces, 0, length, out _);
+            return ClipMark(whole, hit.CharacterOffset, hit.MatchLength);
+        }
+
+        var start = Place(hit.CharacterOffset, hit.MatchLength, length, characterWidth);
+        var text = ExpandedText.Slice(_document, pieces, start, characterWidth, out _);
+        return ClipMark(text, hit.CharacterOffset - start, hit.MatchLength);
+    }
+
+    private static HitText ClipMark(string text, int mark, int length)
+    {
+        if (mark < 0)
+        {
+            length += mark;
+            mark = 0;
+        }
+
+        if (mark > text.Length)
+            mark = text.Length;
+        if (length < 0)
+            length = 0;
+        if (mark + length > text.Length)
+            length = text.Length - mark;
+        return new HitText(text, mark, length);
     }
 
     public void ClearMark()

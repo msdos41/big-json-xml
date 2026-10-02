@@ -13,15 +13,15 @@ internal sealed class Searcher
 {
     private readonly XmlDocument _document;
     private readonly XmlParser _parser;
-    private readonly Query _query;
+    private readonly TextSearch _search;
     private readonly List<Hit> _hits;
     private readonly Stack<SFrame> _stack = new();
 
-    public Searcher(XmlDocument document, string query, List<Hit> hits)
+    public Searcher(XmlDocument document, TextSearch search, List<Hit> hits)
     {
         _document = document;
         _parser = XmlParser.Create(document);
-        _query = Query.Parse(query);
+        _search = search;
         _hits = hits;
     }
 
@@ -165,35 +165,18 @@ internal sealed class Searcher
         List<TextPiece> pieces,
         bool simple)
     {
-        if (_query.IsText)
-        {
-            if (_query.Text.Length == 0)
-                return;
-            ExpandedText.Find(_document, pieces, _query.Text, offset => Add(path, offset, _query.Text.Length, pieces, simpleText: simple, fieldOnSimple: false));
+        if (_search.FindWhat.Length == 0)
             return;
-        }
-
-        if (_query.Local.Length == 0 || !_query.Matches(attribute, ns, local, scope))
-            return;
-        if (_query.Exact)
-        {
-            if (ExpandedText.EqualsExact(_document, pieces, _query.Value))
-                Add(path, 0, _query.Value.Length, pieces, simpleText: false, fieldOnSimple: simple);
-            return;
-        }
-
-        ExpandedText.Find(_document, pieces, _query.Value, offset => Add(path, offset, _query.Value.Length, pieces, simpleText: false, fieldOnSimple: simple));
+        var length = _search.FindWhat.Length;
+        ExpandedText.Find(_document, pieces, _search.FindWhat, offset => Add(path, offset, length, simpleText: simple, fieldOnSimple: false));
     }
 
-    private void Add(DocumentPath path, int offset, int matchLength, List<TextPiece> pieces, bool simpleText, bool fieldOnSimple)
+    private void Add(DocumentPath path, int offset, int matchLength, bool simpleText, bool fieldOnSimple)
     {
-        var snippetStart = Math.Max(0, offset - 16);
-        var snippet = ExpandedText.Slice(_document, pieces, snippetStart, 48, out _);
-        var hit = new Hit(offset, snippet)
+        var hit = new Hit(offset, matchLength)
         {
             SimpleText = simpleText,
             FieldOnSimple = fieldOnSimple,
-            MatchLength = matchLength,
         };
         foreach (var step in path.Steps)
             hit.Steps.Add(step);
@@ -225,11 +208,7 @@ internal sealed class Searcher
             }
         }
 
-        if (parent.Pending.Remove(key, out var pending) && !_query.IsText && _query.Local == "#text")
-        {
-            var path = parent.Path.Field(name, 1).Field("#text");
-            SearchValue(path, "#text", false, "", "#text", pending.Scope, pending.Text, simple: false);
-        }
+        _ = parent.Pending.Remove(key);
     }
 
     private sealed class SFrame
@@ -253,67 +232,5 @@ internal sealed class Searcher
     {
         public List<TextPiece> Text { get; init; } = [];
         public NsScope Scope { get; init; } = NsScope.Empty;
-    }
-}
-
-internal sealed class Query
-{
-    public bool IsText { get; private init; }
-    public bool Exact { get; private init; }
-    public bool Attribute { get; private init; }
-    public string Prefix { get; private init; } = "";
-    public string Local { get; private init; } = "";
-    public string Value { get; private init; } = "";
-    public string Text { get; private init; } = "";
-
-    public static Query Parse(string query)
-    {
-        var equals = query.IndexOf('=');
-        var tilde = query.IndexOf('~');
-        var op = equals < 0 ? tilde : tilde < 0 ? equals : Math.Min(equals, tilde);
-        if (op < 0)
-            return new Query { IsText = true, Text = query };
-        var name = query[..op].Trim();
-        var raw = query[(op + 1)..];
-        var index = 0;
-        while (index < raw.Length && raw[index] is ' ' or '\t' or '\r' or '\n')
-            index++;
-        var attribute = name.StartsWith('@');
-        var body = attribute ? name[1..] : name;
-        var prefix = "";
-        var local = body;
-        var colon = body.IndexOf(':');
-        if (colon > 0 && body.LastIndexOf(':') == colon && colon < body.Length - 1)
-        {
-            prefix = body[..colon];
-            local = body[(colon + 1)..];
-        }
-
-        return new Query
-        {
-            Exact = query[op] == '=',
-            Attribute = attribute,
-            Prefix = prefix,
-            Local = local,
-            Value = raw[index..],
-        };
-    }
-
-    public bool Matches(bool attribute, string ns, string local, NsScope scope)
-    {
-        if (Local == "#text")
-            return !attribute && local == "#text";
-        if (Attribute != attribute || !string.Equals(Local, local, StringComparison.Ordinal))
-            return false;
-        if (attribute)
-        {
-            if (Prefix.Length == 0)
-                return ns.Length == 0;
-            return scope.TryResolve(Prefix, out var uri) && uri == ns;
-        }
-
-        if (Prefix.Length == 0)
-            return ns.Length == 0 || (scope.Default.Length > 0 && ns == scope.Default);
-        return scope.TryResolve(Prefix, out var resolved) && resolved == ns;
     }
 }
