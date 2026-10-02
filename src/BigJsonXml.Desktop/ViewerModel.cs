@@ -35,6 +35,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private bool _refreshing;
     private bool _rebuild;
     private bool _adjustingResults;
+    private FindResult? _current;
     private IReadOnlyList<SurfaceRow> _rows = [];
     private readonly ObservableCollection<FindResult> _results = [];
     private CellSelection? _selection;
@@ -128,6 +129,12 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     }
 
     public int ResultCount => _results.Count;
+
+    public FindResult? CurrentResult
+    {
+        get => _current;
+        private set => Set(ref _current, value);
+    }
 
     public string Status
     {
@@ -276,7 +283,34 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             StartsWith = _startsWith,
             EntireCell = _entireCell,
         });
+        CurrentResult = null;
         Tick();
+    }
+
+    public void FindNext()
+    {
+        if (_session is null)
+            return;
+        var index = CurrentIndex();
+        while (_session.Hits.Count <= index + 1 && _session.Pump(512))
+        {
+        }
+
+        Refresh();
+        if (index + 1 >= _results.Count)
+            return;
+        var result = _results[index + 1];
+        _adjustingResults = true;
+        try
+        {
+            CurrentResult = result;
+        }
+        finally
+        {
+            _adjustingResults = false;
+        }
+
+        Reveal(result.Hit);
     }
 
     public void Reveal(Hit hit)
@@ -295,6 +329,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         if (_adjustingResults || _session is null)
             return;
+        CurrentResult = result;
         if (result is null)
             ClearMark();
         else
@@ -516,6 +551,19 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         var text = _session!.ReadHitText(hit, _resultWidth);
         return new FindResult(hit, text.Text, text.MarkStart, text.MarkLength, _session.FormatPath(hit.Path));
+    }
+
+    private int CurrentIndex()
+    {
+        if (_current is null)
+            return -1;
+        for (var i = 0; i < _results.Count; i++)
+        {
+            if (ReferenceEquals(_results[i], _current))
+                return i;
+        }
+
+        return -1;
     }
 
     private bool IsPrefix(IReadOnlyList<Hit> next)

@@ -15,4 +15,10 @@ public partial class FindWindow : Window
         if (DataContext is ViewerModel model)
             model.FindAll();
     }
+
+    private void FindNextClicked(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is ViewerModel model)
+            model.FindNext();
+    }
 }
