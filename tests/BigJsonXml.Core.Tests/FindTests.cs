@@ -418,4 +418,110 @@ public class FindTests
         plain.PumpAll();
         Assert.Equal("/root/item", plain.FormatPath(Assert.Single(plain.Hits).Path));
     }
+
+    [Fact]
+    public void Parent_grandfather_and_parent_attribute_narrow_the_hit()
+    {
+        var session = SessionFixture.Scan("""
+            <root>
+              <Extended_covering id="keep">
+                <Start_node>RTM=AAA</Start_node>
+              </Extended_covering>
+              <Extended_covering>
+                <Start_node>RTM=BBB</Start_node>
+              </Extended_covering>
+              <Harness>
+                <Extended_covering>
+                  <Start_node>RTM=CCC</Start_node>
+                </Extended_covering>
+              </Harness>
+              <Start_node id="abc">RTM=DDD</Start_node>
+              <Loose>RTM=EEE</Loose>
+            </root>
+            """);
+
+        session.Search(new TextSearch { FindWhat = "AAA", ParentElementName = "Extended_covering" });
+        session.PumpAll();
+        Assert.Equal("/root/Extended_covering[1]/Start_node", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "AAA", ParentElementName = "Start_node" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "DDD", ParentElementName = "Start_node" });
+        session.PumpAll();
+        Assert.Equal("/root/Start_node/#text", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "RTM", ParentElementName = "Extended_covering" });
+        session.PumpAll();
+        Assert.Equal(3, session.Hits.Count);
+        Assert.Contains(session.Hits, hit => session.FormatPath(hit.Path) == "/root/Extended_covering[1]/Start_node");
+        Assert.Contains(session.Hits, hit => session.FormatPath(hit.Path) == "/root/Extended_covering[2]/Start_node");
+        Assert.Contains(session.Hits, hit => session.FormatPath(hit.Path) == "/root/Harness/Extended_covering/Start_node");
+
+        session.Search(new TextSearch { FindWhat = "AAA", ParentElementName = "extended_covering" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "AAA", ParentElementName = "extended_covering", MatchCase = false });
+        session.PumpAll();
+        Assert.Single(session.Hits);
+
+        session.Search(new TextSearch
+        {
+            FindWhat = "AAA",
+            ParentElementName = "Extended_covering",
+            GrandfatherElementName = "root",
+        });
+        session.PumpAll();
+        Assert.Equal("/root/Extended_covering[1]/Start_node", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "CCC", GrandfatherElementName = "root" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "CCC", GrandfatherElementName = "Harness" });
+        session.PumpAll();
+        Assert.Equal("/root/Harness/Extended_covering/Start_node", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "EEE", GrandfatherElementName = "root" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "EEE", ParentElementName = "root" });
+        session.PumpAll();
+        Assert.Equal("/root/Loose", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "AAA", ParentElementName = "Missing" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "AAA", GrandfatherElementName = "Missing" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "AAA", ParentAttributeName = "@id" });
+        session.PumpAll();
+        Assert.Equal("/root/Extended_covering[1]/Start_node", session.FormatPath(Assert.Single(session.Hits).Path));
+
+        session.Search(new TextSearch { FindWhat = "BBB", ParentAttributeName = "@id" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "AAA", ParentAttributeName = "id" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "AAA", ParentAttributeName = "@ID" });
+        session.PumpAll();
+        Assert.Empty(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "AAA", ParentAttributeName = "@ID", MatchCase = false });
+        session.PumpAll();
+        Assert.Single(session.Hits);
+
+        session.Search(new TextSearch { FindWhat = "AAA" });
+        session.PumpAll();
+        Assert.Single(session.Hits);
+    }
 }
