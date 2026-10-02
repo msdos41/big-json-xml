@@ -38,6 +38,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private FindResult? _current;
     private IReadOnlyList<SurfaceRow> _rows = [];
     private readonly ObservableCollection<FindResult> _results = [];
+    private readonly ObservableCollection<string> _findHistory = [];
     private CellSelection? _selection;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -51,6 +52,10 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         get => _findWhat;
         set => Set(ref _findWhat, value);
     }
+
+    public IReadOnlyList<string> FindHistory => _findHistory;
+
+    public void UseFindHistory(string sequence) => FindWhat = sequence;
 
     public string FieldName
     {
@@ -221,6 +226,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         ArgumentNullException.ThrowIfNull(source);
         _session?.Dispose();
         _session = ViewerSession.Open(source);
+        _findHistory.Clear();
         _scrollX = 0;
         _scrollY = 0;
         Selection = null;
@@ -269,6 +275,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         if (_session is null)
             return;
+        RememberFindWhat();
         _session.Search(new TextSearch
         {
             FindWhat = _findWhat,
@@ -551,6 +558,26 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         var text = _session!.ReadHitText(hit, _resultWidth);
         return new FindResult(hit, text.Text, text.MarkStart, text.MarkLength, _session.FormatPath(hit.Path));
+    }
+
+    private void RememberFindWhat()
+    {
+        var sequence = _findWhat;
+        if (sequence.Length == 0)
+            return;
+        for (var i = 0; i < _findHistory.Count; i++)
+        {
+            if (!string.Equals(_findHistory[i], sequence, StringComparison.Ordinal))
+                continue;
+            if (i == 0)
+                return;
+            _findHistory.RemoveAt(i);
+            break;
+        }
+
+        _findHistory.Insert(0, sequence);
+        while (_findHistory.Count > 20)
+            _findHistory.RemoveAt(_findHistory.Count - 1);
     }
 
     private int CurrentIndex()

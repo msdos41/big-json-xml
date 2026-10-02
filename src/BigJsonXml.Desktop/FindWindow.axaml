@@ -11,7 +11,7 @@
         WindowStartupLocation="Manual">
   <StackPanel Margin="12" Spacing="8">
     <TextBlock Text="Find what"/>
-    <TextBox Text="{Binding FindWhat}" PlaceholderText="Find what"/>
+    <ComboBox IsEditable="True" ItemsSource="{Binding FindHistory}" Text="{Binding FindWhat}" PlaceholderText="Find what" HorizontalAlignment="Stretch"/>
     <TextBlock Text="Field name"/>
     <TextBox Text="{Binding FieldName}" PlaceholderText="Field name"/>
     <TextBlock Text="Parent element name"/>
