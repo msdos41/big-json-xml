@@ -106,6 +106,8 @@ internal sealed class XmlParser
 
     public static XmlParser Create(XmlDocument document) => new(document, false);
 
+    internal long FileByte => _byte;
+
     public static XmlParser Fragment(XmlDocument document, NsScope scope, long offset, long limit)
     {
         var parser = new XmlParser(document, true)
@@ -741,7 +743,7 @@ internal sealed class XmlParser
             return SkipExternalId(optionalNData: true) && SkipSpaceAllowEmpty() && Expect(">");
         }
 
-        if (!ReadQuotedLiteral(out var replacement))
+        if (!ReadQuotedLiteral(out var replacement, allowLessThan: true))
             return false;
         _document.Entities.Add(new EntityDef
         {
@@ -1040,7 +1042,9 @@ internal sealed class XmlParser
         }
     }
 
-    private bool ReadQuoted(out TextPiece piece)
+    private bool ReadQuoted(out TextPiece piece) => ReadQuoted(out piece, allowLessThan: false);
+
+    private bool ReadQuoted(out TextPiece piece, bool allowLessThan)
     {
         piece = default;
         if (!ReadChar(out var quote) || quote is not ('"' or '\''))
@@ -1059,7 +1063,7 @@ internal sealed class XmlParser
                 break;
             }
 
-            if (c == '<')
+            if (c == '<' && !allowLessThan)
                 return Fail("A '<' is not allowed in this value.") is XmlEvent && false;
             if (c == '&' && !ReadReference(attribute: true, out _))
                 return false;
@@ -1069,10 +1073,12 @@ internal sealed class XmlParser
         return true;
     }
 
-    private bool ReadQuotedLiteral(out string value)
+    private bool ReadQuotedLiteral(out string value) => ReadQuotedLiteral(out value, allowLessThan: false);
+
+    private bool ReadQuotedLiteral(out string value, bool allowLessThan)
     {
         value = "";
-        if (!ReadQuoted(out var piece))
+        if (!ReadQuoted(out var piece, allowLessThan))
             return false;
         value = ExpandLiteral(piece);
         return _error is null;
@@ -1297,17 +1303,24 @@ internal sealed class XmlParser
     private bool StartsWith(string text)
     {
         var save = Save();
+        var signal = _signal;
+        var error = _error;
         foreach (var expected in text)
         {
             if (!ReadChar(out var c) || c != expected)
             {
                 Restore(save);
+                _signal = signal;
+                _error = error;
                 return false;
             }
         }
 
+        var matched = _error is null;
         Restore(save);
-        return _error is null && _signal == Signal.None;
+        _signal = signal;
+        _error = error;
+        return matched;
     }
 
     private bool Expect(string text)

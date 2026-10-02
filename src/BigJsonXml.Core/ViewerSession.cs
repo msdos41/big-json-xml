@@ -39,6 +39,22 @@ public sealed partial class ViewerSession : IDisposable
 
     public ScanStop? Error { get; private set; }
 
+    public long BytesReached
+    {
+        get
+        {
+            var reached = _parser.FileByte;
+            var length = _document.Source.Length;
+            if (reached < 0)
+                return 0;
+            return reached > length ? length : reached;
+        }
+    }
+
+    public long DocumentLength => _document.Source.Length;
+
+    public bool LengthIsFixed => _document.Source.IsComplete;
+
     public DocumentPath? Marked { get; private set; }
 
     public IReadOnlyList<Hit> Hits => _hits;
