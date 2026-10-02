@@ -283,6 +283,46 @@ public class ShellTests
     }
 
     [Fact]
+    public void Find_what_history_is_newest_first_and_drops_when_the_document_closes()
+    {
+        var path = Write("<root><item>alpha</item></root>");
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        model.FindWhat = "World";
+        model.FindAll();
+        model.FindWhat = "world";
+        model.FindAll();
+        model.FindWhat = "alpha";
+        model.FindAll();
+        model.FindWhat = "World";
+        model.FindAll();
+        Assert.Equal(["World", "alpha", "world"], model.FindHistory);
+
+        model.UseFindHistory("alpha");
+        Assert.Equal("alpha", model.FindWhat);
+        Assert.Equal(["World", "alpha", "world"], model.FindHistory);
+
+        for (var i = 0; i < 25; i++)
+        {
+            model.FindWhat = "s" + i.ToString(CultureInfo.InvariantCulture);
+            model.FindAll();
+        }
+
+        Assert.Equal(20, model.FindHistory.Count);
+        Assert.Equal("s24", model.FindHistory[0]);
+        Assert.Equal("s5", model.FindHistory[19]);
+        Assert.DoesNotContain(model.FindHistory, sequence => sequence == "World");
+
+        var other = Write("<root><item>beta</item></root>");
+        model.OpenPath(other);
+        Assert.Empty(model.FindHistory);
+
+        using var next = new ViewerModel();
+        next.OpenPath(path);
+        Assert.Empty(next.FindHistory);
+    }
+
+    [Fact]
     public void Results_grow_while_the_scan_is_still_reading()
     {
         var source = new MemoryByteSource();
