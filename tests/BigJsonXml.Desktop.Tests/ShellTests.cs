@@ -230,6 +230,59 @@ public class ShellTests
     }
 
     [Fact]
+    public void Find_next_walks_hits_and_stops_on_the_last()
+    {
+        var path = Write("<root><n>aa</n><n>ab</n><n>ac</n></root>");
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        model.FindWhat = "a";
+        model.StartsWith = true;
+        model.FindAll();
+        Assert.Equal(3, model.ResultCount);
+        Assert.Null(model.CurrentResult);
+
+        model.FindNext();
+        Assert.Same(model.Results[0], model.CurrentResult);
+        Assert.Equal("/root/n[1]/#text", model.CurrentResult!.Path);
+        Assert.Contains(model.Rows, row => row.IsMarked && row.Path.Equals(model.CurrentResult.Hit.Path));
+
+        model.FindNext();
+        Assert.Same(model.Results[1], model.CurrentResult);
+        Assert.Equal("/root/n[2]/#text", model.CurrentResult.Path);
+
+        model.FindNext();
+        Assert.Same(model.Results[2], model.CurrentResult);
+        Assert.Equal("/root/n[3]/#text", model.CurrentResult.Path);
+        var last = model.CurrentResult;
+
+        model.FindNext();
+        Assert.Same(last, model.CurrentResult);
+        Assert.Contains(model.Rows, row => row.IsMarked && row.Path.Equals(last.Hit.Path));
+        Assert.DoesNotContain(model.Rows, row => row.IsMarked && row.Path.Equals(model.Results[0].Hit.Path));
+    }
+
+    [Fact]
+    public void Find_next_waits_until_the_scan_produces_the_next_hit()
+    {
+        var source = new MemoryByteSource();
+        source.Append("<root><item>one</item>");
+        using var model = new ViewerModel();
+        model.Open(source);
+        model.FindWhat = "one";
+        model.FindAll();
+        model.FindNext();
+        Assert.Same(model.Results[0], model.CurrentResult);
+
+        source.Append("<item>two</item><item>one</item></root>");
+        source.Complete();
+        model.FindNext();
+        Assert.Equal(2, model.ResultCount);
+        Assert.Same(model.Results[1], model.CurrentResult);
+        Assert.Equal("/root/item[3]/#text", model.CurrentResult!.Path);
+        Assert.Contains(model.Rows, row => row.IsMarked && row.Path.Equals(model.CurrentResult.Hit.Path));
+    }
+
+    [Fact]
     public void Results_grow_while_the_scan_is_still_reading()
     {
         var source = new MemoryByteSource();
