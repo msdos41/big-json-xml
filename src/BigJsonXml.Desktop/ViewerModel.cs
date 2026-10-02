@@ -10,6 +10,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     public const int ScanIdleMilliseconds = 16;
     private ViewerSession? _session;
     private string _findWhat = "";
+    private bool _matchCase = true;
+    private bool _startsWith;
+    private bool _entireCell;
     private int _resultWidth = 40;
     private int _builtWidth = -1;
     private string _status = "No document";
@@ -39,6 +42,24 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         get => _findWhat;
         set => Set(ref _findWhat, value);
+    }
+
+    public bool MatchCase
+    {
+        get => _matchCase;
+        set => Set(ref _matchCase, value);
+    }
+
+    public bool StartsWith
+    {
+        get => _startsWith;
+        set => Set(ref _startsWith, value);
+    }
+
+    public bool EntireCell
+    {
+        get => _entireCell;
+        set => Set(ref _entireCell, value);
     }
 
     public int ResultWidth
@@ -192,7 +213,13 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         if (_session is null)
             return;
-        _session.Search(new TextSearch { FindWhat = _findWhat });
+        _session.Search(new TextSearch
+        {
+            FindWhat = _findWhat,
+            MatchCase = _matchCase,
+            StartsWith = _startsWith,
+            EntireCell = _entireCell,
+        });
         Tick();
     }
 
