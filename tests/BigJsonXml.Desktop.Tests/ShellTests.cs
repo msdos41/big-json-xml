@@ -141,6 +141,41 @@ public class ShellTests
     }
 
     [Fact]
+    public void Turning_a_target_off_keeps_the_name_and_reveals_that_row()
+    {
+        var path = Write("""
+            <root>
+              <box id="box">keep</box>
+              <item>one</item>
+              <item>two</item>
+            </root>
+            """);
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        model.FindWhat = "box";
+        model.EntireCell = true;
+        model.FindAll();
+        Assert.Equal(2, model.ResultCount);
+
+        model.Value = false;
+        model.FindAll();
+        var name = Assert.Single(model.Results);
+        Assert.Equal("box", name.Text);
+        Assert.Equal("/root/box", name.Path);
+        Assert.Equal(0, name.MarkStart);
+        Assert.Equal(3, name.MarkLength);
+        model.ChooseResult(name);
+        Assert.Contains(model.Rows, row => row.IsMarked && row.Path.Equals(name.Hit.Path));
+
+        model.Value = true;
+        model.ElementName = false;
+        model.FindAll();
+        var value = Assert.Single(model.Results);
+        Assert.Equal("box", value.Text);
+        Assert.Equal("/root/box/@id", value.Path);
+    }
+
+    [Fact]
     public void Results_grow_while_the_scan_is_still_reading()
     {
         var source = new MemoryByteSource();
