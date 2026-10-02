@@ -10,6 +10,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     public const int ScanIdleMilliseconds = 16;
     private ViewerSession? _session;
     private string _findWhat = "";
+    private string _fieldName = "";
     private bool _matchCase = true;
     private bool _elementName = true;
     private bool _attributeName = true;
@@ -45,6 +46,12 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         get => _findWhat;
         set => Set(ref _findWhat, value);
+    }
+
+    public string FieldName
+    {
+        get => _fieldName;
+        set => Set(ref _fieldName, value);
     }
 
     public bool MatchCase
@@ -238,6 +245,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         {
             FindWhat = _findWhat,
             MatchCase = _matchCase,
+            FieldName = _fieldName,
             ElementName = _elementName,
             AttributeName = _attributeName,
             Value = _value,

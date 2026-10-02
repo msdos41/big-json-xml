@@ -12,6 +12,8 @@
   <StackPanel Margin="12" Spacing="8">
     <TextBlock Text="Find what"/>
     <TextBox Text="{Binding FindWhat}" PlaceholderText="Find what"/>
+    <TextBlock Text="Field name"/>
+    <TextBox Text="{Binding FieldName}" PlaceholderText="Field name"/>
     <CheckBox Content="Match case" IsChecked="{Binding MatchCase}"/>
     <CheckBox Content="Element name" IsChecked="{Binding ElementName}"/>
     <CheckBox Content="Attribute name" IsChecked="{Binding AttributeName}"/>
