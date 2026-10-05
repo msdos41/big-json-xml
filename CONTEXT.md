@@ -29,7 +29,7 @@ A read-only session over a document: open, present tables, scroll, search. There
 _Avoid_: Editor
 
 **Record table**:
-A table of one element's fields, with the field names as row headers (vertical headers). This is the presentation when the element is not one entry among same-named siblings. Field names share one width. Values share another. Making the values wider widens every value cell and does not expand those fields. A JSON object that is not a list entry is a record table of its keys. A root JSON scalar is a record table whose only field is `#value`. A list entry that is an object is not also a record table.
+A table of one element's fields, with the field names as row headers (vertical headers). This is the presentation when the element is not one entry among same-named siblings. Field names share one width. Values share another. Making the values wider widens every value cell and does not expand those fields. A JSON object that is not a list entry is a record table of its keys. A root JSON scalar is a record table whose only field is `#value`. A list entry that is an object is not also a record table. Collapsed, a JSON object is shown as `{}`, whether or not it has keys.
 _Avoid_: Form, property grid, vertical table, key-value sheet
 
 **List table**:
@@ -53,15 +53,15 @@ A field whose value is a list. For XML, the child name occurs two or more times 
 _Avoid_: Array column, nested column, sub-table column
 
 **Scalar field**:
-An attribute, the element's own character data, or a child that occurs once and has only character data. An attribute's name is written with a leading `@`. A JSON scalar is a string, a number, true, false, or null. These kinds are distinct. Null is shown as null. A collapsed cell shows one line: the start of the value, or a window around a hit, for as much of the value as the cell's width holds, up to the whole value.
+An attribute, the element's own character data, or a child that occurs once and has only character data. An attribute's name is written with a leading `@`. A JSON scalar is a string, a number, true, false, or null. These kinds are distinct and are shown as JSON literals. A string is shown in double quotes, its text decoded, with quotation mark and backslash written as `\"` and `\\`. A number, true, false, or null is shown as in the file, with no quotes. An empty string is shown as `""`. A missing key is a blank cell. A collapsed cell shows one line: the start of the value, or a window around a hit, for as much of the value as the cell's width holds, up to the whole value.
 _Avoid_: Value, cell
 
 **Full value**:
-The complete character data of a scalar field, shown inside the cell after the user expands it. The text wraps to the cell's width, and the row grows to the virtual height of that text on the document's one scroll surface. Only the visible slice is decoded. Collapsing the cell returns it to the one-line, width-limited view.
+The complete character data of a scalar field, shown inside the cell after the user expands it. A JSON scalar's full value is the same literal the collapsed cell shows. The text wraps to the cell's width, and the row grows to the virtual height of that text on the document's one scroll surface. Only the visible slice is decoded. Collapsing the cell returns it to the one-line, width-limited view.
 _Avoid_: Text viewer, popup, inner scroll
 
 **#value**:
-The field name of a root JSON scalar, or of a list entry that is a string, a number, true, false, null, or an array. An object key written `#value` is this same field.
+The field name of a root JSON scalar, a root JSON array, or a list entry that is a string, a number, true, false, null, or an array. An object key written `#value` is this same field.
 _Avoid_: #text, value, item
 
 **#text**:
@@ -81,7 +81,7 @@ A search for Find what in element names, attribute names, and values over the wh
 _Avoid_: XPath, full-text index, grep, query string, wildcard
 
 **Field name**:
-The name of the field a hit is on, written as the table shows it, including `@`, `#text`, and a prefix from the file. A text search may require this name. An empty requirement allows every field.
+The name of the field a hit is on, written as the table shows it, including `@`, `#text`, `#value`, and a prefix from the file. A text search may require this name. An empty requirement allows every field.
 _Avoid_: Parent element name, query string, XPath
 
 **Field search**:
@@ -101,7 +101,7 @@ An attribute the parent element has, written as the table shows it, including `@
 _Avoid_: Field name, attribute value
 
 **Path**:
-The steps from the document element down to a hit or an entry, written with a leading `/` and the steps joined by `/`. Each step is a field name, a list step is `Name[n]` for the entry's position among siblings of that same name, and a text step is `#text`.
+The steps from the document element down to a hit or an entry, written with a leading `/` and the steps joined by `/`. Each step is a field name, a list step is `Name[n]` for the entry's 1-based position among siblings of that same name, and a text step is `#text`. The first JSON entry is `Name[1]`. `Name[0]` is the collapsed label of an empty list, not a path step. A root JSON array is the field `#value`. A root JSON object's keys are the first step.
 _Avoid_: XPath, byte offset, row number, `text()`
 
 **Hit**:
