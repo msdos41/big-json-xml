@@ -5,7 +5,7 @@ A desktop viewer that presents a large XML or JSON document as record tables and
 ## Language
 
 **Document**:
-An XML file or a JSON file opened for inspection. A JSON document is UTF-8 text holding one value. A leading BOM is ignored. Empty text, whitespace only, or a second value does not open. Any other ill-formed byte stops the scan there, and what was built before the stop stays. The product does not change the document. Comments and processing instructions in an XML document are not presented.
+An XML file or a JSON file opened for inspection. Which grammar it is depends on the first byte after a leading BOM and whitespace: `<` is XML, and a byte that can start a JSON value is JSON. Any other first byte does not open. The file name does not choose the grammar. A JSON document is UTF-8 text holding one value. A leading BOM is ignored. Empty text, whitespace only, or a second value does not open. Trailing bytes that are not another value stop the scan after the finished value, and what was built before the stop stays. The product does not change the document. Comments and processing instructions in an XML document are not presented.
 _Avoid_: File (when you mean the opened document), payload, dump, editor buffer, NDJSON, JSON lines, JSON5
 
 **Scan**:
@@ -41,7 +41,7 @@ One XML element in a list table, or one value in a JSON array shown as a list ta
 _Avoid_: Row, record, item, node
 
 **Field**:
-One attribute, one text value, or one child name of an element. On a record table a field is a row. On a list table a scalar field is a column. An attribute name is written with a leading `@`. A name in a start tag with no value is still an attribute, and that value is empty. A child element is a field once the scan has seen that it has an attribute or an element child, even while its end tag is still ahead. A name from a namespace is shown with the prefix written in the file; its identity is the namespace URI plus the local name. On a JSON object, each key is a field, in the order the keys appear in the file. Its name is that key, with no leading `@`. A repeated JSON key stops the scan and is not another field.
+One attribute, one text value, or one child name of an element. On a record table a field is a row. On a list table a scalar field is a column. An attribute name is written with a leading `@`. A name in a start tag with no value is still an attribute, and that value is empty. A child element is a field once the scan has seen that it has an attribute or an element child, even while its end tag is still ahead. A name from a namespace is shown with the prefix written in the file; its identity is the namespace URI plus the local name. On a JSON object, each key is a field, in the order the keys appear in the file. Its name is that decoded key, with no leading `@` and no extra escaping. An empty key is a field with an empty name. A repeated JSON key stops the scan and is not another field.
 _Avoid_: Property, key, column (that word only describes a list table), row (overloaded)
 
 **Cell**:
@@ -101,9 +101,9 @@ An attribute the parent element has, written as the table shows it, including `@
 _Avoid_: Field name, attribute value
 
 **Path**:
-The steps from the document element down to a hit or an entry, written with a leading `/` and the steps joined by `/`. Each step is a field name, a list step is `Name[n]` for the entry's 1-based position among siblings of that same name, and a text step is `#text`. The first JSON entry is `Name[1]`. `Name[0]` is the collapsed label of an empty list, not a path step. A root JSON array is the field `#value`. A root JSON object's keys are the first step.
+The steps from the document element down to a hit or an entry, written with a leading `/` and the steps joined by `/`. Each step is a field name, a list step is `Name[n]` for the entry's 1-based position among siblings of that same name, and a text step is `#text`. The first JSON entry is `Name[1]`. `Name[0]` is the collapsed label of an empty list, not a path step. A root JSON array is the field `#value`. A root JSON object's keys are the first step. A JSON field name is written as itself, even when it is empty or contains `/`. The written path is not read back.
 _Avoid_: XPath, byte offset, row number, `text()`
 
 **Hit**:
-One search match. It remembers its path and the stretch of that field's text that matched, so the viewer can expand the embedded tables on that path and scroll that cell into view; two matches in one field are two hits, and a hit on a list entry's own element name is that entry.
+One search match. It remembers its path and the stretch of that field's text that matched, so the viewer can expand the embedded tables on that path and scroll that cell into view; two matches in one field are two hits, and a hit on a list entry's own element name is that entry. A hit on a JSON field name is that field on an entry that has it.
 _Avoid_: Result row, match span
