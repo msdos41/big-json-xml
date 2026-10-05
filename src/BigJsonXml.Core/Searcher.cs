@@ -65,6 +65,7 @@ internal sealed class Searcher
                 Name = ev.Name,
                 Ns = ev.Ns,
                 Local = ev.Local,
+                HitOrigin = _hits.Count,
             };
             if (ev.Attributes.Count > 0)
                 root.SawAttribute = true;
@@ -96,6 +97,7 @@ internal sealed class Searcher
             Index = index,
             SawAttribute = ev.Attributes.Count > 0,
             Parent = parent,
+            HitOrigin = _hits.Count,
         };
         parent.SawElement = true;
         _stack.Push(frame);
@@ -247,7 +249,8 @@ internal sealed class Searcher
     private void Promote(SFrame parent, FieldKey key, string name)
     {
         var depth = parent.Path.Steps.Count;
-        for (var i = _hits.Count - 1; i >= 0; i--)
+        // A hit recorded before this parent opened belongs to an earlier entry.
+        for (var i = _hits.Count - 1; i >= parent.HitOrigin; i--)
         {
             var hit = _hits[i];
             if (hit.Steps.Count <= depth)
@@ -323,6 +326,7 @@ internal sealed class Searcher
         public string Ns = "";
         public string Local = "";
         public int? Index;
+        public int HitOrigin;
         public SFrame? Parent;
         public bool SawAttribute;
         public bool SawElement;
