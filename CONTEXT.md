@@ -5,8 +5,8 @@ A desktop viewer that presents a large XML or JSON document as record tables and
 ## Language
 
 **Document**:
-An XML file or a JSON file opened for inspection. A JSON document holds one JSON value. The product does not change the document. Comments and processing instructions in an XML document are not presented.
-_Avoid_: File (when you mean the opened document), payload, dump, editor buffer, NDJSON, JSON lines
+An XML file or a JSON file opened for inspection. A JSON document is UTF-8 text holding one value. A leading BOM is ignored. Empty text, whitespace only, or a second value does not open. Any other ill-formed byte stops the scan there, and what was built before the stop stays. The product does not change the document. Comments and processing instructions in an XML document are not presented.
+_Avoid_: File (when you mean the opened document), payload, dump, editor buffer, NDJSON, JSON lines, JSON5
 
 **Scan**:
 The one forward reading of a document, during which the viewer is scanning. It leaves an outline, and it ends when the end of the document is reached.
@@ -77,7 +77,7 @@ The character sequence a text search looks for.
 _Avoid_: Query, query string, pattern
 
 **Text search**:
-A search for Find what in element names, attribute names, and values over the whole document, including tables that are not expanded, with each of those three able to be turned off. The tested text contains Find what, starts with it, or equals it; comparison is ordinal and case-sensitive unless Match case is turned off; an empty Find what has no hits, and comments are not searched.
+A search for Find what in element names, attribute names, and values over the whole document, including tables that are not expanded, with each of those three able to be turned off. The tested text contains Find what, starts with it, or equals it; comparison is ordinal and case-sensitive unless Match case is turned off; an empty Find what has no hits, and comments are not searched. In a JSON document, element names are field names, including keys and `#value`. Attribute names match nothing. A value is the JSON literal shown for a scalar. `{}` and a collapsed `Name[n]` are not values. A missing key has no value.
 _Avoid_: XPath, full-text index, grep, query string, wildcard
 
 **Field name**:
@@ -89,15 +89,15 @@ A text search limited by a field name. The value or the name still follows that 
 _Avoid_: Column filter, XPath, predicate, query string
 
 **Parent element name**:
-The name of the element that directly contains the matched field. A text search may require this name. The name has no list index. A hit with no such element does not qualify.
+The name of the element that directly contains the matched field. A text search may require this name. The name has no list index. A hit with no such element does not qualify. In a JSON document, this is the nearest named field that contains the match. An object that is a list entry has no name and is skipped. The root object has no parent.
 _Avoid_: Field name, ancestor, XPath
 
 **Grandfather element name**:
-The name of the element that directly contains the parent element of the matched field. A text search may require this one step and no step further up. A hit with no element at that step does not qualify.
+The name of the element that directly contains the parent element of the matched field. A text search may require this one step and no step further up. A hit with no element at that step does not qualify. In a JSON document, this is one named field further up, skipping an unnamed list entry the same way.
 _Avoid_: Ancestor, XPath
 
 **Parent attribute name**:
-An attribute the parent element has, written as the table shows it, including `@`. A text search may require that the parent has this attribute. The attribute's value is not compared.
+An attribute the parent element has, written as the table shows it, including `@`. A text search may require that the parent has this attribute. The attribute's value is not compared. A JSON document has no attributes, so this requirement matches nothing there.
 _Avoid_: Field name, attribute value
 
 **Path**:
