@@ -292,6 +292,27 @@ public class LargeScanTimeTests
         Assert.True(open.ElapsedMilliseconds < 250, $"Opening one record took {open.ElapsedMilliseconds} ms.");
         Assert.True(openAllocated < 1_000_000, $"Opening one record allocated {openAllocated} bytes.");
     }
+
+    [Fact]
+    public void Search_through_nested_lists_stays_with_the_scan()
+    {
+        const int count = 50_000;
+        var xml = new StringBuilder();
+        xml.Append("<root>");
+        for (var i = 0; i < count; i++)
+            xml.Append("<item><email>user@example.com</email><skills><secondary>a</secondary><secondary>b</secondary></skills></item>");
+        xml.Append("</root>");
+        var session = SessionFixture.Scan(xml.ToString());
+
+        var clock = Stopwatch.StartNew();
+        session.Search(new TextSearch { FindWhat = "example" });
+        session.PumpAll();
+        clock.Stop();
+
+        Assert.Equal(count, session.Hits.Count);
+        Assert.Equal($"/root/item[{count}]/email", session.FormatPath(session.Hits[^1].Path));
+        Assert.True(clock.ElapsedMilliseconds < 1_500, $"Search took {clock.ElapsedMilliseconds} ms.");
+    }
 }
 
 [CollectionDefinition("large-scan", DisableParallelization = true)]

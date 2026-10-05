@@ -560,4 +560,22 @@ public class FindTests
         session.PumpAll();
         Assert.Equal("/root/item[2]/#text", session.FormatPath(Assert.Single(session.Hits).Path));
     }
+
+    [Fact]
+    public void A_list_inside_one_entry_does_not_rewrite_an_earlier_single_field()
+    {
+        var session = SessionFixture.Scan("""
+            <root>
+              <item><note>KEEP</note></item>
+              <item><note>a</note><note>KEEP</note></item>
+            </root>
+            """);
+
+        session.Search(new TextSearch { FindWhat = "KEEP" });
+        session.PumpAll();
+
+        Assert.Equal(
+            ["/root/item[1]/note", "/root/item[2]/note[2]/#text"],
+            session.Hits.Select(hit => session.FormatPath(hit.Path)).ToArray());
+    }
 }
