@@ -5,8 +5,8 @@ A desktop viewer that presents a large XML or JSON document as record tables and
 ## Language
 
 **Document**:
-An XML file or a JSON file opened for inspection. The product does not change the document. Comments and processing instructions in an XML document are not presented.
-_Avoid_: File (when you mean the opened document), payload, dump, editor buffer
+An XML file or a JSON file opened for inspection. A JSON document holds one JSON value. The product does not change the document. Comments and processing instructions in an XML document are not presented.
+_Avoid_: File (when you mean the opened document), payload, dump, editor buffer, NDJSON, JSON lines
 
 **Scan**:
 The one forward reading of a document, during which the viewer is scanning. It leaves an outline, and it ends when the end of the document is reached.
@@ -33,15 +33,15 @@ A table of one element's fields, with the field names as row headers (vertical h
 _Avoid_: Form, property grid, vertical table, key-value sheet
 
 **List table**:
-A table of two or more sibling elements that share a parent and a name, whether or not they are consecutive. Field names are column headers (horizontal headers). One entry per element. A single occurrence of a name is not a list table. Columns stand in the order the scan first sees each field. A field seen later is added at the end.
+A table of two or more sibling elements that share a parent and a name, whether or not they are consecutive. Field names are column headers (horizontal headers). One entry per element. A single occurrence of a name is not a list table. Columns stand in the order the scan first sees each field. A field seen later is added at the end. In a JSON document, the entries are the values of one array, and those values need not share a kind.
 _Avoid_: Grid, sheet, DataGrid, horizontal table
 
 **Entry**:
-One element in a list table. Opening it uses what the scan already learned, including after the list is collapsed, and does not read the other entries again.
+One XML element in a list table, or one value in a JSON array shown as a list table. Opening it uses what the scan already learned, including after the list is collapsed, and does not read the other entries again.
 _Avoid_: Row, record, item, node
 
 **Field**:
-One attribute, one text value, or one child name of an element. On a record table a field is a row. On a list table a scalar field is a column. An attribute name is written with a leading `@`. A name in a start tag with no value is still an attribute, and that value is empty. A child element is a field once the scan has seen that it has an attribute or an element child, even while its end tag is still ahead. A name from a namespace is shown with the prefix written in the file; its identity is the namespace URI plus the local name.
+One attribute, one text value, or one child name of an element. On a record table a field is a row. On a list table a scalar field is a column. An attribute name is written with a leading `@`. A name in a start tag with no value is still an attribute, and that value is empty. A child element is a field once the scan has seen that it has an attribute or an element child, even while its end tag is still ahead. A name from a namespace is shown with the prefix written in the file; its identity is the namespace URI plus the local name. On a JSON object, each key is a field, in the order the keys appear in the file. Its name is that key, with no leading `@`.
 _Avoid_: Property, key, column (that word only describes a list table), row (overloaded)
 
 **Cell**:
@@ -53,7 +53,7 @@ A field whose child name occurs two or more times under the element. Expanded, i
 _Avoid_: Array column, nested column, sub-table column
 
 **Scalar field**:
-An attribute, the element's own character data, or a child that occurs once and has only character data. An attribute's name is written with a leading `@`. A collapsed cell shows one line: the start of the value, or a window around a hit, for as much of the value as the cell's width holds, up to the whole value.
+An attribute, the element's own character data, or a child that occurs once and has only character data. An attribute's name is written with a leading `@`. A JSON null is a scalar field and is shown as null. A collapsed cell shows one line: the start of the value, or a window around a hit, for as much of the value as the cell's width holds, up to the whole value.
 _Avoid_: Value, cell
 
 **Full value**:
