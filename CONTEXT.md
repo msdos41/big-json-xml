@@ -1,12 +1,12 @@
 # BigJsonXml
 
-A desktop viewer that presents a large XML document as record tables and list tables so a person can scroll and search without treating the document as a tree of objects. JSON is out of scope for the current product.
+A desktop viewer that presents a large XML or JSON document as record tables and list tables so a person can scroll and search without treating the document as a tree of objects.
 
 ## Language
 
 **Document**:
-An XML file opened for inspection. Comments and processing instructions are not presented. The product does not change the document.
-_Avoid_: File (when you mean the opened XML), payload, dump, editor buffer
+An XML file or a JSON file opened for inspection. The product does not change the document. Comments and processing instructions in an XML document are not presented.
+_Avoid_: File (when you mean the opened document), payload, dump, editor buffer
 
 **Scan**:
 The one forward reading of a document, during which the viewer is scanning. It leaves an outline, and it ends when the end of the document is reached.
