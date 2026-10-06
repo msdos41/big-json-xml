@@ -10,6 +10,13 @@ namespace BigJsonXml.Desktop;
 
 public partial class MainWindow : Window
 {
+    public static FilePickerFileType[] OpenFileTypes { get; } =
+    [
+        new("XML") { Patterns = ["*.xml"] },
+        new("JSON") { Patterns = ["*.json"] },
+        new("All files") { Patterns = ["*"] },
+    ];
+
     private readonly ViewerModel _model = new();
     private readonly DispatcherTimer _timer;
     private FindWindow? _find;
@@ -40,13 +47,9 @@ public partial class MainWindow : Window
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Open XML",
+            Title = "Open",
             AllowMultiple = false,
-            FileTypeFilter =
-            [
-                new FilePickerFileType("XML") { Patterns = ["*.xml"] },
-                new FilePickerFileType("All files") { Patterns = ["*"] },
-            ],
+            FileTypeFilter = OpenFileTypes,
         });
         var path = files.Count > 0 ? files[0].TryGetLocalPath() : null;
         if (path is not null)

@@ -1,4 +1,5 @@
 using System.Text;
+using BigJsonXml.Json;
 
 namespace BigJsonXml.Xml;
 
@@ -33,8 +34,13 @@ internal readonly struct TextPiece
 
     public bool Attribute { get; init; }
 
+    public bool Json { get; init; }
+
     public static TextPiece Bytes(long start, long end, bool attribute = false, bool cdata = false) =>
         new() { EntityId = -1, Start = start, End = end, Attribute = attribute, CData = cdata };
+
+    public static TextPiece JsonLiteral(long start, long end) =>
+        new() { EntityId = -1, Start = start, End = end, Json = true };
 
     public static TextPiece Chars(int entityId, long start, long end, bool attribute = false) =>
         new() { EntityId = entityId, Start = start, End = end, Attribute = attribute };
@@ -211,6 +217,7 @@ internal sealed class ExpandedCursor
     private bool _hasPending;
     private readonly Stack<Frame> _stack = new();
     private readonly Stack<string> _names = new();
+    private JsonChars? _json;
 
     public ExpandedCursor(XmlDocument document, IReadOnlyList<TextPiece> pieces)
     {
@@ -222,6 +229,22 @@ internal sealed class ExpandedCursor
     {
         while (true)
         {
+            if (_json is not null)
+            {
+                if (_json.TryRead(out value))
+                    return true;
+                _json = null;
+            }
+
+            if (_json is null && !_active && _stack.Count == 0 && !_hasPending
+                && _piece < _pieces.Count && _pieces[_piece].Json)
+            {
+                var piece = _pieces[_piece];
+                _piece++;
+                _json = new JsonChars(_document.Source, piece.Start, piece.End);
+                continue;
+            }
+
             if (!TryRaw(out var raw))
             {
                 value = default;

@@ -48,6 +48,12 @@ internal sealed class Slot
 
     // Closed record body. A refresh reads this instead of parsing the children again.
     public Frame? Detail;
+
+    // JSON object shown while collapsed. XML leaves this empty and shows the element name.
+    public string? Closed;
+
+    // JSON list entry offsets. XML leaves this empty and scans children when the list opens.
+    public List<long>? EntryStarts;
 }
 
 internal sealed class Frame
@@ -133,6 +139,15 @@ internal sealed class DocumentTree
     public Frame? Root { get; private set; }
 
     public Stack<Frame> Stack { get; } = new();
+
+    internal void SetRoot(Frame frame) => Root = frame;
+
+    internal void ClearRoot()
+    {
+        Root = null;
+        Stack.Clear();
+        RootClosed = false;
+    }
 
     public bool RootClosed { get; private set; }
 
@@ -671,6 +686,8 @@ internal sealed class DocumentTree
         slot.Inner.Clear();
         slot.HasFields = false;
         slot.Detail = null;
+        slot.Closed = null;
+        slot.EntryStarts = null;
         return slot;
     }
 

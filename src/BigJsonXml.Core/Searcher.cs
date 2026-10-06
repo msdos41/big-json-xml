@@ -9,7 +9,14 @@ internal enum SearchStep
     Idle,
 }
 
-internal sealed class Searcher
+internal interface IScanSearch
+{
+    bool Done { get; }
+
+    SearchStep Step();
+}
+
+internal sealed class Searcher : IScanSearch
 {
     private readonly XmlDocument _document;
     private readonly XmlParser _parser;

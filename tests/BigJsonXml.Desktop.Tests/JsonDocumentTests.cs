@@ -3,6 +3,14 @@ namespace BigJsonXml.Desktop.Tests;
 public class JsonDocumentTests
 {
     [Fact]
+    public void The_open_dialog_offers_json()
+    {
+        var patterns = MainWindow.OpenFileTypes.SelectMany(type => type.Patterns ?? []).ToArray();
+        Assert.Contains("*.json", patterns);
+        Assert.Contains("*.xml", patterns);
+    }
+
+    [Fact]
     public void A_json_name_still_opens_xml_and_an_xml_name_opens_json()
     {
         var xmlInJson = Write("<root><a>1</a></root>", ".json");

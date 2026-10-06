@@ -92,7 +92,7 @@ public sealed partial class ViewerSession
                 text = ClipLabel($"{sole.Name}[{sole.Count}]", ExpandLabelWidth(valueWidth), out cutOff);
             }
             else if (slot.Kind == SlotKind.Record)
-                text = ClipLabel(slot.Name, ExpandLabelWidth(valueWidth), out cutOff);
+                text = ClipLabel(slot.Closed ?? slot.Name, ExpandLabelWidth(valueWidth), out cutOff);
             else if (!full)
                 text = WindowText(field, slot.Text, valueWidth, out cutOff, out canGrow, out start);
             else
@@ -313,7 +313,7 @@ public sealed partial class ViewerSession
                 text = ClipLabel($"{sole.Name}[{sole.Count}]", ExpandLabelWidth(widths[i]), out cutOff);
             }
             else if (cell.Kind == SlotKind.Record)
-                text = ClipLabel(cell.Name, ExpandLabelWidth(widths[i]), out cutOff);
+                text = ClipLabel(cell.Closed ?? cell.Name, ExpandLabelWidth(widths[i]), out cutOff);
             else
                 text = WindowText(cellPath, cell.Text, widths[i], out cutOff, out canGrow, out start);
 
@@ -474,7 +474,7 @@ public sealed partial class ViewerSession
     {
         frame = null!;
         list = null!;
-        if (slot.Kind != SlotKind.Record)
+        if (slot.Kind != SlotKind.Record || slot.Closed is not null)
             return false;
         frame = Opened(slot, path);
         if (frame.Slots.Count != 1)

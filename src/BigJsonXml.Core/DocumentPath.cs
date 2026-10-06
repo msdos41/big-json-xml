@@ -16,7 +16,7 @@ public sealed class DocumentPath : IEquatable<DocumentPath>
 
     public DocumentPath Field(string name, int? oneBasedIndex = null)
     {
-        ArgumentException.ThrowIfNullOrEmpty(name);
+        ArgumentNullException.ThrowIfNull(name);
         if (oneBasedIndex is <= 0)
             throw new ArgumentOutOfRangeException(nameof(oneBasedIndex));
         var next = new Step[_steps.Length + 1];

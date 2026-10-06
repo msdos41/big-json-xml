@@ -1,9 +1,10 @@
+using BigJsonXml.Json;
 using BigJsonXml.Xml;
 
 namespace BigJsonXml;
 
 /// <summary>
-/// Read-only session over one XML document. Callers read a record, a slice of list entries,
+/// Read-only session over one document. Callers read a record, a slice of list entries,
 /// a scalar window, or a slice of a full value. The document is never returned as a tree or one string.
 /// </summary>
 public sealed partial class ViewerSession : IDisposable
@@ -17,20 +18,30 @@ public sealed partial class ViewerSession : IDisposable
     public const double ExpandGutter = ExpandButtonInset + ExpandButtonSize + 2;
     public const int ScrollSurfaces = 1;
 
+    private enum Grammar
+    {
+        Unknown,
+        Xml,
+        Json,
+        Refused,
+    }
+
     private readonly XmlDocument _document;
-    private readonly XmlParser _parser;
     private readonly DocumentTree _tree;
     private readonly IDisposable? _owned;
     private readonly HashSet<DocumentPath> _expanded = [];
     private readonly Dictionary<DocumentPath, OffsetIndex> _offsets = [];
     private readonly Dictionary<DocumentPath, Chrome> _chrome = [];
     private readonly List<Hit> _hits = [];
-    private Searcher? _search;
+    private XmlParser? _xml;
+    private JsonParser? _json;
+    private JsonTree? _jsonTree;
+    private Grammar _grammar;
+    private IScanSearch? _search;
 
     private ViewerSession(IByteSource source, IDisposable? owned)
     {
         _document = new XmlDocument(source);
-        _parser = XmlParser.Create(_document);
         _tree = new DocumentTree(_document, documentElement: true);
         _owned = owned;
     }
@@ -43,7 +54,12 @@ public sealed partial class ViewerSession : IDisposable
     {
         get
         {
-            var reached = _parser.FileByte;
+            var reached = _grammar switch
+            {
+                Grammar.Xml => _xml!.FileByte,
+                Grammar.Json => _json!.FileByte,
+                _ => 0,
+            };
             var length = _document.Source.Length;
             if (reached < 0)
                 return 0;
@@ -101,11 +117,26 @@ public sealed partial class ViewerSession : IDisposable
             var worked = false;
             if (Progress == ScanProgress.Scanning)
             {
-                var ev = _parser.Read();
-                if (ev.Kind != XmlEventKind.NeedMore)
-                {
+                if (_grammar == Grammar.Unknown && Detect() && _grammar == Grammar.Refused)
                     worked = true;
-                    Apply(ev);
+                if (Progress == ScanProgress.Scanning && _grammar == Grammar.Xml)
+                {
+                    var ev = _xml!.Read();
+                    if (ev.Kind != XmlEventKind.NeedMore)
+                    {
+                        worked = true;
+                        Apply(ev);
+                    }
+                }
+                else if (Progress == ScanProgress.Scanning && _grammar == Grammar.Json)
+                {
+                    var ev = _json!.Read();
+                    if (ev.Kind != JsonEventKind.NeedMore)
+                    {
+                        worked = true;
+                        if (ev.Kind != JsonEventKind.Continue)
+                            ApplyJson(ev);
+                    }
                 }
             }
 
@@ -234,12 +265,21 @@ public sealed partial class ViewerSession : IDisposable
             return;
         }
 
-        _search = new Searcher(_document, search, _hits);
+        if (_grammar == Grammar.Unknown)
+            Detect();
+        _search = _grammar switch
+        {
+            Grammar.Json => new JsonSearcher(_document, search, _hits),
+            Grammar.Xml => new Searcher(_document, search, _hits),
+            _ => null,
+        };
     }
 
     public string FormatPath(DocumentPath path)
     {
         ArgumentNullException.ThrowIfNull(path);
+        if (_grammar == Grammar.Json)
+            return FormatJsonPath(path);
         var builder = new System.Text.StringBuilder();
         builder.Append('/');
         builder.Append(_tree.Root?.Name ?? "");
@@ -350,6 +390,95 @@ public sealed partial class ViewerSession : IDisposable
 
     public void Dispose() => _owned?.Dispose();
 
+    private bool Detect()
+    {
+        var look = JsonSniff.Look(_document.Source);
+        switch (look.Kind)
+        {
+            case JsonSniff.Kind.NeedMore:
+                return false;
+            case JsonSniff.Kind.Xml:
+                _grammar = Grammar.Xml;
+                _xml = XmlParser.Create(_document);
+                return true;
+            case JsonSniff.Kind.Json:
+                _grammar = Grammar.Json;
+                _json = JsonParser.Document(_document);
+                _jsonTree = new JsonTree(DocumentPath.Root, _tree);
+                return true;
+            default:
+                _grammar = Grammar.Refused;
+                Error = new ScanStop("The document has no root element.", 0, look.Line, look.Column);
+                Progress = ScanProgress.Stopped;
+                return true;
+        }
+    }
+
+    private void ApplyJson(JsonEvent ev)
+    {
+        if (ev.Kind == JsonEventKind.Error)
+        {
+            Error = new ScanStop(ev.Message, ev.ErrorByte, ev.Line, ev.Column);
+            Progress = ScanProgress.Stopped;
+            return;
+        }
+
+        if (ev.Kind == JsonEventKind.Refuse)
+        {
+            _tree.ClearRoot();
+            _offsets.Clear();
+            _expanded.Clear();
+            Error = new ScanStop(ev.Message, ev.ErrorByte, ev.Line, ev.Column);
+            Progress = ScanProgress.Stopped;
+            return;
+        }
+
+        if (ev.Kind == JsonEventKind.Done)
+        {
+            if (Progress == ScanProgress.Scanning)
+                Progress = ScanProgress.Completed;
+            return;
+        }
+
+        var note = _jsonTree!.Apply(ev);
+        if (note.Stop)
+        {
+            Error = new ScanStop(note.Message, note.Byte, note.Line, note.Column);
+            Progress = ScanProgress.Stopped;
+            return;
+        }
+
+        if (note.HasEntry
+            && note.Path is DocumentPath path
+            && _offsets.TryGetValue(path, out var index)
+            && note.EntryStart >= index.Watermark)
+        {
+            index.Offsets.Add(note.EntryStart);
+            index.Watermark = note.EntryStart + 1;
+        }
+    }
+
+    private static string FormatJsonPath(DocumentPath path)
+    {
+        var builder = new System.Text.StringBuilder();
+        builder.Append('/');
+        for (var i = 0; i < path.Steps.Count; i++)
+        {
+            if (i > 0)
+                builder.Append('/');
+            var step = path.Steps[i];
+            builder.Append(step.Name);
+            if (step.OneBasedIndex is int index)
+            {
+                builder.Append('[');
+                builder.Append(index.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                builder.Append(']');
+            }
+        }
+
+        return builder.ToString();
+    }
+
     private void Apply(XmlEvent ev)
     {
         if (ev.Kind == XmlEventKind.Error)
@@ -372,7 +501,7 @@ public sealed partial class ViewerSession : IDisposable
         if (folded.Promoted)
         {
             _expanded.Remove(path);
-            _parser.PreferFlat(folded.Slot.Name);
+            _xml!.PreferFlat(folded.Slot.Name);
             _offsets[path] = Seed(folded.Slot, folded.ChildStart, folded.ChildEnd);
             return;
         }
@@ -393,10 +522,10 @@ public sealed partial class ViewerSession : IDisposable
     {
         var stamp = System.Diagnostics.Stopwatch.GetTimestamp();
         var limit = System.Diagnostics.Stopwatch.Frequency / 80;
-        while (_parser.TryNextFlat(slot.Name, out var start, out var end))
+        while (_xml!.TryNextFlat(slot.Name, out var start, out var end))
         {
-            if (!_tree.SameFlat(slot, _parser.FlatFields))
-                _tree.MergeFlat(slot, _parser.FlatFields);
+            if (!_tree.SameFlat(slot, _xml.FlatFields))
+                _tree.MergeFlat(slot, _xml.FlatFields);
             slot.Count++;
             slot.EndByte = end;
             if (start >= index.Watermark)
@@ -475,6 +604,8 @@ public sealed partial class ViewerSession : IDisposable
 
     private Frame LoadElement(long offset, NsScope scope, DocumentPath path)
     {
+        if (_grammar == Grammar.Json)
+            return JsonLoader.Load(_document, offset, path);
         var tree = new DocumentTree(_document, documentElement: false);
         return tree.Load(XmlParser.Fragment(_document, scope, offset, long.MaxValue), path);
     }
@@ -483,6 +614,15 @@ public sealed partial class ViewerSession : IDisposable
     {
         if (_offsets.TryGetValue(path, out var existing))
             return existing;
+        if (slot.EntryStarts is not null)
+        {
+            var copied = new OffsetIndex();
+            foreach (var start in slot.EntryStarts)
+                copied.Offsets.Add(start);
+            copied.Watermark = copied.Offsets.Count == 0 ? 0 : copied.Offsets[^1] + 1;
+            _offsets[path] = copied;
+            return copied;
+        }
         var index = new OffsetIndex();
         var limit = parent.ContentEnd >= 0 ? parent.ContentEnd : parent.StableByte;
         if (limit > parent.ContentByte)
@@ -584,7 +724,7 @@ public sealed partial class ViewerSession : IDisposable
         if (slot.Kind == SlotKind.Record)
         {
             return new FieldView(
-                slot.Name, FieldKind.Record, null, true, expanded,
+                slot.Name, FieldKind.Record, slot.Closed, true, expanded,
                 null, null, false, false, false, 0, marked);
         }
 
