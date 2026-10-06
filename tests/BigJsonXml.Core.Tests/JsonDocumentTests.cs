@@ -569,6 +569,34 @@ public class JsonDocumentTests
     }
 
     [Fact]
+    public void Search_stops_where_the_scan_stops()
+    {
+        var repeated = Open("{\"a\":1,\"a\":2}");
+        Search(repeated, new TextSearch { FindWhat = "2", EntireCell = true, ElementName = false, AttributeName = false });
+        Assert.Empty(repeated.Hits);
+        Search(repeated, new TextSearch { FindWhat = "1", EntireCell = true, ElementName = false, AttributeName = false });
+        Assert.Equal(["/a"], Paths(repeated));
+        Search(repeated, new TextSearch { FindWhat = "a", Value = false, AttributeName = false });
+        Assert.Equal(["/a"], Paths(repeated));
+
+        var second = Open("{\"a\":1}{\"b\":2}");
+        Search(second, new TextSearch { FindWhat = "1", EntireCell = true, ElementName = false, AttributeName = false });
+        Assert.Empty(second.Hits);
+
+        var broken = Open("{\"a\":1,\"b\":NaN}");
+        Search(broken, new TextSearch { FindWhat = "b", Value = false, AttributeName = false });
+        Assert.Empty(broken.Hits);
+        Search(broken, new TextSearch { FindWhat = "1", EntireCell = true, ElementName = false, AttributeName = false });
+        Assert.Equal(["/a"], Paths(broken));
+
+        var entry = Open("[{\"a\":1,\"a\":2}]");
+        Assert.Equal(ScanProgress.Stopped, entry.Progress);
+        Assert.Equal(0, entry.Field("#value").ListCount);
+        Search(entry, new TextSearch { FindWhat = "1", EntireCell = true, ElementName = false, AttributeName = false });
+        Assert.Empty(entry.Hits);
+    }
+
+    [Fact]
     public void A_value_field_limit_stays_on_that_field()
     {
         var session = Open("[1,{\"a\":1}]");
