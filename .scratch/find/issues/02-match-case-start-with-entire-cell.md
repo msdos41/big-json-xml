@@ -4,13 +4,13 @@
 
 **Blocked by:** 01: Find what matches values and still reveals
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Match case defaults to on, so `World` does not match `world`.
-- [ ] Match case off compares by ordinal case-folding.
-- [ ] Start with matches only when the whole field text starts with Find what.
-- [ ] Entire cell matches only when the whole field text equals Find what, so `123` does not hit `RTM=123`.
-- [ ] When Entire cell and Start with are both on, the whole field text must equal Find what.
-- [ ] The comparison uses the whole field text, including the part past the visible cell window, and does not assemble a multi-megabyte value into one string.
-- [ ] `*` stays an ordinary character.
-- [ ] Session tests cover case, prefix, and equality, including a match past the visible window.
+- [x] Match case defaults to on, so `World` does not match `world`.
+- [x] Match case off compares by ordinal case-folding.
+- [x] Start with matches only when the whole field text starts with Find what.
+- [x] Entire cell matches only when the whole field text equals Find what, so `123` does not hit `RTM=123`.
+- [x] When Entire cell and Start with are both on, the whole field text must equal Find what.
+- [x] The comparison uses the whole field text, including the part past the visible cell window, and does not assemble a multi-megabyte value into one string.
+- [x] `*` stays an ordinary character.
+- [x] Session tests cover case, prefix, and equality, including a match past the visible window.

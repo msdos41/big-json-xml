@@ -4,11 +4,11 @@
 
 **Blocked by:** 01: Find what matches values and still reveals
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Each Find what that is searched is added to the dropdown, newest first.
-- [ ] The dropdown holds at most 20 sequences.
-- [ ] Choosing an older sequence puts it in Find what.
-- [ ] Closing the document drops the list. Nothing is written to disk.
-- [ ] Opening another document does not show the previous document's sequences.
-- [ ] Window-model tests cover the order, the cap of 20, and closing the document.
+- [x] Each Find what that is searched is added to the dropdown, newest first.
+- [x] The dropdown holds at most 20 sequences.
+- [x] Choosing an older sequence puts it in Find what.
+- [x] Closing the document drops the list. Nothing is written to disk.
+- [x] Opening another document does not show the previous document's sequences.
+- [x] Window-model tests cover the order, the cap of 20, and closing the document.

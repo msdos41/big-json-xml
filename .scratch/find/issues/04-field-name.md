@@ -4,12 +4,12 @@
 
 **Blocked by:** 01: Find what matches values and still reveals
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] An empty Field name does not limit the search.
-- [ ] Field name `Start_node` and Find what `123` hit a simple `Start_node` whose text contains `123`.
-- [ ] Field name `#text` hits character data only when that element also has an attribute or a child element.
-- [ ] Field name `Start_node` does not hit that `#text`.
-- [ ] Field name uses the displayed spelling, including `@` and a prefix from the file, and follows the Match case switch.
-- [ ] Entire cell plus a field name requires the whole value to equal Find what.
-- [ ] Session tests cover the simple element, `#text`, an attribute name, and Match case off.
+- [x] An empty Field name does not limit the search.
+- [x] Field name `Start_node` and Find what `123` hit a simple `Start_node` whose text contains `123`.
+- [x] Field name `#text` hits character data only when that element also has an attribute or a child element.
+- [x] Field name `Start_node` does not hit that `#text`.
+- [x] Field name uses the displayed spelling, including `@` and a prefix from the file, and follows the Match case switch.
+- [x] Entire cell plus a field name requires the whole value to equal Find what.
+- [x] Session tests cover the simple element, `#text`, an attribute name, and Match case off.

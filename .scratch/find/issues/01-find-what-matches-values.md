@@ -4,13 +4,13 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The toolbar query and the docked hit list are gone. The find window and the results window stay open over the document surface.
-- [ ] Find what searches attribute values and character data. Element names and attribute names are not tested yet.
-- [ ] The match is contains. Match case is on. An empty Find what has no hits. `*` is an ordinary character.
-- [ ] `=` and `~` are not operators. A collapsed list label such as `Name[n]` is not a hit.
-- [ ] Hits stream in document order, including from tables that are not expanded.
-- [ ] A result row shows the field text and a Path such as `/Document/List[6]/Field/#text`. The matched stretch is marked in the text. A long value shows only the window around the match that fits the column.
-- [ ] Choosing a row reveals that hit: the embedded tables on the path open, the one document surface scrolls to the cell, and the whole cell is marked.
-- [ ] Session tests cover the value match, the empty sequence, streaming order, the stretch, and reveal. Window-model tests cover the two windows and choosing a row.
+- [x] The toolbar query and the docked hit list are gone. The find window and the results window stay open over the document surface.
+- [x] Find what searches attribute values and character data. Element names and attribute names are not tested yet.
+- [x] The match is contains. Match case is on. An empty Find what has no hits. `*` is an ordinary character.
+- [x] `=` and `~` are not operators. A collapsed list label such as `Name[n]` is not a hit.
+- [x] Hits stream in document order, including from tables that are not expanded.
+- [x] A result row shows the field text and a Path such as `/Document/List[6]/Field/#text`. The matched stretch is marked in the text. A long value shows only the window around the match that fits the column.
+- [x] Choosing a row reveals that hit: the embedded tables on the path open, the one document surface scrolls to the cell, and the whole cell is marked.
+- [x] Session tests cover the value match, the empty sequence, streaming order, the stretch, and reveal. Window-model tests cover the two windows and choosing a row.
