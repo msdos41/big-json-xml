@@ -45,6 +45,9 @@ internal sealed class JsonTree
 {
     private readonly DocumentTree? _host;
     private readonly Stack<Box> _boxes = new();
+    private readonly Stack<Box> _spare = new();
+    private readonly Stack<HashSet<string>> _sets = new();
+    private readonly Stack<List<string>> _names = new();
 
     public JsonTree(DocumentPath path, DocumentTree? host)
     {
@@ -78,13 +81,15 @@ internal sealed class JsonTree
         }
 
         var parent = _boxes.Peek();
-        if (parent.Array)
+        if (parent.Array && !parent.Light)
         {
-            var list = parent.List!;
-            var entryPath = list.Path!.WithIndex(list.EntryStarts!.Count + 1);
-            var frame = NewFrame(ev.ByteStart, entryPath);
-            Push(frame);
-            _boxes.Push(new Box { Frame = frame, Entry = true, Start = ev.ByteStart, OwnsFrame = true });
+            _boxes.Push(LightObject(parent, ev.ByteStart, capture: true));
+            return default;
+        }
+
+        if (parent.Light)
+        {
+            _boxes.Push(LightObject(parent, ev.ByteStart, capture: false));
             return default;
         }
 
@@ -98,6 +103,21 @@ internal sealed class JsonTree
     private JsonNote OnObjectEnd(JsonEvent ev)
     {
         var box = _boxes.Pop();
+        if (box.Light)
+        {
+            JsonNote note = default;
+            if (box.Capture)
+            {
+                var list = box.List!;
+                foreach (var name in box.Direct!)
+                    AddColumn(list, FieldKey.Elem("", name), name);
+                note = Note(_boxes.Peek(), box.Start);
+            }
+
+            Recycle(box);
+            return note;
+        }
+
         box.Frame.EndByte = ev.ByteEnd;
         box.Frame.ContentEnd = ev.ByteStart;
         Pop(box.Frame);
@@ -127,14 +147,15 @@ internal sealed class JsonTree
         }
 
         var parent = _boxes.Peek();
-        if (parent.Array)
+        if (parent.Array && !parent.Light)
         {
-            var outer = parent.List!;
-            var entryPath = outer.Path!.WithIndex(outer.EntryStarts!.Count + 1);
-            var frame = NewFrame(ev.ByteStart, entryPath);
-            var list = AddList(frame, "#value", ev.ByteStart);
-            Push(frame);
-            _boxes.Push(new Box { Array = true, Entry = true, Frame = frame, List = list, Start = ev.ByteStart, OwnsFrame = true });
+            _boxes.Push(LightArray(parent, ev.ByteStart, entry: true));
+            return default;
+        }
+
+        if (parent.Light)
+        {
+            _boxes.Push(LightArray(parent, ev.ByteStart, entry: false));
             return default;
         }
 
@@ -146,6 +167,20 @@ internal sealed class JsonTree
     private JsonNote OnArrayEnd(JsonEvent ev)
     {
         var box = _boxes.Pop();
+        if (box.Light)
+        {
+            JsonNote note = default;
+            if (box.Entry)
+            {
+                var list = _boxes.Peek();
+                AddColumn(list.List!, ValueKey, "#value");
+                note = Note(list, box.Start);
+            }
+
+            Recycle(box);
+            return note;
+        }
+
         box.List!.EndByte = ev.ByteEnd;
         if (box.OwnsFrame)
             Pop(box.Frame);
@@ -160,6 +195,16 @@ internal sealed class JsonTree
     private JsonNote OnKey(JsonEvent ev)
     {
         var box = _boxes.Peek();
+        if (box.Light)
+        {
+            if (box.Keys is null || !box.Keys.Add(ev.Name))
+                return JsonNote.Halt("A repeated key stops the scan.", ev);
+            if (box.Capture)
+                box.Direct!.Add(ev.Name);
+            box.PendingKey = ev.Name;
+            return default;
+        }
+
         if (box.Frame.ByName.ContainsKey(ev.Name))
             return JsonNote.Halt("A repeated key stops the scan.", ev);
         box.PendingKey = ev.Name;
@@ -177,6 +222,8 @@ internal sealed class JsonTree
         }
 
         var box = _boxes.Peek();
+        if (box.Light)
+            return default;
         if (box.Array)
         {
             AddColumn(box.List!, ValueKey, "#value");
@@ -294,16 +341,93 @@ internal sealed class JsonTree
 
     private static FieldKey ValueKey => FieldKey.Elem("", "#value");
 
+    private Box LightObject(Box parent, long start, bool capture)
+    {
+        var box = Rent();
+        box.Light = true;
+        box.Entry = capture;
+        box.Capture = capture;
+        box.Frame = parent.Frame;
+        box.List = parent.List;
+        box.Start = start;
+        box.Keys = RentSet();
+        if (capture)
+            box.Direct = RentNames();
+        return box;
+    }
+
+    private Box LightArray(Box parent, long start, bool entry)
+    {
+        var box = Rent();
+        box.Light = true;
+        box.Array = true;
+        box.Entry = entry;
+        box.Frame = parent.Frame;
+        box.List = parent.List;
+        box.Start = start;
+        return box;
+    }
+
+    private Box Rent()
+    {
+        if (_spare.Count == 0)
+            return new Box();
+        var box = _spare.Pop();
+        box.Array = false;
+        box.Entry = false;
+        box.Light = false;
+        box.Capture = false;
+        box.Record = null;
+        box.PendingKey = null;
+        box.OwnsFrame = false;
+        box.Keys = null;
+        box.Direct = null;
+        return box;
+    }
+
+    private void Recycle(Box box)
+    {
+        if (box.Keys is not null)
+        {
+            box.Keys.Clear();
+            _sets.Push(box.Keys);
+            box.Keys = null;
+        }
+
+        if (box.Direct is not null)
+        {
+            box.Direct.Clear();
+            _names.Push(box.Direct);
+            box.Direct = null;
+        }
+
+        if (_spare.Count < 64)
+            _spare.Push(box);
+    }
+
+    private HashSet<string> RentSet()
+    {
+        if (_sets.Count == 0)
+            return new HashSet<string>(StringComparer.Ordinal);
+        return _sets.Pop();
+    }
+
+    private List<string> RentNames() => _names.Count == 0 ? [] : _names.Pop();
+
     private sealed class Box
     {
         public bool Array;
         public bool Entry;
+        public bool Light;
+        public bool Capture;
         public Frame Frame = null!;
         public Slot? List;
         public Slot? Record;
         public long Start;
         public string? PendingKey;
         public bool OwnsFrame;
+        public HashSet<string>? Keys;
+        public List<string>? Direct;
     }
 }
 

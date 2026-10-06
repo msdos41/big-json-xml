@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text;
 using BigJsonXml.Xml;
 
@@ -29,9 +30,13 @@ internal sealed class JsonEvent
     public int Column = 1;
     public long ErrorByte;
 
-    public static JsonEvent More() => new() { Kind = JsonEventKind.NeedMore };
+    private static readonly JsonEvent MoreEvent = new() { Kind = JsonEventKind.NeedMore };
 
-    public static JsonEvent Again() => new() { Kind = JsonEventKind.Continue };
+    private static readonly JsonEvent AgainEvent = new() { Kind = JsonEventKind.Continue };
+
+    public static JsonEvent More() => MoreEvent;
+
+    public static JsonEvent Again() => AgainEvent;
 }
 
 internal static class JsonSniff
@@ -149,9 +154,16 @@ internal sealed class JsonParser
     private const int PhAfter = 8;
     private const int StringBudget = 8192;
 
+    private static readonly SearchValues<byte> SpaceBytes = SearchValues.Create(" \t\r\n"u8);
+
+    private static readonly SearchValues<byte> DigitBytes = SearchValues.Create("0123456789"u8);
+
+    private static readonly SearchValues<byte> StringStops = CreateStringStops();
+
     private readonly IByteSource _source;
     private readonly bool _oneValue;
-    private readonly Dictionary<string, string> _intern = new(StringComparer.Ordinal);
+    private readonly Dictionary<int, string[]> _names = new();
+    private readonly JsonEvent _event = new();
     private readonly byte[] _window = new byte[8192];
     private int[] _phase = new int[32];
     private int _top;
@@ -176,6 +188,7 @@ internal sealed class JsonParser
     private int _high;
     private bool _wantLow;
     private StringBuilder? _key;
+    private bool _keyPlain;
     private long _markPos;
     private int _markLine = 1;
     private int _markColumn = 1;
@@ -554,12 +567,20 @@ internal sealed class JsonParser
         var any = false;
         while (true)
         {
-            if (!TryByte(out var b, out var need))
+            if (!Window(out var span, out var need))
                 return need ? Digit.Need : any ? Digit.Some : Digit.None;
-            if (!IsDigit(b))
-                return any ? Digit.Some : Digit.None;
-            Consume(b);
-            any = true;
+            var n = span.IndexOfAnyExcept(DigitBytes);
+            var run = n < 0 ? span.Length : n;
+            if (run > 0)
+            {
+                _pos += run;
+                _column += run;
+                _cr = false;
+                any = true;
+            }
+
+            if (n >= 0)
+                return Digit.Some;
         }
     }
 
@@ -574,6 +595,7 @@ internal sealed class JsonParser
         _escape = false;
         _hexLeft = 0;
         _wantLow = false;
+        _keyPlain = key;
         if (key)
         {
             _key ??= new StringBuilder();
@@ -586,6 +608,20 @@ internal sealed class JsonParser
         var steps = 0;
         while (true)
         {
+            if (_hexLeft == 0 && !_escape && !_wantLow && !_cr)
+            {
+                var plain = TakePlain(StringBudget - steps);
+                if (plain < 0)
+                    return JsonEvent.More();
+                if (plain > 0)
+                {
+                    steps += plain;
+                    if (steps >= StringBudget)
+                        return YieldString();
+                    continue;
+                }
+            }
+
             if (!TryByte(out var b, out var need))
             {
                 if (need)
@@ -650,6 +686,7 @@ internal sealed class JsonParser
             }
             else if (b == (byte)'\\')
             {
+                MaterializeKey();
                 Consume(b);
                 _escape = true;
             }
@@ -678,6 +715,7 @@ internal sealed class JsonParser
                     return Fail("The byte is not valid JSON.");
                 }
 
+                MaterializeKey();
                 if (!LookUtf8(out var point, out var size, out var utfNeed))
                 {
                     if (utfNeed)
@@ -712,7 +750,9 @@ internal sealed class JsonParser
         var start = new Place(_stringStart, _stringLine, _stringColumn);
         if (_stringIsKey)
         {
-            var name = Intern(_key!.ToString());
+            var name = _keyPlain
+                ? InternSource(_stringStart + 1, (int)(_pos - _stringStart - 2))
+                : InternBuilder();
             Replace(PhColon);
             var ev = Event(JsonEventKind.Key, start);
             ev.Name = name;
@@ -793,22 +833,88 @@ internal sealed class JsonParser
         _column += 1;
     }
 
-    private string Intern(string name)
+    private string InternBuilder()
     {
-        if (_intern.TryGetValue(name, out var existing))
-            return existing;
-        _intern[name] = name;
-        return name;
+        var sb = _key!;
+        var hash = unchecked((int)HashBuilder(sb));
+        if (_names.TryGetValue(hash, out var bucket))
+        {
+            foreach (var item in bucket)
+            {
+                if (Same(item, sb))
+                    return item;
+            }
+        }
+
+        return AddIntern(hash, sb.ToString());
     }
 
-    private JsonEvent Event(JsonEventKind kind, Place start) => new()
+    private string InternSource(long offset, int length)
     {
-        Kind = kind,
-        ByteStart = start.Pos,
-        ByteEnd = _pos,
-        Line = start.Line,
-        Column = start.Column,
-    };
+        if (length <= 0)
+            return InternAscii([]);
+        Span<byte> stack = stackalloc byte[256];
+        byte[]? rented = null;
+        var buf = length <= stack.Length ? stack[..length] : default;
+        if (length > stack.Length)
+        {
+            rented = ArrayPool<byte>.Shared.Rent(length);
+            buf = rented.AsSpan(0, length);
+        }
+
+        try
+        {
+            return InternAscii(buf[..ReadSource(offset, buf)]);
+        }
+        finally
+        {
+            if (rented is not null)
+                ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    private string InternAscii(ReadOnlySpan<byte> bytes)
+    {
+        var hash = unchecked((int)HashBytes(bytes));
+        if (_names.TryGetValue(hash, out var bucket))
+        {
+            foreach (var item in bucket)
+            {
+                if (AsciiEquals(item, bytes))
+                    return item;
+            }
+        }
+
+        return AddIntern(hash, AsciiString(bytes));
+    }
+
+    private string AddIntern(int hash, string text)
+    {
+        if (_names.TryGetValue(hash, out var bucket))
+        {
+            var grown = new string[bucket.Length + 1];
+            Array.Copy(bucket, grown, bucket.Length);
+            grown[^1] = text;
+            _names[hash] = grown;
+            return text;
+        }
+
+        _names[hash] = [text];
+        return text;
+    }
+
+    private JsonEvent Event(JsonEventKind kind, Place start)
+    {
+        _event.Kind = kind;
+        _event.ByteStart = start.Pos;
+        _event.ByteEnd = _pos;
+        _event.Name = "";
+        _event.Message = "";
+        _event.Line = start.Line;
+        _event.Column = start.Column;
+        _event.ErrorByte = 0;
+        return _event;
+    }
 
     private JsonEvent Fail(string message)
     {
@@ -851,11 +957,15 @@ internal sealed class JsonParser
     {
         while (true)
         {
-            if (!TryByte(out var b, out var need))
+            if (!Window(out var span, out var need))
                 return need ? Gap.Need : Gap.End;
-            if (b is not ((byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r'))
+            if (span[0] is not ((byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r'))
                 return Gap.Ok;
-            Consume(b);
+            var n = span.IndexOfAnyExcept(SpaceBytes);
+            var run = n < 0 ? span : span[..n];
+            AdvanceSpace(run);
+            if (n >= 0)
+                return Gap.Ok;
         }
     }
 
@@ -880,6 +990,15 @@ internal sealed class JsonParser
     private bool TryByte(out byte value, out bool needMore)
     {
         value = 0;
+        if (!Window(out var span, out needMore))
+            return false;
+        value = span[0];
+        return true;
+    }
+
+    private bool Window(out ReadOnlySpan<byte> span, out bool needMore)
+    {
+        span = default;
         needMore = false;
         if (_pos < _windowAt || _pos >= _windowAt + _windowCount)
         {
@@ -900,8 +1019,9 @@ internal sealed class JsonParser
             _windowCount = count;
         }
 
-        value = _window[(int)(_pos - _windowAt)];
-        return true;
+        var index = (int)(_pos - _windowAt);
+        span = _window.AsSpan(index, _windowCount - index);
+        return span.Length > 0;
     }
 
     private void Consume(byte value)
@@ -989,6 +1109,197 @@ internal sealed class JsonParser
             case (byte)'t': unit = '\t'; return true;
             default: unit = 0; return false;
         }
+    }
+
+    private int TakePlain(int room)
+    {
+        if (room <= 0)
+            return 0;
+        if (!Window(out var span, out var need))
+            return need ? -1 : 0;
+        var stop = span.IndexOfAny(StringStops);
+        var run = stop < 0 ? span : span[..stop];
+        if (run.Length == 0)
+            return 0;
+        if (run.Length > room)
+            run = run[..room];
+        _pos += run.Length;
+        _column += run.Length;
+        if (_stringIsKey && !_keyPlain)
+            AppendAscii(run);
+        return run.Length;
+    }
+
+    private JsonEvent YieldString()
+    {
+        if (_pos < _source.Length)
+            return JsonEvent.Again();
+        if (!_source.IsComplete)
+            return JsonEvent.More();
+        _inString = false;
+        return FailUnfinished();
+    }
+
+    private void MaterializeKey()
+    {
+        if (!_stringIsKey || !_keyPlain)
+            return;
+        var length = (int)(_pos - (_stringStart + 1));
+        _keyPlain = false;
+        if (length <= 0)
+            return;
+        _key ??= new StringBuilder();
+        Span<byte> stack = stackalloc byte[256];
+        byte[]? rented = null;
+        var buf = length <= stack.Length ? stack[..length] : default;
+        if (length > stack.Length)
+        {
+            rented = ArrayPool<byte>.Shared.Rent(length);
+            buf = rented.AsSpan(0, length);
+        }
+
+        try
+        {
+            AppendAscii(buf[..ReadSource(_stringStart + 1, buf)]);
+        }
+        finally
+        {
+            if (rented is not null)
+                ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    private int ReadSource(long offset, Span<byte> dest)
+    {
+        var got = 0;
+        while (got < dest.Length)
+        {
+            var n = _source.Read(offset + got, dest[got..]);
+            if (n <= 0)
+                break;
+            got += n;
+        }
+
+        return got;
+    }
+
+    private void AppendAscii(ReadOnlySpan<byte> run)
+    {
+        _key ??= new StringBuilder();
+        foreach (var b in run)
+            _key.Append((char)b);
+    }
+
+    private void AdvanceSpace(ReadOnlySpan<byte> run)
+    {
+        var i = 0;
+        if (_cr && run.Length > 0)
+        {
+            _cr = false;
+            if (run[0] == (byte)'\n')
+                i = 1;
+        }
+
+        var line = _line;
+        var column = _column;
+        var cr = false;
+        for (; i < run.Length; i++)
+        {
+            var value = run[i];
+            if (cr)
+            {
+                cr = false;
+                if (value == (byte)'\n')
+                    continue;
+            }
+
+            if (value == (byte)'\r')
+            {
+                line++;
+                column = 1;
+                cr = true;
+                continue;
+            }
+
+            if (value == (byte)'\n')
+            {
+                line++;
+                column = 1;
+                continue;
+            }
+
+            column++;
+        }
+
+        _pos += run.Length;
+        _line = line;
+        _column = column;
+        _cr = cr;
+    }
+
+    private static uint HashBytes(ReadOnlySpan<byte> bytes)
+    {
+        var hash = 2166136261u;
+        foreach (var b in bytes)
+            hash = (hash ^ b) * 16777619u;
+        return hash;
+    }
+
+    private static uint HashBuilder(StringBuilder text)
+    {
+        var hash = 2166136261u;
+        for (var i = 0; i < text.Length; i++)
+            hash = (hash ^ (uint)text[i]) * 16777619u;
+        return hash;
+    }
+
+    private static bool Same(string text, StringBuilder builder)
+    {
+        if (text.Length != builder.Length)
+            return false;
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (text[i] != builder[i])
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool AsciiEquals(string text, ReadOnlySpan<byte> bytes)
+    {
+        if (text.Length != bytes.Length)
+            return false;
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (text[i] != bytes[i])
+                return false;
+        }
+
+        return true;
+    }
+
+    private static string AsciiString(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length > 512)
+            return Encoding.UTF8.GetString(bytes);
+        Span<char> chars = stackalloc char[bytes.Length];
+        for (var i = 0; i < bytes.Length; i++)
+            chars[i] = (char)bytes[i];
+        return new string(chars);
+    }
+
+    private static SearchValues<byte> CreateStringStops()
+    {
+        var bytes = new byte[162];
+        bytes[0] = (byte)'"';
+        bytes[1] = (byte)'\\';
+        var n = 2;
+        for (var i = 0; i < 32; i++)
+            bytes[n++] = (byte)i;
+        for (var i = 128; i < 256; i++)
+            bytes[n++] = (byte)i;
+        return SearchValues.Create(bytes);
     }
 
     private readonly record struct Place(long Pos, int Line, int Column);
