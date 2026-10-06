@@ -4,10 +4,10 @@
 
 **Blocked by:** 01: Open a JSON object as a record table
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A repeated key stops the scan. The repeated key does not become a field. Tables built before the stop stay, and the stop is marked at that byte. Later rows are not invented.
-- [ ] A comment, a trailing comma, `NaN`, `+1`, a single-quoted key, and invalid UTF-8 stop the same way.
-- [ ] `{} oops` keeps the finished object and stops at `o`.
-- [ ] `{}{}` and `{} {}` do not open. No tables are shown.
-- [ ] Viewer session tests cover the repeated key, one illegal byte that keeps the prefix, trailing junk, and a second value that does not open.
+- [x] A repeated key stops the scan. The repeated key does not become a field. Tables built before the stop stay, and the stop is marked at that byte. Later rows are not invented.
+- [x] A comment, a trailing comma, `NaN`, `+1`, a single-quoted key, and invalid UTF-8 stop the same way.
+- [x] `{} oops` keeps the finished object and stops at `o`.
+- [x] `{}{}` and `{} {}` do not open. No tables are shown.
+- [x] Viewer session tests cover the repeated key, one illegal byte that keeps the prefix, trailing junk, and a second value that does not open.

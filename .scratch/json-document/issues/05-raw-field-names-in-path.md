@@ -4,10 +4,10 @@
 
 **Blocked by:** 01: Open a JSON object as a record table
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `{"": 1}` opens. The field name is empty, so the header is blank, and the value is the number `1`.
-- [ ] `{"a/b": 1}` is one field named `a/b`, not a field `a` with a child `b`.
-- [ ] `{"a[1]": 1}` is one field named `a[1]`, not a list entry.
-- [ ] The path writes those names as themselves. Revealing the field opens that field.
-- [ ] Viewer session tests cover the empty key, the slash, and the brackets.
+- [x] `{"": 1}` opens. The field name is empty, so the header is blank, and the value is the number `1`.
+- [x] `{"a/b": 1}` is one field named `a/b`, not a field `a` with a child `b`.
+- [x] `{"a[1]": 1}` is one field named `a[1]`, not a list entry.
+- [x] The path writes those names as themselves. Revealing the field opens that field.
+- [x] Viewer session tests cover the empty key, the slash, and the brackets.

@@ -4,13 +4,13 @@
 
 **Blocked by:** 03: Name a non-object JSON value #value, 06: Search JSON objects
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A value search finds literals inside list entries and inside `#value`, using the same literal rules as 06.
-- [ ] A hit on a field name is that field on each entry that has it. An entry that lacks the key does not hit. The column header is not a separate hit.
-- [ ] A missing key adds no value hit. A collapsed `Name[n]` is not a value.
-- [ ] In `{"wrap": {"nums": [{"id": "a1"}]}}`, a hit on the value of `id` has parent element name `nums` and grandfather element name `wrap`. The list index is not part of either name.
-- [ ] A hit on a root object's own field has no parent. Requiring a parent excludes it.
-- [ ] A parent-attribute requirement matches nothing in a JSON document.
-- [ ] Field name `#value` limits hits to that field. An empty Field name still allows every field.
-- [ ] Viewer session tests cover a per-entry name hit, a sparse key, a `#value` literal, the parent and grandfather, a missing parent, and a parent attribute.
+- [x] A value search finds literals inside list entries and inside `#value`, using the same literal rules as 06.
+- [x] A hit on a field name is that field on each entry that has it. An entry that lacks the key does not hit. The column header is not a separate hit.
+- [x] A missing key adds no value hit. A collapsed `Name[n]` is not a value.
+- [x] In `{"wrap": {"nums": [{"id": "a1"}]}}`, a hit on the value of `id` has parent element name `nums` and grandfather element name `wrap`. The list index is not part of either name.
+- [x] A hit on a root object's own field has no parent. Requiring a parent excludes it.
+- [x] A parent-attribute requirement matches nothing in a JSON document.
+- [x] Field name `#value` limits hits to that field. An empty Field name still allows every field.
+- [x] Viewer session tests cover a per-entry name hit, a sparse key, a `#value` literal, the parent and grandfather, a missing parent, and a parent attribute.
