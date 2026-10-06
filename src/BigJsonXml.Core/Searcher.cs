@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using BigJsonXml.Xml;
 
 namespace BigJsonXml;
@@ -22,7 +23,10 @@ internal sealed class Searcher : IScanSearch
     private readonly XmlParser _parser;
     private readonly TextSearch _search;
     private readonly List<Hit> _hits;
+    private readonly List<int> _matches = [];
     private readonly Stack<SFrame> _stack = new();
+    private readonly Stack<SFrame> _spare = new();
+    private readonly TextPiece[] _one = new TextPiece[1];
 
     public Searcher(XmlDocument document, TextSearch search, List<Hit> hits)
     {
@@ -65,15 +69,13 @@ internal sealed class Searcher : IScanSearch
     {
         if (_stack.Count == 0)
         {
-            var root = new SFrame
-            {
-                Path = DocumentPath.Root,
-                Scope = ev.Scope,
-                Name = ev.Name,
-                Ns = ev.Ns,
-                Local = ev.Local,
-                HitOrigin = _hits.Count,
-            };
+            var root = Rent();
+            root.Path = DocumentPath.Root;
+            root.Scope = ev.Scope;
+            root.Name = ev.Name;
+            root.Ns = ev.Ns;
+            root.Local = ev.Local;
+            root.HitOrigin = _hits.Count;
             if (ev.Attributes.Count > 0)
                 root.SawAttribute = true;
             _stack.Push(root);
@@ -86,26 +88,25 @@ internal sealed class Searcher : IScanSearch
 
         var parent = _stack.Peek();
         var key = FieldKey.Elem(ev.Ns, ev.Local);
-        var count = parent.Counts.GetValueOrDefault(key) + 1;
-        parent.Counts[key] = count;
+        var count = parent.CountOf(key) + 1;
+        parent.SetCount(key, count);
+        parent.Names ??= new Dictionary<FieldKey, string>();
         if (count == 1)
             parent.Names[key] = ev.Name;
         var display = parent.Names[key];
         if (count == 2)
             Promote(parent, key, display);
         var index = count >= 2 ? count : (int?)null;
-        var frame = new SFrame
-        {
-            Path = parent.Path.Field(display, index),
-            Scope = ev.Scope,
-            Name = display,
-            Ns = ev.Ns,
-            Local = ev.Local,
-            Index = index,
-            SawAttribute = ev.Attributes.Count > 0,
-            Parent = parent,
-            HitOrigin = _hits.Count,
-        };
+        var frame = Rent();
+        frame.Path = parent.Path.Field(display, index);
+        frame.Scope = ev.Scope;
+        frame.Name = display;
+        frame.Ns = ev.Ns;
+        frame.Local = ev.Local;
+        frame.Index = index;
+        frame.SawAttribute = ev.Attributes.Count > 0;
+        frame.Parent = parent;
+        frame.HitOrigin = _hits.Count;
         parent.SawElement = true;
         _stack.Push(frame);
         SearchDisplayedName(frame.Path, display, element: true, container: parent);
@@ -118,9 +119,14 @@ internal sealed class Searcher : IScanSearch
     {
         if (_stack.Count == 0 || !ev.HasText)
             return;
-        if (ExpandedText.IsWhitespaceOnly(_document, [ev.Text]))
-            return;
-        _stack.Peek().Text.Add(ev.Text);
+        if (!ev.TrustedText)
+        {
+            _one[0] = ev.Text;
+            if (ExpandedText.IsWhitespaceOnly(_document, _one))
+                return;
+        }
+
+        _stack.Peek().AddText(ev.Text);
     }
 
     private void OnEnd()
@@ -132,6 +138,7 @@ internal sealed class Searcher : IScanSearch
             SearchOwnText(frame);
         else
             SearchSimple(frame);
+        Recycle(frame);
     }
 
     private void SearchAttributes(SFrame frame, XmlEvent ev)
@@ -139,35 +146,64 @@ internal sealed class Searcher : IScanSearch
         foreach (var attr in ev.Attributes)
         {
             var shown = "@" + attr.Name;
-            frame.AttributeNames.Add(shown);
+            (frame.AttributeNames ??= []).Add(shown);
             var path = frame.Path.Field(shown);
             SearchDisplayedName(path, shown, element: false, container: frame);
-            SearchValue(path, shown, attribute: true, attr.Ns, attr.Local, frame.Scope, [attr.Value], simple: false, container: frame);
+            var piece = attr.Value;
+            SearchValue(path, shown, attribute: true, attr.Ns, attr.Local, frame.Scope, MemoryMarshal.CreateReadOnlySpan(ref piece, 1), simple: false, container: frame);
         }
     }
 
     private void SearchOwnText(SFrame frame)
     {
-        if (frame.Text.Count == 0)
+        if (!frame.HasText)
             return;
         var path = frame.Path.Field("#text");
-        SearchValue(path, "#text", attribute: false, "", "#text", frame.Scope, frame.Text, simple: false, container: frame);
+        SearchFrame(frame, path, "#text", attribute: false, "", "#text", simple: false, container: frame);
     }
 
     private void SearchSimple(SFrame frame)
     {
-        if (frame.Text.Count == 0)
+        if (!frame.HasText)
             return;
         if (frame.Index is null && _stack.Count > 0)
+            Remember(frame);
+        SearchFrame(frame, frame.Path, frame.Name, attribute: false, frame.Ns, frame.Local, simple: true, container: frame.Parent);
+    }
+
+    private void Remember(SFrame frame)
+    {
+        var parent = _stack.Peek();
+        var pending = new PendingSimple { Scope = frame.Scope };
+        if (frame.MoreText is { Count: > 0 } more)
+            pending.More = [..more];
+        else
         {
-            _stack.Peek().Pending[FieldKey.Elem(frame.Ns, frame.Local)] = new PendingSimple
-            {
-                Text = [..frame.Text],
-                Scope = frame.Scope,
-            };
+            pending.One = frame.FirstText;
+            pending.HasOne = true;
         }
 
-        SearchValue(frame.Path, frame.Name, attribute: false, frame.Ns, frame.Local, frame.Scope, frame.Text, simple: true, container: frame.Parent);
+        (parent.Pending ??= new Dictionary<FieldKey, PendingSimple>())[FieldKey.Elem(frame.Ns, frame.Local)] = pending;
+    }
+
+    private void SearchFrame(
+        SFrame frame,
+        DocumentPath path,
+        string name,
+        bool attribute,
+        string ns,
+        string local,
+        bool simple,
+        SFrame? container)
+    {
+        if (frame.MoreText is { Count: > 0 } more)
+        {
+            SearchValue(path, name, attribute, ns, local, frame.Scope, CollectionsMarshal.AsSpan(more), simple, container);
+            return;
+        }
+
+        var one = frame.FirstText;
+        SearchValue(path, name, attribute, ns, local, frame.Scope, MemoryMarshal.CreateReadOnlySpan(ref one, 1), simple, container);
     }
 
     private void SearchValue(
@@ -177,7 +213,7 @@ internal sealed class Searcher : IScanSearch
         string ns,
         string local,
         NsScope scope,
-        List<TextPiece> pieces,
+        ReadOnlySpan<TextPiece> pieces,
         bool simple,
         SFrame? container)
     {
@@ -185,7 +221,9 @@ internal sealed class Searcher : IScanSearch
             return;
         var length = _search.FindWhat.Length;
         var dropOnPromote = simple && _search.FieldName.Length > 0;
-        ExpandedText.Match(_document, pieces, _search, offset => Add(path, offset, length, simpleText: simple, fieldOnSimple: dropOnPromote));
+        ExpandedText.Match(_document, pieces, _search, _matches);
+        foreach (var offset in _matches)
+            Add(path, offset, length, simpleText: simple, fieldOnSimple: dropOnPromote);
     }
 
     private void SearchDisplayedName(DocumentPath path, string displayed, bool element, SFrame? container)
@@ -274,11 +312,21 @@ internal sealed class Searcher : IScanSearch
             hit.Steps[depth] = step with { OneBasedIndex = 1 };
         }
 
-        if (!parent.Pending.Remove(key, out var pending))
+        if (parent.Pending is null || !parent.Pending.Remove(key, out var pending))
             return;
         var textPath = parent.Path.Field(name, 1).Field("#text");
-        var entry = new SFrame { Name = name, Parent = parent };
-        SearchValue(textPath, "#text", attribute: false, "", "#text", pending.Scope, pending.Text, simple: false, container: entry);
+        var entry = Rent();
+        entry.Name = name;
+        entry.Parent = parent;
+        if (pending.More is { Count: > 0 } more)
+            SearchValue(textPath, "#text", attribute: false, "", "#text", pending.Scope, CollectionsMarshal.AsSpan(more), simple: false, container: entry);
+        else if (pending.HasOne)
+        {
+            var one = pending.One;
+            SearchValue(textPath, "#text", attribute: false, "", "#text", pending.Scope, MemoryMarshal.CreateReadOnlySpan(ref one, 1), simple: false, container: entry);
+        }
+
+        Recycle(entry);
     }
 
     private bool Passes(SFrame? container)
@@ -304,7 +352,7 @@ internal sealed class Searcher : IScanSearch
     {
         if (required.Length == 0)
             return true;
-        if (container is null)
+        if (container?.AttributeNames is null)
             return false;
         var comparison = _search.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
         foreach (var name in container.AttributeNames)
@@ -325,6 +373,20 @@ internal sealed class Searcher : IScanSearch
         return displayedName.Equals(required, comparison);
     }
 
+    private SFrame Rent()
+    {
+        if (!_spare.TryPop(out var frame))
+            return new SFrame();
+        frame.Reset();
+        return frame;
+    }
+
+    private void Recycle(SFrame frame)
+    {
+        if (_spare.Count < 64)
+            _spare.Push(frame);
+    }
+
     private sealed class SFrame
     {
         public DocumentPath Path = DocumentPath.Root;
@@ -338,16 +400,63 @@ internal sealed class Searcher : IScanSearch
         public bool SawAttribute;
         public bool SawElement;
         public bool IsSimple => !SawAttribute && !SawElement;
-        public List<TextPiece> Text { get; } = [];
-        public List<string> AttributeNames { get; } = [];
-        public Dictionary<FieldKey, int> Counts { get; } = [];
-        public Dictionary<FieldKey, string> Names { get; } = [];
-        public Dictionary<FieldKey, PendingSimple> Pending { get; } = [];
+        public TextPiece FirstText;
+        public bool HasText;
+        public List<TextPiece>? MoreText;
+        public List<string>? AttributeNames;
+        public Dictionary<FieldKey, int>? Counts;
+        public Dictionary<FieldKey, string>? Names;
+        public Dictionary<FieldKey, PendingSimple>? Pending;
+
+        public int CountOf(FieldKey key) => Counts?.GetValueOrDefault(key) ?? 0;
+
+        public void SetCount(FieldKey key, int count)
+        {
+            Counts ??= new Dictionary<FieldKey, int>();
+            Counts[key] = count;
+        }
+
+        public void AddText(TextPiece piece)
+        {
+            if (!HasText)
+            {
+                FirstText = piece;
+                HasText = true;
+                return;
+            }
+
+            MoreText ??= [];
+            if (MoreText.Count == 0)
+                MoreText.Add(FirstText);
+            MoreText.Add(piece);
+        }
+
+        public void Reset()
+        {
+            Path = DocumentPath.Root;
+            Scope = NsScope.Empty;
+            Name = "";
+            Ns = "";
+            Local = "";
+            Index = null;
+            HitOrigin = 0;
+            Parent = null;
+            SawAttribute = false;
+            SawElement = false;
+            HasText = false;
+            MoreText?.Clear();
+            AttributeNames?.Clear();
+            Counts?.Clear();
+            Names?.Clear();
+            Pending?.Clear();
+        }
     }
 
     private sealed class PendingSimple
     {
-        public List<TextPiece> Text { get; init; } = [];
-        public NsScope Scope { get; init; } = NsScope.Empty;
+        public TextPiece One;
+        public bool HasOne;
+        public List<TextPiece>? More;
+        public NsScope Scope = NsScope.Empty;
     }
 }

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using BigJsonXml.Xml;
 
 namespace BigJsonXml.Json;
@@ -12,7 +13,9 @@ internal sealed class JsonSearcher : IScanSearch
     private readonly JsonParser _parser;
     private readonly TextSearch _search;
     private readonly List<Hit> _hits;
+    private readonly List<int> _matches = [];
     private readonly Stack<Node> _stack = new();
+    private readonly Stack<Node> _spare = new();
     private string _pending = "";
 
     public JsonSearcher(XmlDocument document, TextSearch search, List<Hit> hits)
@@ -53,7 +56,7 @@ internal sealed class JsonSearcher : IScanSearch
             case JsonEventKind.ObjectEnd:
             case JsonEventKind.ArrayEnd:
                 if (_stack.Count > 0)
-                    _stack.Pop();
+                    Recycle(_stack.Pop());
                 return SearchStep.Work;
             case JsonEventKind.ArrayStart:
                 OnArray();
@@ -73,7 +76,9 @@ internal sealed class JsonSearcher : IScanSearch
     {
         if (_stack.Count == 0)
         {
-            _stack.Push(new Node { Path = DocumentPath.Root });
+            var root = Rent();
+            root.Path = DocumentPath.Root;
+            _stack.Push(root);
             return;
         }
 
@@ -87,12 +92,11 @@ internal sealed class JsonSearcher : IScanSearch
 
         var path = parent.Path.Field(_pending);
         SearchName(path, _pending, parent);
-        _stack.Push(new Node
-        {
-            Name = _pending,
-            Parent = parent,
-            Path = path,
-        });
+        var child = Rent();
+        child.Name = _pending;
+        child.Parent = parent;
+        child.Path = path;
+        _stack.Push(child);
     }
 
     private void OnArray()
@@ -101,7 +105,11 @@ internal sealed class JsonSearcher : IScanSearch
         {
             var path = DocumentPath.Root.Field("#value");
             SearchName(path, "#value", null);
-            _stack.Push(new Node { Name = "#value", Array = true, Path = path });
+            var root = Rent();
+            root.Name = "#value";
+            root.Array = true;
+            root.Path = path;
+            _stack.Push(root);
             return;
         }
 
@@ -120,13 +128,12 @@ internal sealed class JsonSearcher : IScanSearch
 
         var field = parent.Path.Field(_pending);
         SearchName(field, _pending, parent);
-        _stack.Push(new Node
-        {
-            Name = _pending,
-            Array = true,
-            Parent = parent,
-            Path = field,
-        });
+        var child = Rent();
+        child.Name = _pending;
+        child.Array = true;
+        child.Parent = parent;
+        child.Path = field;
+        _stack.Push(child);
     }
 
     private void OnKey(JsonEvent ev)
@@ -168,13 +175,15 @@ internal sealed class JsonSearcher : IScanSearch
         SearchLiteral(field, _pending, ev, parent);
     }
 
-    private Node OpenEntry(Node parent, DocumentPath path) => new()
+    private Node OpenEntry(Node parent, DocumentPath path)
     {
-        Parent = parent,
-        Path = path,
-        Provisional = true,
-        HitOrigin = _hits.Count,
-    };
+        var node = Rent();
+        node.Parent = parent;
+        node.Path = path;
+        node.Provisional = true;
+        node.HitOrigin = _hits.Count;
+        return node;
+    }
 
     private void DropUncommitted()
     {
@@ -228,7 +237,9 @@ internal sealed class JsonSearcher : IScanSearch
             return;
         var piece = TextPiece.JsonLiteral(ev.ByteStart, ev.ByteEnd);
         var length = _search.FindWhat.Length;
-        ExpandedText.Match(_document, [piece], _search, offset => Add(path, offset, length));
+        ExpandedText.Match(_document, MemoryMarshal.CreateReadOnlySpan(ref piece, 1), _search, _matches);
+        foreach (var offset in _matches)
+            Add(path, offset, length);
     }
 
     private bool Passes(Node? container)
@@ -274,6 +285,27 @@ internal sealed class JsonSearcher : IScanSearch
         foreach (var step in path.Steps)
             hit.Steps.Add(step);
         _hits.Add(hit);
+    }
+
+    private Node Rent()
+    {
+        if (!_spare.TryPop(out var node))
+            return new Node();
+        node.Name = null;
+        node.Parent = null;
+        node.Path = DocumentPath.Root;
+        node.Array = false;
+        node.Count = 0;
+        node.Names?.Clear();
+        node.Provisional = false;
+        node.HitOrigin = 0;
+        return node;
+    }
+
+    private void Recycle(Node node)
+    {
+        if (_spare.Count < 64)
+            _spare.Push(node);
     }
 
     private void Add(DocumentPath path, int offset, int matchLength)

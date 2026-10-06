@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text;
 using BigJsonXml.Json;
 
@@ -515,26 +516,32 @@ internal static class ExpandedText
     public static bool EqualsExact(XmlDocument document, IReadOnlyList<TextPiece> pieces, string expected) =>
         EqualsValue(document, pieces, expected, matchCase: true);
 
-    public static void Match(XmlDocument document, IReadOnlyList<TextPiece> pieces, TextSearch search, Action<int> onMatch)
+    public static void Match(XmlDocument document, ReadOnlySpan<TextPiece> pieces, TextSearch search, List<int> offsets)
     {
+        offsets.Clear();
         var needle = search.FindWhat;
-        if (needle.Length == 0)
+        if (needle.Length == 0 || pieces.IsEmpty)
             return;
+        if (pieces.Length == 1 && TryAscii(document, pieces[0], search, offsets))
+            return;
+        offsets.Clear();
+        var copy = new TextPiece[pieces.Length];
+        pieces.CopyTo(copy);
         if (search.EntireCell)
         {
-            if (EqualsValue(document, pieces, needle, search.MatchCase))
-                onMatch(0);
+            if (EqualsValue(document, copy, needle, search.MatchCase))
+                offsets.Add(0);
             return;
         }
 
         if (search.StartsWith)
         {
-            if (StartsWith(document, pieces, needle, search.MatchCase))
-                onMatch(0);
+            if (StartsWith(document, copy, needle, search.MatchCase))
+                offsets.Add(0);
             return;
         }
 
-        Find(document, pieces, needle, search.MatchCase, onMatch);
+        Find(document, copy, needle, search.MatchCase, offsets);
     }
 
     public static bool EqualsValue(XmlDocument document, IReadOnlyList<TextPiece> pieces, string expected, bool matchCase)
@@ -563,7 +570,7 @@ internal static class ExpandedText
         return filled == expected.Length && Same(window, expected, matchCase);
     }
 
-    public static void Find(XmlDocument document, IReadOnlyList<TextPiece> pieces, string query, bool matchCase, Action<int> onMatch)
+    public static void Find(XmlDocument document, IReadOnlyList<TextPiece> pieces, string query, bool matchCase, List<int> offsets)
     {
         if (query.Length == 0)
             return;
@@ -585,7 +592,7 @@ internal static class ExpandedText
 
             index++;
             if (filled == query.Length && Same(window, query, matchCase))
-                onMatch(index - query.Length);
+                offsets.Add(index - query.Length);
         }
     }
 
@@ -594,5 +601,272 @@ internal static class ExpandedText
         if (matchCase)
             return window.SequenceEqual(query);
         return window.Equals(query, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // One raw ASCII piece is one byte per shown character. Anything else stays on the cursor.
+    private static bool TryAscii(XmlDocument document, TextPiece piece, TextSearch search, List<int> offsets)
+    {
+        if (piece.EntityId >= 0 || piece.End < piece.Start || piece.End - piece.Start > int.MaxValue)
+            return false;
+        if (!piece.Json && document.Encoding.CodePage != 65001)
+            return false;
+        var needle = search.FindWhat;
+        if (!IsAscii(needle))
+            return false;
+
+        var jsonString = false;
+        if (piece.Json && piece.End > piece.Start)
+        {
+            Span<byte> one = stackalloc byte[1];
+            if (document.Source.Read(piece.Start, one) != 1)
+                return false;
+            jsonString = one[0] == (byte)'"';
+        }
+
+        var length = piece.End - piece.Start;
+        if (length < needle.Length)
+            return piece.Json || piece.CData || !ContainsByte(document.Source, piece.Start, piece.End, (byte)'&');
+        if (search.EntireCell)
+            return MatchEntire(document.Source, piece, jsonString, needle, search.MatchCase, offsets);
+        if (search.StartsWith)
+            return MatchPrefix(document.Source, piece, jsonString, needle, search.MatchCase, offsets);
+        return MatchSpan(document.Source, piece, jsonString, needle, search.MatchCase, offsets);
+    }
+
+    private static bool MatchPrefix(IByteSource source, TextPiece piece, bool jsonString, string needle, bool matchCase, List<int> offsets)
+    {
+        Span<byte> stack = stackalloc byte[256];
+        byte[]? rented = null;
+        var buffer = needle.Length <= stack.Length ? stack[..needle.Length] : default;
+        if (needle.Length > stack.Length)
+        {
+            rented = ArrayPool<byte>.Shared.Rent(needle.Length);
+            buffer = rented.AsSpan(0, needle.Length);
+        }
+
+        try
+        {
+            if (ReadFull(source, piece.Start, buffer) != needle.Length || !AllOk(buffer, piece, jsonString))
+                return false;
+            if (EqualAscii(buffer, needle, matchCase))
+                offsets.Add(0);
+            return true;
+        }
+        finally
+        {
+            if (rented is not null)
+                ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    private static bool MatchEntire(IByteSource source, TextPiece piece, bool jsonString, string needle, bool matchCase, List<int> offsets)
+    {
+        if (piece.End - piece.Start != needle.Length)
+            return AllOk(source, piece, jsonString);
+        return MatchPrefix(source, piece, jsonString, needle, matchCase, offsets);
+    }
+
+    private static bool MatchSpan(IByteSource source, TextPiece piece, bool jsonString, string needle, bool matchCase, List<int> offsets)
+    {
+        var n = needle.Length;
+        var overlap = n - 1;
+        Span<byte> stackPattern = stackalloc byte[128];
+        byte[]? rentedNeedle = null;
+        var pattern = n <= stackPattern.Length ? stackPattern[..n] : default;
+        if (n > stackPattern.Length)
+        {
+            rentedNeedle = ArrayPool<byte>.Shared.Rent(n);
+            pattern = rentedNeedle.AsSpan(0, n);
+        }
+
+        var rented = ArrayPool<byte>.Shared.Rent(64 * 1024 + overlap);
+        try
+        {
+            FillPattern(needle, matchCase, pattern);
+            var carry = 0;
+            var pos = piece.Start;
+            while (pos < piece.End)
+            {
+                var want = (int)Math.Min(64 * 1024, piece.End - pos);
+                var read = ReadFull(source, pos, rented.AsSpan(carry, want));
+                if (read != want)
+                    return false;
+                var fresh = rented.AsSpan(carry, read);
+                if (!AllOk(fresh, piece, jsonString))
+                    return false;
+                if (!matchCase)
+                    Fold(fresh);
+                var window = rented.AsSpan(0, carry + read);
+                var origin = (int)(pos - piece.Start - carry);
+                AddHits(window, pattern, origin, offsets);
+                if (pos + read >= piece.End)
+                    break;
+                var keep = Math.Min(overlap, window.Length);
+                MoveTail(rented, window.Length, keep);
+                carry = keep;
+                pos += read;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+            if (rentedNeedle is not null)
+                ArrayPool<byte>.Shared.Return(rentedNeedle);
+        }
+
+        return true;
+    }
+
+    private static void AddHits(ReadOnlySpan<byte> hay, ReadOnlySpan<byte> needle, int origin, List<int> offsets)
+    {
+        var from = 0;
+        while (from <= hay.Length - needle.Length)
+        {
+            var rel = hay[from..].IndexOf(needle);
+            if (rel < 0)
+                return;
+            var at = from + rel;
+            offsets.Add(origin + at);
+            from = at + 1;
+        }
+    }
+
+    private static bool AllOk(IByteSource source, TextPiece piece, bool jsonString)
+    {
+        var rented = ArrayPool<byte>.Shared.Rent(64 * 1024);
+        try
+        {
+            var pos = piece.Start;
+            while (pos < piece.End)
+            {
+                var want = (int)Math.Min(rented.Length, piece.End - pos);
+                var read = ReadFull(source, pos, rented.AsSpan(0, want));
+                if (read != want || !AllOk(rented.AsSpan(0, read), piece, jsonString))
+                    return false;
+                pos += read;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+
+        return true;
+    }
+
+    private static bool AllOk(ReadOnlySpan<byte> bytes, TextPiece piece, bool jsonString)
+    {
+        foreach (var b in bytes)
+        {
+            if (!ByteOk(b, piece, jsonString))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool ByteOk(byte value, TextPiece piece, bool jsonString)
+    {
+        if (value >= 0x80)
+            return false;
+        if (piece.Json)
+            return !jsonString || value != (byte)'\\';
+        if (value == (byte)'\r')
+            return false;
+        if (!piece.CData && value == (byte)'&')
+            return false;
+        if (piece.Attribute && value is (byte)'\n' or (byte)'\t')
+            return false;
+        return true;
+    }
+
+    private static bool ContainsByte(IByteSource source, long start, long end, byte value)
+    {
+        Span<byte> buf = stackalloc byte[256];
+        var pos = start;
+        while (pos < end)
+        {
+            var want = (int)Math.Min(buf.Length, end - pos);
+            var read = ReadFull(source, pos, buf[..want]);
+            if (read != want)
+                return true;
+            if (buf[..read].IndexOf(value) >= 0)
+                return true;
+            pos += read;
+        }
+
+        return false;
+    }
+
+    private static void MoveTail(Span<byte> buffer, int length, int keep)
+    {
+        if (keep <= 0)
+            return;
+        var from = length - keep;
+        if (from >= keep)
+        {
+            buffer.Slice(from, keep).CopyTo(buffer);
+            return;
+        }
+
+        for (var i = keep - 1; i >= 0; i--)
+            buffer[i] = buffer[from + i];
+    }
+
+    private static int ReadFull(IByteSource source, long offset, Span<byte> dest)
+    {
+        var got = 0;
+        while (got < dest.Length)
+        {
+            var n = source.Read(offset + got, dest[got..]);
+            if (n <= 0)
+                break;
+            got += n;
+        }
+
+        return got;
+    }
+
+    private static void FillPattern(string needle, bool matchCase, Span<byte> pattern)
+    {
+        for (var i = 0; i < needle.Length; i++)
+        {
+            var value = (byte)needle[i];
+            pattern[i] = matchCase ? value : Fold(value);
+        }
+    }
+
+    private static void Fold(Span<byte> bytes)
+    {
+        for (var i = 0; i < bytes.Length; i++)
+            bytes[i] = Fold(bytes[i]);
+    }
+
+    private static byte Fold(byte value) => (uint)(value - (byte)'A') <= 25 ? (byte)(value + 32) : value;
+
+    private static bool EqualAscii(ReadOnlySpan<byte> bytes, string needle, bool matchCase)
+    {
+        for (var i = 0; i < bytes.Length; i++)
+        {
+            var left = bytes[i];
+            var right = (byte)needle[i];
+            if (left == right)
+                continue;
+            if (matchCase || Fold(left) != Fold(right))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsAscii(string text)
+    {
+        foreach (var ch in text)
+        {
+            if (ch >= 128)
+                return false;
+        }
+
+        return true;
     }
 }
