@@ -79,6 +79,8 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(FindWindowOpen));
         if (resultsWereOpen)
             OnPropertyChanged(nameof(ResultsWindowOpen));
+        if (findWasOpen || resultsWereOpen)
+            ClearMark();
     }
 
     public void CloseResults()
@@ -87,6 +89,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             return;
         _resultsWindowOpen = false;
         OnPropertyChanged(nameof(ResultsWindowOpen));
+        ClearMark();
     }
 
     public string FindWhat
