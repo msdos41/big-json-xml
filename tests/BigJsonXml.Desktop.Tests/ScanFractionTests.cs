@@ -225,7 +225,7 @@ public class ScanFractionTests
     public void A_stop_before_any_byte_leaves_an_empty_bar()
     {
         var source = new MemoryByteSource();
-        source.Append("nope");
+        source.Append("Hello");
         source.Complete();
         using var model = new ViewerModel();
         model.Open(source);
