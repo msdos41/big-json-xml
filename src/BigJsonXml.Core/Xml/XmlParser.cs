@@ -95,7 +95,7 @@ internal sealed class XmlParser
     private readonly List<FlatField> _flatFields = [];
     private string _hashText = "#text";
 
-    private static readonly SearchValues<byte> StopBytes = CreateStops();
+    private static readonly SearchValues<byte> StopBytes = SearchValues.Create("<&"u8);
     private static readonly SearchValues<byte> SpaceBytes = SearchValues.Create(" \t\r\n"u8);
 
     private XmlParser(XmlDocument document, bool fragment)
@@ -512,6 +512,12 @@ internal sealed class XmlParser
             return Fail("A tag is not closed.");
         }
 
+        return FinishStart(prefix, local, empty, byteStart);
+    }
+
+    private XmlEvent FinishStart(string prefix, string local, bool empty, long byteStart)
+    {
+        var raw = _raw;
         var scope = _scope;
         foreach (var attr in raw)
         {
@@ -1639,6 +1645,16 @@ internal sealed class XmlParser
                 span = span[..budget];
             var stop = span.IndexOfAny(StopBytes);
             var run = stop < 0 ? span : span[..stop];
+            var atEnd = stop < 0 && _byte + span.Length >= _document.Source.Length && _document.Source.IsComplete;
+            var text = MeasureUtf8(run, allowPartialTail: stop < 0 && !atEnd);
+            if (text.Error is not null)
+            {
+                _byte += text.Count;
+                return Fail(text.Error);
+            }
+
+            if (text.Count < run.Length)
+                run = run[..text.Count];
             if (run.Length > 0)
             {
                 if (run.IndexOfAnyExcept(SpaceBytes) >= 0)
@@ -1725,6 +1741,24 @@ internal sealed class XmlParser
 
             return _error is null && _signal != Signal.NeedMore;
         }
+    }
+
+    private bool SplitAsciiName(ReadOnlySpan<byte> bytes, out string prefix, out string local)
+    {
+        prefix = "";
+        local = "";
+        var colon = bytes.IndexOf((byte)':');
+        if (colon < 0)
+        {
+            local = InternAscii(bytes);
+            return local.Length > 0;
+        }
+
+        if (colon == 0 || colon == bytes.Length - 1 || bytes[(colon + 1)..].Contains((byte)':'))
+            return false;
+        prefix = InternAscii(bytes[..colon]);
+        local = InternAscii(bytes[(colon + 1)..]);
+        return prefix.Length > 0 && local.Length > 0;
     }
 
     private bool ReadAsciiName(out string token)
@@ -1943,8 +1977,16 @@ internal sealed class XmlParser
                 while (index < span.Length && span[index] != (byte)'<')
                 {
                     var b = span[index];
-                    if (b is (byte)'&' || b >= 0x80)
+                    if (b == (byte)'&')
                         return false;
+                    if (b >= 0x80)
+                    {
+                        if (!SkipUtf8(span, ref index))
+                            return false;
+                        nonWs = true;
+                        continue;
+                    }
+
                     if (b is not ((byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n'))
                         nonWs = true;
                     index++;
@@ -2043,8 +2085,15 @@ internal sealed class XmlParser
             var quote = span[index++];
             while (index < span.Length && span[index] != quote)
             {
-                if (span[index] is (byte)'<' or (byte)'&' || span[index] >= 0x80)
+                if (span[index] is (byte)'<' or (byte)'&')
                     return false;
+                if (span[index] >= 0x80)
+                {
+                    if (!SkipUtf8(span, ref index))
+                        return false;
+                    continue;
+                }
+
                 index++;
             }
 
@@ -2092,14 +2141,14 @@ internal sealed class XmlParser
     {
         ev = _event;
         var i = 2;
-        if (!ScanName(span, ref i, out var nameAt, out var nameLen) || span.Slice(nameAt, nameLen).Contains((byte)':'))
+        if (!ScanName(span, ref i, out var nameAt, out var nameLen) || !SplitAsciiName(span.Slice(nameAt, nameLen), out var prefix, out var local))
             return false;
         while (i < span.Length && IsXmlSpace(span[i]))
             i++;
         if (i >= span.Length || span[i] != (byte)'>')
             return false;
         i++;
-        var name = InternAscii(span.Slice(nameAt, nameLen));
+        var name = prefix.Length == 0 ? local : prefix + ":" + local;
         if (_open.Count == 0 || !ReferenceEquals(_open.Peek(), name) && _open.Peek() != name)
             return false;
         var start = _byte;
@@ -2110,7 +2159,8 @@ internal sealed class XmlParser
         if (_open.Count == 0 && !_fragment)
             _phase = Phase.Epilogue;
         ev = Prepare(XmlEventKind.End);
-        ev.Local = name;
+        ev.Prefix = prefix;
+        ev.Local = local;
         ev.Name = name;
         ev.ByteStart = start;
         ev.ByteEnd = _byte;
@@ -2121,8 +2171,9 @@ internal sealed class XmlParser
     {
         ev = _event;
         var i = 1;
-        if (!ScanName(span, ref i, out var nameAt, out var nameLen) || span.Slice(nameAt, nameLen).Contains((byte)':'))
+        if (!ScanName(span, ref i, out var nameAt, out var nameLen))
             return false;
+        var qualify = span.Slice(nameAt, nameLen).Contains((byte)':');
         var marked = _raw.Count;
         while (true)
         {
@@ -2133,9 +2184,9 @@ internal sealed class XmlParser
             }
 
             if (span[i] == (byte)'>')
-                return CommitPlainStart(span, i + 1, nameAt, nameLen, empty: false, out ev);
+                return CommitStart(span, i + 1, nameAt, nameLen, empty: false, qualify, marked, out ev);
             if (span[i] == (byte)'/' && i + 1 < span.Length && span[i + 1] == (byte)'>')
-                return CommitPlainStart(span, i + 2, nameAt, nameLen, empty: true, out ev);
+                return CommitStart(span, i + 2, nameAt, nameLen, empty: true, qualify, marked, out ev);
             if (!IsXmlSpace(span[i]))
             {
                 _raw.RemoveRange(marked, _raw.Count - marked);
@@ -2153,11 +2204,14 @@ internal sealed class XmlParser
             }
 
             var attrName = span.Slice(attrAt, attrLen);
-            if (attrName.Contains((byte)':') || attrName.SequenceEqual("xmlns"u8))
+            if (!SplitAsciiName(attrName, out var ap, out var al))
             {
                 _raw.RemoveRange(marked, _raw.Count - marked);
                 return false;
             }
+
+            if (ap.Length > 0 || al == "xmlns")
+                qualify = true;
 
             while (i < span.Length && IsXmlSpace(span[i]))
                 i++;
@@ -2184,10 +2238,21 @@ internal sealed class XmlParser
                 var valueAt = i;
                 while (i < span.Length && span[i] != quote)
                 {
-                    if (span[i] is (byte)'<' or (byte)'&' || span[i] >= 0x80)
+                    if (span[i] is (byte)'<' or (byte)'&')
                     {
                         _raw.RemoveRange(marked, _raw.Count - marked);
                         return false;
+                    }
+
+                    if (span[i] >= 0x80)
+                    {
+                        if (!SkipUtf8(span, ref i))
+                        {
+                            _raw.RemoveRange(marked, _raw.Count - marked);
+                            return false;
+                        }
+
+                        continue;
                     }
 
                     i++;
@@ -2207,8 +2272,25 @@ internal sealed class XmlParser
                 piece = TextPiece.Bytes(_byte + i, _byte + i, attribute: true);
             }
 
-            _raw.Add(new RawAttr("", InternAscii(attrName), piece));
+            _raw.Add(new RawAttr(ap, al, piece));
         }
+    }
+
+    private bool CommitStart(ReadOnlySpan<byte> span, int consumed, int nameAt, int nameLen, bool empty, bool qualify, int marked, out XmlEvent ev)
+    {
+        if (!qualify)
+            return CommitPlainStart(span, consumed, nameAt, nameLen, empty, out ev);
+        if (!SplitAsciiName(span.Slice(nameAt, nameLen), out var prefix, out var local))
+        {
+            _raw.RemoveRange(marked, _raw.Count - marked);
+            ev = _event;
+            return false;
+        }
+
+        var start = _byte;
+        _byte += consumed;
+        ev = FinishStart(prefix, local, empty, start);
+        return true;
     }
 
     private bool CommitPlainStart(ReadOnlySpan<byte> span, int consumed, int nameAt, int nameLen, bool empty, out XmlEvent ev)
@@ -2360,14 +2442,75 @@ internal sealed class XmlParser
     private static bool IsAsciiNameChar(byte value) =>
         IsAsciiNameStart(value) || value is (byte)'-' or (byte)'.' or >= (byte)'0' and <= (byte)'9';
 
-    private static SearchValues<byte> CreateStops()
+    private readonly record struct Utf8Take(int Count, string? Error);
+
+    // Same acceptance as CharDecoders.DecodeUtf8. A partial tail is left for the next window.
+    private static Utf8Take MeasureUtf8(ReadOnlySpan<byte> run, bool allowPartialTail)
     {
-        var bytes = new byte[130];
-        bytes[0] = (byte)'<';
-        bytes[1] = (byte)'&';
-        for (var i = 0; i < 128; i++)
-            bytes[i + 2] = (byte)(128 + i);
-        return SearchValues.Create(bytes);
+        var i = 0;
+        while (i < run.Length)
+        {
+            var first = run[i];
+            if (first < 0x80)
+            {
+                i++;
+                continue;
+            }
+
+            var needed = first switch
+            {
+                >= 0xC2 and <= 0xDF => 2,
+                >= 0xE0 and <= 0xEF => 3,
+                >= 0xF0 and <= 0xF4 => 4,
+                _ => 0,
+            };
+            if (needed == 0)
+                return new Utf8Take(i, "The document is not valid UTF-8.");
+            if (i + needed > run.Length)
+            {
+                return allowPartialTail
+                    ? new Utf8Take(i, null)
+                    : new Utf8Take(i, "The document ends in the middle of a character.");
+            }
+
+            for (var n = 1; n < needed; n++)
+            {
+                if ((run[i + n] & 0xC0) != 0x80)
+                    return new Utf8Take(i, "The document is not valid UTF-8.");
+            }
+
+            var code = needed switch
+            {
+                2 => ((first & 0x1F) << 6) | (run[i + 1] & 0x3F),
+                3 => ((first & 0x0F) << 12) | ((run[i + 1] & 0x3F) << 6) | (run[i + 2] & 0x3F),
+                _ => ((first & 0x07) << 18) | ((run[i + 1] & 0x3F) << 12) | ((run[i + 2] & 0x3F) << 6) | (run[i + 3] & 0x3F),
+            };
+            if (code > 0x10FFFF || code is >= 0xD800 and <= 0xDFFF)
+                return new Utf8Take(i, "The document contains a character XML does not allow.");
+            i += needed;
+        }
+
+        return new Utf8Take(i, null);
+    }
+
+    private static bool SkipUtf8(ReadOnlySpan<byte> span, ref int index)
+    {
+        if ((uint)index >= (uint)span.Length || span[index] < 0x80)
+            return false;
+        var needed = span[index] switch
+        {
+            >= 0xC2 and <= 0xDF => 2,
+            >= 0xE0 and <= 0xEF => 3,
+            >= 0xF0 and <= 0xF4 => 4,
+            _ => 0,
+        };
+        if (needed == 0 || index + needed > span.Length)
+            return false;
+        var measured = MeasureUtf8(span.Slice(index, needed), allowPartialTail: false);
+        if (measured.Error is not null || measured.Count != needed)
+            return false;
+        index += needed;
+        return true;
     }
 
     private enum Phase { Prologue, Content, Epilogue, Finished }

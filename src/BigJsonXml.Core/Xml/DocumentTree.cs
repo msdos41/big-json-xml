@@ -157,6 +157,7 @@ internal sealed class DocumentTree
     private readonly Stack<Slot> _spareSlots = new();
     private readonly Dictionary<(DocumentPath Parent, string Name), DocumentPath> _childPaths = new();
     private readonly Dictionary<string, string> _atNames = new(StringComparer.Ordinal);
+    private readonly TextPiece[] _onePiece = new TextPiece[1];
 
     public bool Apply(XmlEvent ev, out Folded folded)
     {
@@ -521,8 +522,12 @@ internal sealed class DocumentTree
 
     private void AddText(Frame frame, TextPiece piece, bool trusted)
     {
-        if (!trusted && ExpandedText.IsWhitespaceOnly(Document, [piece]))
-            return;
+        if (!trusted)
+        {
+            _onePiece[0] = piece;
+            if (ExpandedText.IsWhitespaceOnly(Document, _onePiece))
+                return;
+        }
         if (frame.AlwaysRecord || frame.SawAttribute || frame.SawElement)
             AppendHash(frame, piece);
         else
