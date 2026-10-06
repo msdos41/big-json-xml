@@ -149,6 +149,45 @@ public class ShellTests
     }
 
     [Fact]
+    public void Closing_search_windows_clears_the_document_mark()
+    {
+        var path = Write("<root><n>aa</n><n>ab</n></root>");
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+        model.ShowFind();
+        model.FindWhat = "a";
+        model.StartsWith = true;
+        model.FindAll();
+        model.ChooseResult(model.Results[0]);
+        Assert.Contains(model.Rows, row => row.IsMarked);
+
+        model.CloseResults();
+        Assert.True(model.FindWindowOpen);
+        Assert.False(model.ResultsWindowOpen);
+        Assert.DoesNotContain(model.Rows, row => row.IsMarked);
+        Assert.Same(model.Results[0], model.CurrentResult);
+
+        model.FindNext();
+        Assert.Same(model.Results[1], model.CurrentResult);
+        Assert.Contains(model.Rows, row => row.IsMarked && row.Path.Equals(model.Results[1].Hit.Path));
+
+        model.CloseFind();
+        Assert.False(model.FindWindowOpen);
+        Assert.False(model.ResultsWindowOpen);
+        Assert.DoesNotContain(model.Rows, row => row.IsMarked);
+
+        model.ShowFind();
+        model.FindAll();
+        model.ChooseResult(model.Results[0]);
+        Assert.True(model.ResultsWindowOpen);
+        Assert.Contains(model.Rows, row => row.IsMarked);
+        model.CloseFind();
+        Assert.False(model.FindWindowOpen);
+        Assert.False(model.ResultsWindowOpen);
+        Assert.DoesNotContain(model.Rows, row => row.IsMarked);
+    }
+
+    [Fact]
     public void The_find_button_shows_find_and_find_all_can_reopen_results()
     {
         if (Application.Current is null)
@@ -191,6 +230,44 @@ public class ShellTests
             Assert.False(model.FindWindowOpen);
             Assert.False(model.ResultsWindowOpen);
             Assert.Empty(VisibleResults(find, window));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [Fact]
+    public void Closing_the_search_windows_clears_the_mark_on_the_document()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var window = new MainWindow();
+        window.Show();
+        try
+        {
+            var model = Assert.IsType<ViewerModel>(window.DataContext);
+            var path = Write("<root><item>beta</item></root>");
+            model.OpenPath(path);
+            Click(window, "Find");
+            var find = Assert.Single(window.OwnedWindows.OfType<FindWindow>(), candidate => candidate.IsVisible);
+            model.FindWhat = "beta";
+            Click(find, "Find All");
+            model.ChooseResult(Assert.Single(model.Results));
+            Assert.Contains(model.Rows, row => row.IsMarked);
+
+            Assert.Single(VisibleResults(find, window)).Close();
+            Assert.True(model.FindWindowOpen);
+            Assert.False(model.ResultsWindowOpen);
+            Assert.DoesNotContain(model.Rows, row => row.IsMarked);
+
+            model.ChooseResult(Assert.Single(model.Results));
+            Assert.Contains(model.Rows, row => row.IsMarked);
+            find.Close();
+            Assert.False(model.FindWindowOpen);
+            Assert.False(model.ResultsWindowOpen);
+            Assert.DoesNotContain(model.Rows, row => row.IsMarked);
         }
         finally
         {
