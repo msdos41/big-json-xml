@@ -37,13 +37,19 @@ internal sealed class JsonSearcher : IScanSearch
             case JsonEventKind.Continue:
                 return SearchStep.Work;
             case JsonEventKind.Error:
-            case JsonEventKind.Done:
+                DropUncommitted();
+                Done = true;
+                return SearchStep.Idle;
             case JsonEventKind.Refuse:
+                _hits.Clear();
+                Done = true;
+                return SearchStep.Idle;
+            case JsonEventKind.Done:
                 Done = true;
                 return SearchStep.Idle;
             case JsonEventKind.ObjectStart:
                 OnObject();
-                return SearchStep.Work;
+                return Done ? SearchStep.Idle : SearchStep.Work;
             case JsonEventKind.ObjectEnd:
             case JsonEventKind.ArrayEnd:
                 if (_stack.Count > 0)
@@ -54,7 +60,7 @@ internal sealed class JsonSearcher : IScanSearch
                 return SearchStep.Work;
             case JsonEventKind.Key:
                 OnKey(ev);
-                return SearchStep.Work;
+                return Done ? SearchStep.Idle : SearchStep.Work;
             case JsonEventKind.Scalar:
                 OnScalar(ev);
                 return SearchStep.Work;
@@ -75,19 +81,17 @@ internal sealed class JsonSearcher : IScanSearch
         if (parent.Array)
         {
             parent.Count++;
-            _stack.Push(new Node
-            {
-                Parent = parent,
-                Path = parent.Path.WithIndex(parent.Count),
-            });
+            _stack.Push(OpenEntry(parent, parent.Path.WithIndex(parent.Count)));
             return;
         }
 
+        var path = parent.Path.Field(_pending);
+        SearchName(path, _pending, parent);
         _stack.Push(new Node
         {
             Name = _pending,
             Parent = parent,
-            Path = parent.Path.Field(_pending),
+            Path = path,
         });
     }
 
@@ -106,25 +110,37 @@ internal sealed class JsonSearcher : IScanSearch
         {
             parent.Count++;
             var path = parent.Path.WithIndex(parent.Count).Field("#value");
+            var entry = OpenEntry(parent, path);
+            entry.Name = "#value";
+            entry.Array = true;
+            _stack.Push(entry);
             SearchName(path, "#value", parent);
-            _stack.Push(new Node { Name = "#value", Array = true, Parent = parent, Path = path });
             return;
         }
 
+        var field = parent.Path.Field(_pending);
+        SearchName(field, _pending, parent);
         _stack.Push(new Node
         {
             Name = _pending,
             Array = true,
             Parent = parent,
-            Path = parent.Path.Field(_pending),
+            Path = field,
         });
     }
 
     private void OnKey(JsonEvent ev)
     {
-        _pending = ev.Name;
         var container = _stack.Peek();
-        SearchName(container.Path.Field(ev.Name), ev.Name, container);
+        container.Names ??= new HashSet<string>(StringComparer.Ordinal);
+        if (!container.Names.Add(ev.Name))
+        {
+            DropUncommitted();
+            Done = true;
+            return;
+        }
+
+        _pending = ev.Name;
     }
 
     private void OnScalar(JsonEvent ev)
@@ -147,7 +163,30 @@ internal sealed class JsonSearcher : IScanSearch
             return;
         }
 
-        SearchLiteral(parent.Path.Field(_pending), _pending, ev, parent);
+        var field = parent.Path.Field(_pending);
+        SearchName(field, _pending, parent);
+        SearchLiteral(field, _pending, ev, parent);
+    }
+
+    private Node OpenEntry(Node parent, DocumentPath path) => new()
+    {
+        Parent = parent,
+        Path = path,
+        Provisional = true,
+        HitOrigin = _hits.Count,
+    };
+
+    private void DropUncommitted()
+    {
+        var origin = _hits.Count;
+        foreach (var node in _stack)
+        {
+            if (node.Provisional && node.HitOrigin >= 0 && node.HitOrigin < origin)
+                origin = node.HitOrigin;
+        }
+
+        if (origin < _hits.Count)
+            _hits.RemoveRange(origin, _hits.Count - origin);
     }
 
     private void SearchName(DocumentPath path, string name, Node? container)
@@ -252,5 +291,8 @@ internal sealed class JsonSearcher : IScanSearch
         public DocumentPath Path = DocumentPath.Root;
         public bool Array;
         public int Count;
+        public HashSet<string>? Names;
+        public bool Provisional;
+        public int HitOrigin;
     }
 }
