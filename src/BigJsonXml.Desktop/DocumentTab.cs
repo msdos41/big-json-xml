@@ -7,7 +7,6 @@ namespace BigJsonXml.Desktop;
 
 public sealed class DocumentTab : INotifyPropertyChanged, IDisposable
 {
-    public const double NameMaxWidth = 160;
     public const double CircleSize = 10;
     public const double CloseSize = 18;
     public const double Pad = 8;
@@ -100,8 +99,7 @@ public sealed class DocumentTab : INotifyPropertyChanged, IDisposable
 
     public static double EstimateWidth(string label)
     {
-        var name = label.Length == 0 ? 0 : Math.Min(NameMaxWidth, label.Length * 8d);
-        return Pad + name + Gap + CircleSize + Gap + CloseSize + Pad;
+        return Pad + (label.Length * 8d) + Gap + CircleSize + Gap + CloseSize + Pad;
     }
 
     internal void NoteProgress()

@@ -110,7 +110,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         if (resultsWereOpen)
             OnPropertyChanged(nameof(ResultsWindowOpen));
         if (findWasOpen || resultsWereOpen)
-            ClearMark();
+            ClearMarks();
     }
 
     public void CloseResults()
@@ -462,8 +462,10 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             return;
         if (!double.IsPositiveInfinity(_stripWidth) && Math.Abs(_stripWidth - width) < 0.5)
             return;
+        var reveal = double.IsPositiveInfinity(_stripWidth);
+        var atEnd = IsAtRightEnd();
         _stripWidth = width;
-        Layout(false);
+        Layout(reveal, atEnd);
     }
 
     public void SetTabWidth(DocumentTab tab, double width)
@@ -471,8 +473,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         ArgumentNullException.ThrowIfNull(tab);
         if (width <= 0 || _tabs.IndexOf(tab) < 0 || Math.Abs(tab.Width - width) < 0.5)
             return;
+        var atEnd = IsAtRightEnd();
         tab.SetWidth(width);
-        Layout(false);
+        Layout(false, atEnd);
     }
 
     public void RevealActiveTab() => Layout(true);
@@ -653,6 +656,14 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             return;
         Active.Session.ClearMark();
         Refresh();
+    }
+
+    private void ClearMarks()
+    {
+        foreach (var tab in _tabs)
+            tab.Session.ClearMark();
+        if (Active is not null)
+            Refresh();
     }
 
     public void Toggle(SurfaceRow row)
@@ -861,7 +872,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(ResultCount));
     }
 
-    private void Layout(bool ensureActive)
+    private void Layout(bool ensureActive, bool stickToEnd = false)
     {
         double total = 0;
         foreach (var tab in _tabs)
@@ -878,6 +889,8 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             _offset = 0;
         else if (ensureActive && Active is { } active)
             RevealOffset(active, view, total);
+        else if (stickToEnd)
+            _offset = Math.Max(0, total - view);
         else
             ClampOffset(view, total);
 
@@ -899,6 +912,19 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         Set(ref _arrows, arrows, nameof(TabArrowsVisible));
         Set(ref _canLeft, canLeft, nameof(CanMoveTabsLeft));
         Set(ref _canRight, canRight, nameof(CanMoveTabsRight));
+    }
+
+    private bool IsAtRightEnd()
+    {
+        if (_tabs.Count == 0 || double.IsPositiveInfinity(_stripWidth))
+            return false;
+        double total = 0;
+        foreach (var tab in _tabs)
+            total += tab.Width;
+        if (total <= _stripWidth + 0.5)
+            return false;
+        var view = Math.Max(1, _stripWidth - DocumentTab.ArrowSpan);
+        return _tabs[^1].Left + _tabs[^1].Width <= _offset + view + 0.5;
     }
 
     private void RevealOffset(DocumentTab tab, double view, double total)

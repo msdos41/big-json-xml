@@ -171,8 +171,7 @@ public sealed class TabStrip : Grid
         {
             Name = "TabLabel",
             Text = tab.Label,
-            MaxWidth = DocumentTab.NameMaxWidth,
-            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.NoWrap,
             Foreground = Brushes.Black,
             VerticalAlignment = VerticalAlignment.Center,
         };
