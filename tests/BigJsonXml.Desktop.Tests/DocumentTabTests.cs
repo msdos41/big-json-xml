@@ -336,6 +336,45 @@ public class DocumentTabTests
     }
 
     [Fact]
+    public void The_right_end_keeps_the_last_tab_in_view_when_the_row_or_a_tab_changes_width()
+    {
+        using var model = new ViewerModel();
+        model.SetTabStripWidth(360);
+        for (var i = 0; i < 4; i++)
+        {
+            var source = new MemoryByteSource();
+            source.Append($"<root><a>{i}</a></root>");
+            source.Complete();
+            model.Open(source);
+            model.SetTabWidth(model.Tabs[i], 120);
+        }
+
+        model.RevealActiveTab();
+        var wide = 360 - DocumentTab.ArrowSpan;
+        var last = model.Tabs[^1];
+        Assert.Equal(last.Left + last.Width, model.TabStripOffset + wide, 0);
+
+        model.SetTabStripWidth(280);
+        var narrow = 280 - DocumentTab.ArrowSpan;
+        Assert.Equal(last.Left + last.Width, model.TabStripOffset + narrow, 0);
+        Assert.True(model.TabArrowsVisible);
+        Assert.True(last.FullyVisible);
+        Assert.False(model.CanMoveTabsRight);
+
+        model.SetTabWidth(last, 160);
+        Assert.Equal(last.Left + last.Width, model.TabStripOffset + narrow, 0);
+        Assert.True(last.FullyVisible);
+
+        model.MoveTabsLeft();
+        var moved = model.TabStripOffset;
+        Assert.True(moved < last.Left + last.Width - narrow);
+        model.SetTabStripWidth(240);
+        var max = model.Tabs[^1].Left + model.Tabs[^1].Width - (240 - DocumentTab.ArrowSpan);
+        Assert.Equal(Math.Min(moved, max), model.TabStripOffset, 0);
+        Assert.True(model.CanMoveTabsRight);
+    }
+
+    [Fact]
     public void Search_reads_only_the_active_tab_and_hits_stay_there()
     {
         var alpha = Write("<root><item>alpha</item><item>beta</item></root>").Path;
@@ -401,13 +440,18 @@ public class DocumentTabTests
         Assert.Contains(model.Rows, row => row.IsMarked);
 
         model.CloseFind();
+        Assert.False(model.FindWindowOpen);
         Assert.False(model.ResultsWindowOpen);
         Assert.DoesNotContain(model.Rows, row => row.IsMarked);
         model.Activate(model.Tabs[0]);
-        Assert.Contains(model.Rows, row => row.IsMarked);
+        Assert.Equal("beta", Assert.Single(model.Results).Text);
+        Assert.DoesNotContain(model.Rows, row => row.IsMarked);
+        model.Activate(model.Tabs[1]);
+        Assert.Equal("gamma", Assert.Single(model.Results).Text);
+        Assert.DoesNotContain(model.Rows, row => row.IsMarked);
         model.ShowFind();
         Assert.False(model.ResultsWindowOpen);
-        Assert.Contains(model.Rows, row => row.IsMarked);
+        Assert.DoesNotContain(model.Rows, row => row.IsMarked);
 
         model.Close(model.Tabs[1]);
         model.Close(model.Tabs[0]);

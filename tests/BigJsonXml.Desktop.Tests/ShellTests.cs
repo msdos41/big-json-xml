@@ -1146,9 +1146,12 @@ public class ShellTests
             AssertColor(chromes[1].BorderBrush, "#1A56C4");
             var labels = window.GetVisualDescendants().OfType<TextBlock>().Where(block => block.Name == "TabLabel").ToList();
             Assert.Equal(["nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.xml", "b.xml"], labels.Select(block => block.Text));
-            Assert.All(labels, block => Assert.Equal(160, block.MaxWidth));
-            Assert.All(labels, block => Assert.Equal(TextTrimming.CharacterEllipsis, block.TextTrimming));
-            Assert.True(labels[0].Bounds.Width <= 160);
+            Assert.All(labels, block => Assert.Equal(TextTrimming.None, block.TextTrimming));
+            Assert.True(labels[0].Bounds.Width > 160);
+            Assert.True(labels[1].Bounds.Width < labels[0].Bounds.Width);
+            Assert.True(model.Tabs[0].Width > model.Tabs[1].Width);
+            Assert.Equal(model.Tabs[0].Width, chromes[0].Bounds.Width, 1);
+            Assert.Equal(model.Tabs[1].Width, chromes[1].Bounds.Width, 1);
             Assert.Equal(Path.GetFullPath(longPath), ToolTip.GetTip(labels[0]));
             var circles = window.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Ellipse>().Where(ellipse => ellipse.Name == "TabCircle").ToList();
             Assert.Equal(2, circles.Count);
@@ -1278,6 +1281,60 @@ public class ShellTests
         {
             window.Close();
         }
+    }
+
+    [Fact]
+    public void The_close_button_stays_left_of_the_arrows_when_the_row_is_at_the_right()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var window = new MainWindow { Width = 480, Height = 720 };
+        window.Show();
+        try
+        {
+            var model = Assert.IsType<ViewerModel>(window.DataContext);
+            foreach (var name in new[] { "a.xml", "背门电线束总成-CD701.xml", "b.xml", "左前门线束总成.xml" })
+                model.OpenPath(WriteNamed("<root><a>1</a></root>", name));
+
+            Arrange(window);
+            while (model.CanMoveTabsRight)
+                model.MoveTabsRight();
+            Arrange(window);
+            AssertCloseLeftOfArrows(window);
+
+            window.Width = 300;
+            Arrange(window);
+            AssertCloseLeftOfArrows(window);
+            Assert.False(model.CanMoveTabsRight);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static void AssertCloseLeftOfArrows(Window window)
+    {
+        var strip = window.GetVisualDescendants().OfType<TabStrip>().Single();
+        var left = window.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "TabLeft");
+        var arrowLeft = left.TranslatePoint(default, strip)!.Value.X;
+        Assert.True(arrowLeft > 1);
+        var closes = window.GetVisualDescendants().OfType<Button>().Where(button => button.Name == "TabClose").ToList();
+        var chromes = window.GetVisualDescendants().OfType<Border>().Where(border => border.Name == "TabChrome").ToList();
+        var covered = false;
+        for (var i = 0; i < closes.Count; i++)
+        {
+            var chromeLeft = chromes[i].TranslatePoint(default, strip)!.Value.X;
+            var chromeRight = chromeLeft + chromes[i].Bounds.Width;
+            if (chromeRight < arrowLeft - 0.5 || chromeLeft > arrowLeft)
+                continue;
+            var closeRight = closes[i].TranslatePoint(new Point(closes[i].Bounds.Width, 0), strip)!.Value.X;
+            if (closeRight > arrowLeft + 0.5)
+                covered = true;
+        }
+
+        Assert.False(covered);
     }
 
     private static void LayoutStrip(TabStrip strip)
