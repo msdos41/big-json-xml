@@ -447,7 +447,7 @@ public class ShellTests
     }
 
     [Fact]
-    public void Find_what_history_is_newest_first_and_drops_when_the_document_closes()
+    public void Find_what_history_is_newest_first_and_stays_with_the_window()
     {
         var path = Write("<root><item>alpha</item></root>");
         using var model = new ViewerModel();
@@ -477,9 +477,14 @@ public class ShellTests
         Assert.Equal("s5", model.FindHistory[19]);
         Assert.DoesNotContain(model.FindHistory, sequence => sequence == "World");
 
+        var kept = model.FindHistory.ToArray();
         var other = Write("<root><item>beta</item></root>");
         model.OpenPath(other);
-        Assert.Empty(model.FindHistory);
+        Assert.Equal(kept, model.FindHistory);
+        model.Close(model.Tabs[1]);
+        model.Close(model.Tabs[0]);
+        Assert.Equal(kept, model.FindHistory);
+        Assert.Equal("No document", model.Status);
 
         using var next = new ViewerModel();
         next.OpenPath(path);
@@ -947,15 +952,15 @@ public class ShellTests
         var path = Write("<root><item>alpha</item><item>beta</item></root>");
         using var model = new ViewerModel();
         model.OpenPath(path);
+        Assert.Empty(model.ResultDocuments);
+        Assert.Empty(model.VisibleResults);
+
+        model.FindWhat = "item";
+        model.FindAll();
         var document = Assert.Single(model.ResultDocuments);
         Assert.Equal(path, document.Path);
         Assert.True(document.IsExpanded);
         Assert.Equal("\u2212", document.Glyph);
-        Assert.Equal("0 matches", document.MatchLabel);
-        Assert.IsType<ResultDocumentLine>(Assert.Single(model.VisibleResults));
-
-        model.FindWhat = "item";
-        model.FindAll();
         Assert.Equal(2, model.ResultCount);
         Assert.Equal("2 matches", document.MatchLabel);
         Assert.Equal(3, model.VisibleResults.Count);
@@ -977,12 +982,14 @@ public class ShellTests
 
         var other = Write("<root><item>gamma</item></root>");
         model.OpenPath(other);
-        document = Assert.Single(model.ResultDocuments);
-        Assert.Equal(other, document.Path);
-        Assert.True(document.IsExpanded);
-        Assert.Equal("0 matches", document.MatchLabel);
+        Assert.Empty(model.ResultDocuments);
         Assert.Empty(model.Results);
-        Assert.IsType<ResultDocumentLine>(Assert.Single(model.VisibleResults));
+        Assert.Empty(model.VisibleResults);
+        model.Activate(model.Tabs[0]);
+        document = Assert.Single(model.ResultDocuments);
+        Assert.Equal(path, document.Path);
+        Assert.Equal(2, model.ResultCount);
+        Assert.Equal("2 matches", document.MatchLabel);
     }
 
     [Fact]
@@ -993,10 +1000,11 @@ public class ShellTests
         source.Complete();
         using var model = new ViewerModel();
         model.Open(source);
-        var document = Assert.Single(model.ResultDocuments);
-        Assert.Equal("", document.Path);
+        Assert.Empty(model.ResultDocuments);
         model.FindWhat = "findme";
         model.FindAll();
+        var document = Assert.Single(model.ResultDocuments);
+        Assert.Equal("", document.Path);
         Assert.Equal("1 match", document.MatchLabel);
         var hit = Assert.IsType<ResultHitLine>(model.VisibleResults[1]);
         Assert.Equal("findme", hit.Result.Text);
@@ -1059,6 +1067,178 @@ public class ShellTests
         var header = window.GetVisualDescendants().OfType<Grid>().Single(candidate => candidate.Name == "HeaderGrid");
         Assert.Equal(GridUnitType.Pixel, header.ColumnDefinitions[1].Width.GridUnitType);
         Assert.Equal(180, header.ColumnDefinitions[1].Width.Value);
+    }
+
+    [Fact]
+    public void The_strip_shows_names_circles_arrows_and_ctrl_f()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var window = new MainWindow();
+        window.Width = 1100;
+        window.Height = 720;
+        window.Show();
+        try
+        {
+            var model = Assert.IsType<ViewerModel>(window.DataContext);
+            Assert.Equal("BigJsonXml", window.Title);
+            var strip = window.GetVisualDescendants().OfType<TabStrip>().Single();
+            var open = window.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Open"));
+            var surface = window.GetVisualDescendants().OfType<DocumentSurface>().Single();
+            Arrange(window);
+            var openY = open.TranslatePoint(default, window)!.Value.Y;
+            var stripY = strip.TranslatePoint(default, window)!.Value.Y;
+            var surfaceY = surface.TranslatePoint(default, window)!.Value.Y;
+            Assert.True(stripY >= openY);
+            Assert.True(surfaceY >= stripY);
+            Assert.DoesNotContain(strip.GetVisualDescendants(), visual => visual is ScrollViewer || visual is ScrollBar);
+            var bars = window.GetVisualDescendants().OfType<ScrollBar>().ToList();
+            Assert.Equal(1, bars.Count(bar => bar.Orientation == Avalonia.Layout.Orientation.Vertical));
+            Assert.Equal(1, bars.Count(bar => bar.Orientation == Avalonia.Layout.Orientation.Horizontal));
+
+            var longName = new string('n', 40) + ".xml";
+            var longPath = WriteNamed("<root><a>1</a></root>", longName);
+            var other = WriteNamed("<root><b>2</b></root>", "b.xml");
+            model.OpenPath(longPath);
+            model.OpenPath(other);
+            Arrange(window);
+
+            var chromes = window.GetVisualDescendants().OfType<Border>().Where(border => border.Name == "TabChrome").ToList();
+            Assert.Equal(2, chromes.Count);
+            AssertColor(chromes[0].Background, "#E6E6E6");
+            AssertColor(chromes[0].BorderBrush, "#00FFFFFF");
+            AssertColor(chromes[1].Background, "#FFFFFF");
+            AssertColor(chromes[1].BorderBrush, "#1A56C4");
+            var labels = window.GetVisualDescendants().OfType<TextBlock>().Where(block => block.Name == "TabLabel").ToList();
+            Assert.Equal(["nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.xml", "b.xml"], labels.Select(block => block.Text));
+            Assert.All(labels, block => Assert.Equal(160, block.MaxWidth));
+            Assert.All(labels, block => Assert.Equal(TextTrimming.CharacterEllipsis, block.TextTrimming));
+            Assert.True(labels[0].Bounds.Width <= 160);
+            Assert.Equal(Path.GetFullPath(longPath), ToolTip.GetTip(labels[0]));
+            var circles = window.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Ellipse>().Where(ellipse => ellipse.Name == "TabCircle").ToList();
+            Assert.Equal(2, circles.Count);
+            Assert.All(circles, circle => AssertColor(circle.Fill, "#2E8B57"));
+            Assert.Equal(Path.GetFullPath(longPath), ToolTip.GetTip(circles[0]));
+            var closes = window.GetVisualDescendants().OfType<Button>().Where(button => button.Name == "TabClose").ToList();
+            Assert.Equal(2, closes.Count);
+            Assert.All(closes, button => Assert.True(button.Bounds.Width > circles[0].Bounds.Width));
+            Assert.True(labels[0].TranslatePoint(default, chromes[0])!.Value.X < circles[0].TranslatePoint(default, chromes[0])!.Value.X);
+            Assert.True(circles[0].TranslatePoint(default, chromes[0])!.Value.X < closes[0].TranslatePoint(default, chromes[0])!.Value.X);
+            Assert.True(closes[0].TranslatePoint(new Point(closes[0].Bounds.Width, 0), chromes[0])!.Value.X <= chromes[0].Bounds.Width + 1);
+
+            var arrows = window.GetVisualDescendants().Single(visual => visual.Name == "TabArrows");
+            Assert.False(arrows.IsVisible);
+            window.Width = 280;
+            Arrange(window);
+            Assert.True(arrows.IsVisible);
+            var left = window.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "TabLeft");
+            var right = window.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "TabRight");
+            Assert.IsNotType<RepeatButton>(left);
+            Assert.IsNotType<RepeatButton>(right);
+            var active = model.ActiveIndex;
+            var offset = model.TabStripOffset;
+            left.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(active, model.ActiveIndex);
+            Assert.True(model.TabStripOffset < offset);
+            var moved = model.TabStripOffset;
+            left.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(moved, model.TabStripOffset);
+
+            var beforeWheel = model.TabStripOffset;
+            var pointer = new Pointer(1, PointerType.Mouse, false);
+            var wheel = new PointerWheelEventArgs(
+                strip,
+                pointer,
+                strip,
+                new Point(8, 8),
+                0,
+                new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.Other),
+                KeyModifiers.None,
+                new Vector(0, -1))
+            {
+                RoutedEvent = InputElement.PointerWheelChangedEvent,
+            };
+            strip.RaiseEvent(wheel);
+            Assert.True(wheel.Handled);
+            Assert.Equal(beforeWheel, model.TabStripOffset);
+
+            closes[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Single(model.Tabs);
+            Assert.Equal(0, model.ActiveIndex);
+            Assert.Contains(model.Rows, row => row.Value == "2");
+
+            PressCtrlF(window);
+            var find = Assert.Single(window.OwnedWindows.OfType<FindWindow>(), candidate => candidate.IsVisible);
+            var findCount = window.OwnedWindows.OfType<FindWindow>().Count(candidate => candidate.IsVisible);
+            PressCtrlF(window);
+            Assert.Equal(findCount, window.OwnedWindows.OfType<FindWindow>().Count(candidate => candidate.IsVisible));
+            Assert.True(find.IsVisible);
+            find.Position = new PixelPoint(48, 64);
+            var spot = find.Position;
+            model.OpenPath(other);
+            Assert.Equal(spot, find.Position);
+            Assert.True(find.IsVisible);
+
+            PressCtrlF(surface);
+            Assert.Single(window.OwnedWindows.OfType<FindWindow>(), candidate => candidate.IsVisible);
+            model.FindWhat = "2";
+            model.FindAll();
+            var results = find.OwnedWindows.OfType<ResultsWindow>().Single(candidate => candidate.IsVisible);
+            var resultsSpot = results.Position;
+            PressCtrlF(results);
+            Assert.Single(window.OwnedWindows.OfType<FindWindow>(), candidate => candidate.IsVisible);
+            Assert.True(results.IsVisible);
+            Assert.Equal(resultsSpot, results.Position);
+            PressCtrlF(find);
+            Assert.Single(window.OwnedWindows.OfType<FindWindow>(), candidate => candidate.IsVisible);
+            Assert.True(find.IsVisible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static void Arrange(Window window)
+    {
+        window.InvalidateMeasure();
+        window.Measure(new Size(window.Width, window.Height));
+        window.Arrange(new Rect(0, 0, window.Width, window.Height));
+        var strip = window.GetVisualDescendants().OfType<TabStrip>().SingleOrDefault();
+        if (strip is null || strip.Bounds.Width <= 1)
+            return;
+        strip.Measure(new Size(strip.Bounds.Width, TabStrip.RowHeight));
+        strip.Arrange(strip.Bounds);
+    }
+
+    private static void PressCtrlF(Control control)
+    {
+        control.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.F,
+            KeyModifiers = KeyModifiers.Control,
+        });
+    }
+
+    private static void AssertColor(IBrush? brush, string hex)
+    {
+        var color = Assert.IsAssignableFrom<ISolidColorBrush>(brush).Color;
+        var expected = Color.Parse(hex);
+        Assert.Equal(expected.A, color.A);
+        Assert.Equal(expected.R, color.R);
+        Assert.Equal(expected.G, color.G);
+        Assert.Equal(expected.B, color.B);
+    }
+
+    private static string WriteNamed(string xml, string name)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, name);
+        File.WriteAllText(path, xml);
+        return path;
     }
 
     private static bool Dark(RenderTargetBitmap bitmap, int x, int y)
