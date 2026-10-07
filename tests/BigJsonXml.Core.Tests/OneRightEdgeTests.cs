@@ -159,7 +159,7 @@ public class OneRightEdgeTests
     [Fact]
     public void An_embedded_list_stays_on_the_column_edge()
     {
-        var text = new string('b', 40);
+        var text = new string('b', 80);
         var xml = $"""
             <root>
               <item><child><a>1</a><b>{text}</b></child><child><a>2</a><b>q</b></child></item>
@@ -537,7 +537,7 @@ public class OneRightEdgeTests
 
         session.Collapse(big);
         var onlySmall = Show(session);
-        Assert.Equal(424, Field(onlySmall, box).Width);
+        Assert.Equal(424, Field(onlySmall, small).Width);
         Assert.Equal(200, Field(onlySmall, small.Field("id")).Width);
 
         session.Expand(big);
