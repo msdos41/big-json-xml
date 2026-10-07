@@ -70,7 +70,7 @@ public sealed class TabStrip : Grid
             return;
         _model.PropertyChanged += OnModelChanged;
         _model.Tabs.CollectionChanged += OnTabsChanged;
-        Rebuild();
+        Rebuild(false);
     }
 
     protected override Size MeasureOverride(Size available)
@@ -131,9 +131,10 @@ public sealed class TabStrip : Grid
         }
     }
 
-    private void OnTabsChanged(object? sender, NotifyCollectionChangedEventArgs e) => Rebuild();
+    private void OnTabsChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
+        Rebuild(e.Action != NotifyCollectionChangedAction.Remove);
 
-    private void Rebuild()
+    private void Rebuild(bool reveal)
     {
         _row.Children.Clear();
         _chips.Clear();
@@ -146,7 +147,8 @@ public sealed class TabStrip : Grid
             _row.Children.Add(chip.Root);
         }
 
-        _reveal = true;
+        if (reveal)
+            _reveal = true;
         InvalidateArrange();
     }
 

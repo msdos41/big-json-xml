@@ -463,7 +463,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         if (!double.IsPositiveInfinity(_stripWidth) && Math.Abs(_stripWidth - width) < 0.5)
             return;
         _stripWidth = width;
-        Layout(true);
+        Layout(false);
     }
 
     public void SetTabWidth(DocumentTab tab, double width)
