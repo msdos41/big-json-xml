@@ -1157,8 +1157,8 @@ public class ShellTests
             var closes = window.GetVisualDescendants().OfType<Button>().Where(button => button.Name == "TabClose").ToList();
             Assert.Equal(2, closes.Count);
             Assert.All(closes, button => Assert.True(button.Bounds.Width > circles[0].Bounds.Width));
-            Assert.True(labels[0].TranslatePoint(default, chromes[0])!.Value.X < circles[0].TranslatePoint(default, chromes[0])!.Value.X);
-            Assert.True(circles[0].TranslatePoint(default, chromes[0])!.Value.X < closes[0].TranslatePoint(default, chromes[0])!.Value.X);
+            Assert.True(circles[0].TranslatePoint(default, chromes[0])!.Value.X < labels[0].TranslatePoint(default, chromes[0])!.Value.X);
+            Assert.True(labels[0].TranslatePoint(default, chromes[0])!.Value.X < closes[0].TranslatePoint(default, chromes[0])!.Value.X);
             Assert.True(closes[0].TranslatePoint(new Point(closes[0].Bounds.Width, 0), chromes[0])!.Value.X <= chromes[0].Bounds.Width + 1);
 
             var arrows = window.GetVisualDescendants().Single(visual => visual.Name == "TabArrows");
@@ -1235,6 +1235,44 @@ public class ShellTests
             PressCtrlF(find);
             Assert.Single(window.OwnedWindows.OfType<FindWindow>(), candidate => candidate.IsVisible);
             Assert.True(find.IsVisible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [Fact]
+    public void A_wide_tab_keeps_its_close_button_on_the_underline()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var window = new MainWindow { Width = 1100, Height = 720 };
+        window.Show();
+        try
+        {
+            var model = Assert.IsType<ViewerModel>(window.DataContext);
+            model.OpenPath(WriteNamed("<root><a>1</a></root>", "背门电线束总成-CD701.xml"));
+            model.OpenPath(WriteNamed("<root><b>2</b></root>", "b.xml"));
+            Arrange(window);
+            Arrange(window);
+
+            var chromes = window.GetVisualDescendants().OfType<Border>().Where(border => border.Name == "TabChrome").ToList();
+            var closes = window.GetVisualDescendants().OfType<Button>().Where(button => button.Name == "TabClose").ToList();
+            Assert.Equal(2, chromes.Count);
+            var closeRight = closes[0].TranslatePoint(new Point(closes[0].Bounds.Width, 0), chromes[0])!.Value.X;
+            Assert.InRange(closeRight, 0, chromes[0].Bounds.Width + 0.5);
+            var nextLeft = chromes[1].TranslatePoint(default, chromes[0])!.Value.X;
+            Assert.True(nextLeft + 0.5 >= chromes[0].Bounds.Width);
+
+            var glyph = closes[0].GetVisualDescendants().Single(visual => visual.Name == "TabCloseGlyph");
+            var origin = glyph.TranslatePoint(default, closes[0])!.Value;
+            Assert.InRange(origin.X + (glyph.Bounds.Width / 2), (closes[0].Bounds.Width / 2) - 1, (closes[0].Bounds.Width / 2) + 1);
+            Assert.InRange(origin.Y + (glyph.Bounds.Height / 2), (closes[0].Bounds.Height / 2) - 1, (closes[0].Bounds.Height / 2) + 1);
+            var glyphRight = glyph.TranslatePoint(new Point(glyph.Bounds.Width, 0), chromes[0])!.Value.X;
+            Assert.True(glyphRight <= closeRight + 0.5);
+            Assert.True(nextLeft + 0.5 >= glyphRight);
         }
         finally
         {
