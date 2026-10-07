@@ -30,7 +30,7 @@ public sealed partial class ViewerSession : IDisposable
     private readonly DocumentTree _tree;
     private readonly IDisposable? _owned;
     private readonly HashSet<DocumentPath> _expanded = [];
-    private readonly Dictionary<DocumentPath, OffsetIndex> _offsets = [];
+    private readonly Dictionary<OffsetKey, OffsetIndex> _offsets = [];
     private readonly Dictionary<DocumentPath, Chrome> _chrome = [];
     private readonly Dictionary<long, LinkedListNode<LoadedFrame>> _loaded = [];
     private readonly LinkedList<LoadedFrame> _loadedOrder = [];
@@ -452,7 +452,7 @@ public sealed partial class ViewerSession : IDisposable
 
         if (note.HasEntry
             && note.Path is DocumentPath path
-            && _offsets.TryGetValue(path, out var index)
+            && _offsets.TryGetValue(new OffsetKey(0, path), out var index)
             && note.EntryStart >= index.Watermark)
         {
             index.Offsets.Add(note.EntryStart);
@@ -500,21 +500,23 @@ public sealed partial class ViewerSession : IDisposable
         if (!_tree.Apply(ev, out var folded))
             return;
         var path = folded.Slot.Path ?? folded.Parent.Path.Field(folded.Slot.Name);
+        var key = OffsetKey.For(folded.Parent, folded.Slot, path);
         if (folded.Promoted)
         {
             _expanded.Remove(path);
             _xml!.PreferFlat(folded.Slot.Name);
-            _offsets[path] = Seed(folded.Slot, folded.ChildStart, folded.ChildEnd);
+            _offsets[key] = Seed(folded.Slot, folded.ChildStart, folded.ChildEnd);
             return;
         }
 
         if (folded.Slot.Kind == SlotKind.List
-            && folded.ChildEnd >= folded.ChildStart
-            && _offsets.TryGetValue(path, out var index)
+            && folded.ChildStart >= 0
+            && _offsets.TryGetValue(key, out var index)
             && folded.ChildStart >= index.Watermark)
         {
             index.Offsets.Add(folded.ChildStart);
-            index.Watermark = folded.ChildEnd;
+            // The end tag can still be ahead. A later close of this same start must not be stored again.
+            index.Watermark = folded.ChildEnd >= folded.ChildStart ? folded.ChildEnd : folded.ChildStart + 1;
             if (ev.Kind == XmlEventKind.Flat)
                 DrainFlat(folded.Slot, index);
         }
@@ -542,15 +544,15 @@ public sealed partial class ViewerSession : IDisposable
     }
 
     // The first sibling is already closed when the second promotes the field.
-    // An open second sibling is recorded when it closes; its end tag can still be ahead.
+    // The second sibling's start is known even while its end tag is still ahead.
     private static OffsetIndex Seed(Slot slot, long childStart, long childEnd)
     {
         var index = new OffsetIndex();
         index.Offsets.Add(slot.StartByte);
-        if (childEnd >= childStart && childStart != slot.StartByte)
+        if (childStart >= 0 && childStart != slot.StartByte)
         {
             index.Offsets.Add(childStart);
-            index.Watermark = childEnd;
+            index.Watermark = childEnd >= childStart ? childEnd : childStart + 1;
             return index;
         }
 
@@ -635,7 +637,8 @@ public sealed partial class ViewerSession : IDisposable
 
     private OffsetIndex EnsureOffsets(DocumentPath path, Frame parent, Slot slot)
     {
-        if (_offsets.TryGetValue(path, out var existing))
+        var key = OffsetKey.For(parent, slot, path);
+        if (_offsets.TryGetValue(key, out var existing))
             return existing;
         if (slot.EntryStarts is not null)
         {
@@ -643,7 +646,7 @@ public sealed partial class ViewerSession : IDisposable
             foreach (var start in slot.EntryStarts)
                 copied.Offsets.Add(start);
             copied.Watermark = copied.Offsets.Count == 0 ? 0 : copied.Offsets[^1] + 1;
-            _offsets[path] = copied;
+            _offsets[key] = copied;
             return copied;
         }
         var index = new OffsetIndex();
@@ -672,8 +675,16 @@ public sealed partial class ViewerSession : IDisposable
         }
 
         index.Watermark = limit;
-        _offsets[path] = index;
+        _offsets[key] = index;
         return index;
+    }
+
+    // A list inside one repeated entry must not share offsets with the same names in the next entry.
+    // JSON lists already keep their own entry starts, so those indexes stay on the path alone.
+    private readonly record struct OffsetKey(long ParentStart, DocumentPath Path)
+    {
+        public static OffsetKey For(Frame parent, Slot slot, DocumentPath path) =>
+            new(slot.EntryStarts is null ? parent.StartByte : 0, path);
     }
 
     private List<TextPiece> Pieces(DocumentPath path)
