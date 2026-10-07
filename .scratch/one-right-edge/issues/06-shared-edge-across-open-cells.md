@@ -4,11 +4,11 @@
 
 **Blocked by:** 02: Keep an embedded record on the cell's right edge, 03: Keep an embedded list on the column's right edge.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Two open cells on one list column, or on one record value side, show one shared right edge. The width is at least the wider embedded table.
-- [ ] The narrower table's flexible side fills the gap on screen. That fill is not remembered. Closing the wider cell leaves the width at the narrower table's own outer width.
-- [ ] Dragging the narrower cell's right edge, or a left divider inside it, moves the shared edge by that amount. The wider table's flexible side is set to the new edge and remembered.
-- [ ] The drag stops when the wider table's flexible side is at its floor, even if the column being dragged is still wider than 32px.
-- [ ] Closing one of two open cells leaves the remaining open table at its edge. Closing the last open cell on that width restores the width from before those cells were open.
-- [ ] One scroll surface is reported, and the file is unchanged.
+- [x] Two open cells on one list column, or on one record value side, show one shared right edge. The width is at least the wider embedded table.
+- [x] The narrower table's flexible side fills the gap on screen. That fill is not remembered. Closing the wider cell leaves the width at the narrower table's own outer width.
+- [x] Dragging the narrower cell's right edge, or a left divider inside it, moves the shared edge by that amount. The wider table's flexible side is set to the new edge and remembered.
+- [x] The drag stops when the wider table's flexible side is at its floor, even if the column being dragged is still wider than 32px.
+- [x] Closing one of two open cells leaves the remaining open table at its edge. Closing the last open cell on that width restores the width from before those cells were open.
+- [x] One scroll surface is reported, and the file is unchanged.
