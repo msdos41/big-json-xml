@@ -77,7 +77,7 @@ The field that holds an element's own character data when that element also has 
 _Avoid_: Inner text, value, indent
 
 **Embedded table**:
-A record table or list table drawn in the cell that was expanded, bounded by that cell's rectangle. It is not laid out as rows under the entry across the rest of the table. Sibling cells keep their own rectangles. The entry's row is as tall as its tallest cell. The document has one vertical scrollbar and one horizontal scrollbar. An embedded table does not add its own. It is not another screen, pane, or window.
+A record table or list table drawn in the cell that was expanded, bounded by that cell's rectangle. Its right edge is that cell's right edge. It is not laid out as rows under the entry across the rest of the table. Sibling cells keep their own rectangles. The entry's row is as tall as its tallest cell. The document has one vertical scrollbar and one horizontal scrollbar. An embedded table does not add its own. It is not another screen, pane, or window.
 _Avoid_: Sub-table, drill-down, popup, nested view
 
 **Find what**:
