@@ -77,12 +77,6 @@ public sealed partial class ViewerSession
 
         var host = new Host(listPath, record: false, column: column);
         var desired = Math.Max(EdgeFloor(host), width);
-        if (IsLast(slot, column) && TryParent(listPath, out var parent))
-        {
-            ApplyChain(parent, ListOuterWith(listPath, slot, column, desired) + ExpandGutter);
-            return;
-        }
-
         var old = HostShown(host);
         var delta = desired - old;
         if (delta < 0)
@@ -137,6 +131,21 @@ public sealed partial class ViewerSession
         state.Override = null;
     }
 
+    // An embedded table keeps a wider drag after its own child closes. A drag
+    // narrower than the stored width stays an override until that child closes.
+    private void Remember(Host host, double width)
+    {
+        var state = HostState(host);
+        if (HasEmbedded(host) && width + 0.01 < state.Stored)
+        {
+            state.Override = width;
+            return;
+        }
+
+        state.Stored = Math.Max(MinWidth, width);
+        state.Override = null;
+    }
+
     private double Natural(Host host)
     {
         var width = HostState(host).Stored;
@@ -169,7 +178,7 @@ public sealed partial class ViewerSession
         var value = outer - name;
         foreach (var child in OpenFields(path))
             CommitTable(child, value - ExpandGutter);
-        Adopt(new Host(path, record: true, column: null), value);
+        Remember(new Host(path, record: true, column: null), value);
     }
 
     private void CommitList(DocumentPath listPath, Slot slot, double outer)
@@ -183,7 +192,7 @@ public sealed partial class ViewerSession
         var flexible = outer - fixedWidth;
         foreach (var cell in OpenColumnCells(listPath, last))
             CommitTable(cell, flexible - ExpandGutter);
-        Adopt(new Host(listPath, record: false, column: last), flexible);
+        Remember(new Host(listPath, record: false, column: last), flexible);
     }
 
     private double ClampDelta(DocumentPath table, double delta, double shrinkRoom)
@@ -529,7 +538,12 @@ public sealed partial class ViewerSession
             return false;
         for (var i = 0; i < cell.Steps.Count; i++)
         {
-            if (table.Steps[i] != cell.Steps[i])
+            var outer = cell.Steps[i];
+            var inner = table.Steps[i];
+            if (inner.Name != outer.Name)
+                return false;
+            // A list path has no entry index, so it holds every entry under it.
+            if (outer.OneBasedIndex is int index && index != inner.OneBasedIndex)
                 return false;
         }
 
