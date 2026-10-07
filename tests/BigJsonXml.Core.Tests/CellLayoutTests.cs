@@ -132,15 +132,17 @@ public class CellLayoutTests
         session.Expand(right);
 
         var indexes = Show(session).Rows.Where(row => row.Kind == SurfaceKind.EntryIndex && row.WidthTable is null && row.Name.Length > 0).Select(row => row.Width).Distinct().ToList();
+        session.Collapse(DocumentPath.Root.Field("right"));
         session.SetColumnWidth(left, wide, 280);
         session.SetColumnWidth(left, "n", 1);
         var frame = Show(session);
 
         var leftHeader = frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.WidthTable!.Equals(left) && row.Name == wide);
-        var rightHeader = frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.WidthTable!.Equals(right) && row.Name == wide);
         Assert.Equal(280, leftHeader.Width);
-        Assert.Equal(200, rightHeader.Width);
-        Assert.Equal(8, frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.WidthTable!.Equals(left) && row.Name == "n").Width);
+        var narrowHeader = frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.WidthTable!.Equals(left) && row.Name == "n");
+        Assert.Equal(32, narrowHeader.Width);
+        Assert.All(frame.Rows.Where(row => row.Kind == SurfaceKind.Entry && row.WidthTable!.Equals(left) && row.Name == "n"), row => Assert.Equal(narrowHeader.X, row.X));
+        Assert.All(frame.Rows.Where(row => row.Kind == SurfaceKind.Entry && row.WidthTable!.Equals(left) && row.Name == "n"), row => Assert.Equal(32, row.Width));
         Assert.All(frame.Rows.Where(row => row.Kind == SurfaceKind.Entry && row.WidthTable!.Equals(left) && row.Name == wide), row => Assert.Equal(leftHeader.X, row.X));
         Assert.All(frame.Rows.Where(row => row.Kind == SurfaceKind.Entry && row.WidthTable!.Equals(left) && row.Name == wide), row => Assert.Equal(280, row.Width));
         Assert.Equal(indexes, frame.Rows.Where(row => row.Kind == SurfaceKind.EntryIndex && row.Name.Length > 0).Select(row => row.Width).Distinct().ToList());
@@ -159,6 +161,11 @@ public class CellLayoutTests
         _ = session.ReadSurface();
         session.SetViewport(0, 0, 1100, 800);
         Assert.Equal(32, session.ReadSurface().Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.WidthTable!.Equals(left) && row.Name == wide).Width);
+
+        session.Collapse(DocumentPath.Root.Field("left"));
+        session.Expand(DocumentPath.Root.Field("right"));
+        Assert.Equal(200, Show(session).Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.WidthTable!.Equals(right) && row.Name == wide).Width);
+        session.Collapse(DocumentPath.Root.Field("right"));
 
         session.SetRecordNameWidth(DocumentPath.Root, 240);
         session.SetRecordValueWidth(DocumentPath.Root, 3000);
@@ -317,24 +324,19 @@ public class CellLayoutTests
         session.Expand(narrow);
         Assert.Equal(narrowOuter + ViewerSession.ExpandGutter, ColumnWidth(session, list, "child"));
 
+        var floor = ViewerSession.ExpandGutter + ViewerSession.IndexTrackWidth(2) + 200 + ViewerSession.MinWidth;
         session.SetColumnWidth(list, "child", 90);
-        Assert.Equal(90, ColumnWidth(session, list, "child"));
-        var clipped = Show(session);
-        Assert.Equal(90, ColumnWidth(session, list, "child"));
-        var cell = clipped.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Path.Equals(narrow) && row.IsExpanded);
-        foreach (var row in clipped.Rows)
-        {
-            if (row.Kind == SurfaceKind.Entry && row.Path.Equals(narrow))
-                continue;
-            if (row.X >= cell.X && row.X < cell.X + cell.Width && row.Y >= cell.Y && row.Y < cell.Y + cell.Height)
-                Assert.True(row.X + row.Width <= cell.X + cell.Width + 0.01);
-        }
-
-        Assert.Equal(1, clipped.ScrollSurfaces);
+        var fitted = Show(session);
+        Assert.Equal(floor, ColumnWidth(session, list, "child"));
+        var cell = fitted.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Path.Equals(narrow) && row.IsExpanded);
+        var edge = fitted.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.WidthTable!.Equals(narrow) && row.Name == "b");
+        Assert.Equal(200, fitted.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.WidthTable!.Equals(narrow) && row.Name == "a").Width);
+        Assert.Equal(cell.X + cell.Width, edge.X + edge.Width, 2);
+        Assert.Equal(1, fitted.ScrollSurfaces);
         session.Collapse(narrow);
         Assert.Equal(180, ColumnWidth(session, list, "child"));
         session.Expand(narrow);
-        Assert.Equal(narrowOuter + ViewerSession.ExpandGutter, ColumnWidth(session, list, "child"));
+        Assert.Equal(floor, ColumnWidth(session, list, "child"));
 
         var record = SessionFixture.Scan("<root><meta><id>1</id><name>Ada</name></meta><note>hi</note></root>");
         var meta = DocumentPath.Root.Field("meta");
