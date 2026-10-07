@@ -153,7 +153,7 @@ public sealed class TabStrip : Grid
 
         if (reveal)
             _reveal = true;
-        InvalidateArrange();
+        InvalidateMeasure();
     }
 
     private void SyncArrows()
