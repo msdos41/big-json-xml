@@ -28,6 +28,14 @@ _Avoid_: DOM, tree, cache, body
 A read-only session over a document: open, present tables, scroll, search. There is no edit and no save.
 _Avoid_: Editor
 
+**Tab**:
+The window's hold on one Viewer and the Document that Viewer has open.
+_Avoid_: Page, buffer, file tab, editor tab
+
+**Active tab**:
+The tab shown on the document surface.
+_Avoid_: Current file, focused buffer
+
 **Record table**:
 A table of one element's fields, with the field names as row headers (vertical headers). This is the presentation when the element is not one entry among same-named siblings. Field names share one width. Values share another. Making the values wider widens every value cell and does not expand those fields. A JSON object that is not a list entry is a record table of its keys. A root JSON scalar is a record table whose only field is `#value`. A list entry that is an object is not also a record table. Collapsed, a JSON object is shown as `{}`, whether or not it has keys.
 _Avoid_: Form, property grid, vertical table, key-value sheet
