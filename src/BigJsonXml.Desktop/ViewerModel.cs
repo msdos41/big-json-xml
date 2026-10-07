@@ -12,7 +12,22 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     public const double FoundColumnMin = 64;
     public const double FoundColumnMax = 4000;
     public const double FoundColumnPadding = 8;
-    private ViewerSession? _session;
+
+    private readonly ObservableCollection<DocumentTab> _tabs = [];
+    private readonly ObservableCollection<FindResult> _emptyResults = [];
+    private readonly ObservableCollection<ResultDocument> _emptyDocuments = [];
+    private readonly ObservableCollection<ResultLine> _emptyLines = [];
+    private ObservableCollection<FindResult> _results;
+    private ObservableCollection<ResultDocument> _documents;
+    private ObservableCollection<ResultLine> _visible;
+    private int _active = -1;
+    private string? _openFailure;
+    private double _stripWidth = double.PositiveInfinity;
+    private double _offset;
+    private double _publishedOffset;
+    private bool _arrows;
+    private bool _canLeft;
+    private bool _canRight;
     private string _findWhat = "";
     private string _fieldName = "";
     private string _parentElementName = "";
@@ -25,14 +40,11 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private bool _startsWith;
     private bool _entireCell;
     private int _resultWidth = 40;
-    private int _builtWidth = -1;
     private string _status = "No document";
     private string _error = "";
     private bool _scanFractionShown;
     private double _scanFraction;
     private string _remainingTime = "";
-    private long? _scanElapsed;
-    private long _scanStartedAt;
     private double _scrollX;
     private double _scrollY;
     private double _scrollMaxX;
@@ -47,15 +59,33 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private FindResult? _current;
     private double _foundColumnWidth = 40 * ViewerSession.Advance + FoundColumnPadding;
     private IReadOnlyList<SurfaceRow> _rows = [];
-    private readonly ObservableCollection<FindResult> _results = [];
-    private readonly ObservableCollection<ResultDocument> _documents = [];
-    private readonly ObservableCollection<ResultLine> _visible = [];
     private readonly ObservableCollection<string> _findHistory = [];
     private CellSelection? _selection;
     private bool _findWindowOpen;
     private bool _resultsWindowOpen;
 
+    public ViewerModel()
+    {
+        _results = _emptyResults;
+        _documents = _emptyDocuments;
+        _visible = _emptyLines;
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    public ObservableCollection<DocumentTab> Tabs => _tabs;
+
+    public int ActiveIndex => _active;
+
+    public DocumentTab? ActiveTab => Active;
+
+    public bool TabArrowsVisible => _arrows;
+
+    public bool CanMoveTabsLeft => _canLeft;
+
+    public bool CanMoveTabsRight => _canRight;
+
+    public double TabStripOffset => _offset;
 
     public bool FindWindowOpen => _findWindowOpen;
 
@@ -173,7 +203,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
                 return;
             _resultWidth = value;
             OnPropertyChanged();
-            if (_session is not null && !_refreshing)
+            if (Active is not null && !_refreshing)
                 Refresh();
         }
     }
@@ -205,7 +235,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         private set
         {
             Set(ref _current, value);
-            MarkCurrent();
+            if (Active is { } tab)
+                tab.Current = value;
+            Mark(VisibleOfActive(), value);
         }
     }
 
@@ -241,12 +273,13 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     public void SetScanElapsed(long milliseconds)
     {
-        _scanElapsed = milliseconds;
-        if (_session is null)
+        var tab = Active;
+        if (tab is null)
             return;
+        tab.ScanElapsed = milliseconds;
         if (_refreshing)
         {
-            RemainingTime = ScanRemainingTime();
+            RemainingTime = ScanRemainingTime(tab);
             return;
         }
 
@@ -321,50 +354,191 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     public void OpenPath(string path)
     {
-        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 20, FileOptions.SequentialScan);
-        Open(new StreamByteSource(stream), path);
+        string full;
+        try
+        {
+            full = Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            FailOpen(ex.Message);
+            return;
+        }
+
+        var existing = FindPath(full);
+        if (existing is not null)
+        {
+            _openFailure = null;
+            _active = _tabs.IndexOf(existing);
+            PublishActive();
+            Layout(true);
+            return;
+        }
+
+        FileStream stream;
+        try
+        {
+            stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 20, FileOptions.SequentialScan);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            FailOpen(ex.Message);
+            return;
+        }
+
+        var source = new StreamByteSource(stream);
+        ViewerSession session;
+        try
+        {
+            session = ViewerSession.Open(source);
+        }
+        catch
+        {
+            source.Dispose();
+            throw;
+        }
+
+        Adopt(session, full, Path.GetFileName(full));
     }
 
     public void Open(IByteSource source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        Open(source, "");
+        Adopt(ViewerSession.Open(source), "", "");
     }
 
-    private void Open(IByteSource source, string documentPath)
+    public void Activate(DocumentTab tab)
     {
-        _session?.Dispose();
-        _session = ViewerSession.Open(source);
-        _findHistory.Clear();
-        _scrollX = 0;
-        _scrollY = 0;
-        Selection = null;
-        _builtWidth = -1;
-        _documents.Clear();
-        _documents.Add(new ResultDocument(documentPath));
-        ReplaceResults();
-        _scanStartedAt = Environment.TickCount64;
-        _scanElapsed = null;
-        Refresh();
-        Tick();
+        ArgumentNullException.ThrowIfNull(tab);
+        var index = _tabs.IndexOf(tab);
+        if (index < 0)
+            return;
+        if (index != _active)
+        {
+            _openFailure = null;
+            _active = index;
+            PublishActive();
+        }
+
+        Layout(true);
+    }
+
+    public void Close(DocumentTab tab)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+        var index = _tabs.IndexOf(tab);
+        if (index < 0)
+            return;
+        var wasActive = index == _active;
+        _tabs.RemoveAt(index);
+        tab.Dispose();
+        if (_tabs.Count == 0)
+        {
+            _active = -1;
+            _openFailure = null;
+            PublishEmpty();
+            Layout(false);
+            return;
+        }
+
+        if (wasActive)
+        {
+            _openFailure = null;
+            _active = Math.Min(index, _tabs.Count - 1);
+            PublishActive();
+        }
+        else if (index < _active)
+        {
+            _active--;
+            OnPropertyChanged(nameof(ActiveIndex));
+        }
+
+        Layout(wasActive);
+    }
+
+    public void SetTabStripWidth(double width)
+    {
+        if (width <= 1 || double.IsNaN(width) || double.IsInfinity(width))
+            return;
+        if (!double.IsPositiveInfinity(_stripWidth) && Math.Abs(_stripWidth - width) < 0.5)
+            return;
+        _stripWidth = width;
+        Layout(true);
+    }
+
+    public void SetTabWidth(DocumentTab tab, double width)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+        if (width <= 0 || _tabs.IndexOf(tab) < 0 || Math.Abs(tab.Width - width) < 0.5)
+            return;
+        tab.SetWidth(width);
+        Layout(false);
+    }
+
+    public void RevealActiveTab() => Layout(true);
+
+    public void MoveTabsLeft()
+    {
+        if (!_canLeft)
+            return;
+        DocumentTab? target = null;
+        foreach (var tab in _tabs)
+        {
+            if (tab.Left < _offset - 0.5)
+                target = tab;
+        }
+
+        if (target is null)
+            return;
+        _offset = target.Left;
+        Layout(false);
+    }
+
+    public void MoveTabsRight()
+    {
+        if (!_canRight)
+            return;
+        var view = ViewWidth();
+        foreach (var tab in _tabs)
+        {
+            if (tab.Left + tab.Width > _offset + view + 0.5)
+            {
+                _offset = tab.Left + tab.Width - view;
+                break;
+            }
+        }
+
+        Layout(false);
     }
 
     public void Tick()
     {
-        if (_session is null)
-            return;
-        var start = Environment.TickCount64;
-        var worked = false;
-        do
+        var active = Active;
+        if (active is not null)
         {
-            if (!_session.Pump(512))
-                break;
-            worked = true;
-        }
-        while (Environment.TickCount64 - start < ScanSliceMilliseconds);
+            var start = Environment.TickCount64;
+            var worked = false;
+            do
+            {
+                if (!active.Session.Pump(512))
+                    break;
+                worked = true;
+            }
+            while (Environment.TickCount64 - start < ScanSliceMilliseconds);
 
-        if (worked)
-            Refresh();
+            if (worked)
+                Refresh();
+        }
+
+        foreach (var tab in _tabs.ToArray())
+        {
+            if (ReferenceEquals(tab, Active))
+                continue;
+            if (!tab.Session.Pump(512))
+                continue;
+            tab.NoteProgress();
+            SyncResults(tab, false);
+        }
     }
 
     public void SetViewportSize(double width, double height)
@@ -381,42 +555,31 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        _session?.SetViewport(_scrollX, _scrollY, _viewportWidth, _viewportHeight);
+        Active?.Session.SetViewport(_scrollX, _scrollY, _viewportWidth, _viewportHeight);
         Refresh();
     }
 
     public void FindAll()
     {
-        if (_session is null)
+        var tab = Active;
+        if (tab is null)
             return;
         RememberFindWhat();
-        if (_documents.Count > 0)
-            _documents[0].SetExpanded(true);
-        _session.Search(new TextSearch
-        {
-            FindWhat = _findWhat,
-            MatchCase = _matchCase,
-            FieldName = _fieldName,
-            ParentElementName = _parentElementName,
-            GrandfatherElementName = _grandfatherElementName,
-            ParentAttributeName = _parentAttributeName,
-            ElementName = _elementName,
-            AttributeName = _attributeName,
-            Value = _value,
-            StartsWith = _startsWith,
-            EntireCell = _entireCell,
-        });
+        EnsureSearched(tab);
+        tab.Session.Search(Criteria());
         CurrentResult = null;
+        Refresh();
         Tick();
         OpenResults();
     }
 
     public void FindNext()
     {
-        if (_session is null)
+        var tab = Active;
+        if (tab is null)
             return;
         var index = CurrentIndex();
-        while (_session.Hits.Count <= index + 1 && _session.Pump(512))
+        while (tab.Session.Hits.Count <= index + 1 && tab.Session.Pump(512))
         {
         }
 
@@ -424,7 +587,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         if (index + 1 >= _results.Count)
             return;
         var result = _results[index + 1];
-        ExpandResults();
+        ExpandResults(tab);
         _adjustingResults = true;
         try
         {
@@ -440,11 +603,14 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     public void Reveal(Hit hit)
     {
-        if (_session is null)
+        var tab = Active;
+        if (tab is null)
             return;
-        _session.Reveal(hit);
-        _scrollX = _session.ViewportX;
-        _scrollY = _session.ViewportY;
+        tab.Session.Reveal(hit);
+        _scrollX = tab.Session.ViewportX;
+        _scrollY = tab.Session.ViewportY;
+        tab.ScrollX = _scrollX;
+        tab.ScrollY = _scrollY;
         Refresh();
         OnPropertyChanged(nameof(ScrollX));
         OnPropertyChanged(nameof(ScrollY));
@@ -452,10 +618,10 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     public void ChooseResult(FindResult? result)
     {
-        if (_adjustingResults || _session is null)
+        if (_adjustingResults || Active is null)
             return;
-        if (result is not null)
-            ExpandResults();
+        if (result is not null && Active is { } tab)
+            ExpandResults(tab);
         CurrentResult = result;
         if (result is null)
             ClearMark();
@@ -467,10 +633,13 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         ArgumentNullException.ThrowIfNull(document);
         document.SetExpanded(!document.IsExpanded);
+        var tab = Active;
+        if (tab is null || tab.Documents.Count == 0 || !ReferenceEquals(tab.Documents[0], document))
+            return;
         _adjustingResults = true;
         try
         {
-            SyncVisibleHits();
+            SyncVisible(tab);
         }
         finally
         {
@@ -480,42 +649,49 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     public void ClearMark()
     {
-        if (_session is null)
+        if (Active is null)
             return;
-        _session.ClearMark();
+        Active.Session.ClearMark();
         Refresh();
     }
 
     public void Toggle(SurfaceRow row)
     {
-        if (_session is null)
+        var tab = Active;
+        if (tab is null)
             return;
         if (row.CanExpand)
         {
             if (row.IsExpanded)
-                _session.Collapse(row.Path);
+                tab.Session.Collapse(row.Path);
             else
-                _session.Expand(row.Path);
+                tab.Session.Expand(row.Path);
         }
         else if (row.CanGrowValue || row.Kind == SurfaceKind.ValueLine)
         {
-            if (_session.ReadScalar(row.Path).IsFullValueExpanded)
-                _session.CollapseFullValue(row.Path);
+            if (tab.Session.ReadScalar(row.Path).IsFullValueExpanded)
+                tab.Session.CollapseFullValue(row.Path);
             else
-                _session.ExpandFullValue(row.Path);
+                tab.Session.ExpandFullValue(row.Path);
         }
 
         Refresh();
     }
 
-    public void SetSelection(CellSelection? selection) => Selection = selection;
+    public void SetSelection(CellSelection? selection)
+    {
+        Selection = selection;
+        if (Active is { } tab)
+            tab.Selection = selection;
+    }
 
     public string? SelectedText()
     {
-        if (_selection is not { Length: > 0 } selection || _session is null)
+        var tab = Active;
+        if (_selection is not { Length: > 0 } selection || tab is null)
             return null;
         if (selection.Scalar)
-            return _session.ReadFullValueSlice(selection.Path, selection.Start, selection.Length);
+            return tab.Session.ReadFullValueSlice(selection.Path, selection.Start, selection.Length);
         if (selection.Label is null || selection.Start > selection.Label.Length)
             return null;
         var end = Math.Min(selection.End, selection.Label.Length);
@@ -524,32 +700,34 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         return selection.Label[selection.Start..end];
     }
 
-    public int ScalarLength(DocumentPath path) => _session?.ScalarLength(path) ?? 0;
+    public int ScalarLength(DocumentPath path) => Active?.Session.ScalarLength(path) ?? 0;
 
     public void SelectAll()
     {
-        if (_selection is null || _session is null)
+        var tab = Active;
+        if (_selection is null || tab is null)
             return;
         if (_selection.Scalar)
-            SetSelection(_selection with { Start = 0, End = _session.ScalarLength(_selection.Path) });
+            SetSelection(_selection with { Start = 0, End = tab.Session.ScalarLength(_selection.Path) });
         else if (_selection.Label is not null)
             SetSelection(_selection with { Start = 0, End = _selection.Label.Length });
     }
 
     public void DragWidth(SurfaceRow row, double width)
     {
-        if (_session is null || row.WidthTable is null)
+        var tab = Active;
+        if (tab is null || row.WidthTable is null)
             return;
         switch (row.Axis)
         {
             case WidthAxis.RecordName:
-                _session.SetRecordNameWidth(row.WidthTable, width);
+                tab.Session.SetRecordNameWidth(row.WidthTable, width);
                 break;
             case WidthAxis.RecordValue:
-                _session.SetRecordValueWidth(row.WidthTable, width);
+                tab.Session.SetRecordValueWidth(row.WidthTable, width);
                 break;
             case WidthAxis.ListColumn when row.WidthColumn is not null:
-                _session.SetColumnWidth(row.WidthTable, row.WidthColumn, width);
+                tab.Session.SetColumnWidth(row.WidthTable, row.WidthColumn, width);
                 break;
             default:
                 return;
@@ -558,7 +736,207 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         Refresh();
     }
 
-    public void Dispose() => _session?.Dispose();
+    public void Dispose()
+    {
+        foreach (var tab in _tabs.ToArray())
+            tab.Dispose();
+        _tabs.Clear();
+        _active = -1;
+    }
+
+    private DocumentTab? Active => _active >= 0 && _active < _tabs.Count ? _tabs[_active] : null;
+
+    private void Adopt(ViewerSession session, string path, string label)
+    {
+        _openFailure = null;
+        var tab = new DocumentTab(session, path, label)
+        {
+            ScanStartedAt = Environment.TickCount64,
+        };
+        _tabs.Add(tab);
+        _active = _tabs.Count - 1;
+        PublishActive();
+        Layout(true);
+        Tick();
+    }
+
+    private void FailOpen(string message)
+    {
+        _openFailure = message;
+        Error = message;
+    }
+
+    private DocumentTab? FindPath(string full)
+    {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        foreach (var tab in _tabs)
+        {
+            if (tab.Path.Length > 0 && string.Equals(tab.Path, full, comparison))
+                return tab;
+        }
+
+        return null;
+    }
+
+    private void PublishActive()
+    {
+        var tab = Active;
+        if (tab is null)
+            return;
+        foreach (var item in _tabs)
+            item.SetActive(ReferenceEquals(item, tab));
+        _scrollX = tab.ScrollX;
+        _scrollY = tab.ScrollY;
+        _selection = tab.Selection;
+        OnPropertyChanged(nameof(ScrollX));
+        OnPropertyChanged(nameof(ScrollY));
+        OnPropertyChanged(nameof(Selection));
+        OnPropertyChanged(nameof(ActiveIndex));
+        OnPropertyChanged(nameof(ActiveTab));
+        _adjustingResults = true;
+        try
+        {
+            UseResults(tab.Results, tab.Documents, tab.Visible);
+            _current = tab.Current;
+            OnPropertyChanged(nameof(CurrentResult));
+            Mark(tab.Visible, tab.Current);
+        }
+        finally
+        {
+            _adjustingResults = false;
+        }
+
+        Refresh();
+    }
+
+    private void PublishEmpty()
+    {
+        foreach (var item in _tabs)
+            item.SetActive(false);
+        _scrollX = 0;
+        _scrollY = 0;
+        _selection = null;
+        Rows = [];
+        _adjustingResults = true;
+        try
+        {
+            UseResults(_emptyResults, _emptyDocuments, _emptyLines);
+            _current = null;
+            OnPropertyChanged(nameof(CurrentResult));
+        }
+        finally
+        {
+            _adjustingResults = false;
+        }
+
+        ContentWidth = 0;
+        ContentHeight = 0;
+        ScrollMaxX = 0;
+        ScrollMaxY = 0;
+        ScanFraction = 0;
+        ScanFractionShown = false;
+        RemainingTime = "";
+        Error = "";
+        Status = "No document";
+        OnPropertyChanged(nameof(ScrollX));
+        OnPropertyChanged(nameof(ScrollY));
+        OnPropertyChanged(nameof(Selection));
+        OnPropertyChanged(nameof(ActiveIndex));
+        OnPropertyChanged(nameof(ActiveTab));
+    }
+
+    private void UseResults(
+        ObservableCollection<FindResult> results,
+        ObservableCollection<ResultDocument> documents,
+        ObservableCollection<ResultLine> visible)
+    {
+        _results = results;
+        _documents = documents;
+        _visible = visible;
+        OnPropertyChanged(nameof(Results));
+        OnPropertyChanged(nameof(ResultDocuments));
+        OnPropertyChanged(nameof(VisibleResults));
+        OnPropertyChanged(nameof(ResultCount));
+    }
+
+    private void Layout(bool ensureActive)
+    {
+        double total = 0;
+        foreach (var tab in _tabs)
+        {
+            if (tab.Width <= 0)
+                tab.SetWidth(DocumentTab.EstimateWidth(tab.Label));
+            tab.SetLeft(total);
+            total += tab.Width;
+        }
+
+        var arrows = !double.IsPositiveInfinity(_stripWidth) && total > _stripWidth + 0.5;
+        var view = arrows ? Math.Max(1, _stripWidth - DocumentTab.ArrowSpan) : _stripWidth;
+        if (!arrows)
+            _offset = 0;
+        else if (ensureActive && Active is { } active)
+            RevealOffset(active, view, total);
+        else
+            ClampOffset(view, total);
+
+        var canLeft = arrows && _offset > 0.5;
+        var canRight = arrows && _tabs.Count > 0 && _tabs[^1].Left + _tabs[^1].Width > _offset + view + 0.5;
+        foreach (var tab in _tabs)
+        {
+            var right = tab.Left + tab.Width;
+            var fully = double.IsPositiveInfinity(view) || (tab.Left >= _offset - 0.5 && right <= _offset + view + 0.5);
+            tab.SetFullyVisible(fully);
+        }
+
+        if (Math.Abs(_publishedOffset - _offset) >= 0.5)
+        {
+            _publishedOffset = _offset;
+            OnPropertyChanged(nameof(TabStripOffset));
+        }
+
+        Set(ref _arrows, arrows, nameof(TabArrowsVisible));
+        Set(ref _canLeft, canLeft, nameof(CanMoveTabsLeft));
+        Set(ref _canRight, canRight, nameof(CanMoveTabsRight));
+    }
+
+    private void RevealOffset(DocumentTab tab, double view, double total)
+    {
+        var left = tab.Left;
+        var right = left + tab.Width;
+        if (left < _offset)
+            _offset = left;
+        if (right > _offset + view)
+            _offset = right - view;
+        ClampOffset(view, total);
+    }
+
+    private void ClampOffset(double view, double total)
+    {
+        if (double.IsPositiveInfinity(view))
+        {
+            _offset = 0;
+            return;
+        }
+
+        var max = Math.Max(0, total - view);
+        if (_offset < 0)
+            _offset = 0;
+        if (_offset > max)
+            _offset = max;
+    }
+
+    private double ViewWidth()
+    {
+        if (double.IsPositiveInfinity(_stripWidth))
+            return _stripWidth;
+        double total = 0;
+        foreach (var tab in _tabs)
+            total += tab.Width;
+        var arrows = total > _stripWidth + 0.5;
+        return arrows ? Math.Max(1, _stripWidth - DocumentTab.ArrowSpan) : _stripWidth;
+    }
 
     private void Move(ref double field, double value, string name)
     {
@@ -566,8 +944,14 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         if (Math.Abs(field - value) < 0.5)
             return;
         field = value;
+        if (Active is { } tab)
+        {
+            tab.ScrollX = _scrollX;
+            tab.ScrollY = _scrollY;
+        }
+
         OnPropertyChanged(name);
-        if (_session is null)
+        if (Active is null)
             return;
         if (_refreshing)
         {
@@ -575,13 +959,14 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        _session.SetViewport(_scrollX, _scrollY, _viewportWidth, _viewportHeight);
+        Active.Session.SetViewport(_scrollX, _scrollY, _viewportWidth, _viewportHeight);
         Refresh();
     }
 
     private void Refresh()
     {
-        if (_session is null || _refreshing)
+        var tab = Active;
+        if (tab is null || _refreshing)
             return;
         _refreshing = true;
         try
@@ -591,7 +976,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
                 _rebuild = false;
                 _scrollX = Math.Max(0, _scrollX);
                 _scrollY = Math.Max(0, _scrollY);
-                var frame = ReadFrame();
+                var frame = ReadFrame(tab);
                 var maxX = Math.Max(0, frame.ContentWidth - _viewportWidth);
                 var maxY = Math.Max(0, frame.ContentHeight - _viewportHeight);
                 var x = Math.Min(_scrollX, maxX);
@@ -601,13 +986,13 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
                 {
                     _scrollX = x;
                     _scrollY = y;
-                    frame = ReadFrame();
+                    frame = ReadFrame(tab);
                     maxX = Math.Max(0, frame.ContentWidth - _viewportWidth);
                     maxY = Math.Max(0, frame.ContentHeight - _viewportHeight);
                 }
 
                 Rows = frame.Rows;
-                SyncResults();
+                SyncResults(tab, true);
                 ContentWidth = frame.ContentWidth;
                 ContentHeight = frame.ContentHeight;
                 if (clamped)
@@ -618,10 +1003,13 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
                 ScrollMaxX = maxX;
                 ScrollMaxY = maxY;
-                PublishScan();
+                PublishScan(tab);
                 if (!_rebuild)
                     break;
             }
+
+            tab.ScrollX = _scrollX;
+            tab.ScrollY = _scrollY;
         }
         finally
         {
@@ -629,73 +1017,82 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private SurfaceFrame ReadFrame()
+    private SurfaceFrame ReadFrame(DocumentTab tab)
     {
-        _session!.SetViewport(_scrollX, _scrollY, _viewportWidth, _viewportHeight);
-        return _session.ReadSurface();
+        tab.Session.SetViewport(_scrollX, _scrollY, _viewportWidth, _viewportHeight);
+        return tab.Session.ReadSurface();
     }
 
-    private void SyncResults()
+    private void SyncResults(DocumentTab tab, bool active)
     {
-        var next = _session!.Hits;
-        if (_resultWidth == _builtWidth && IsPrefix(next))
+        var next = tab.Session.Hits;
+        if (tab.BuiltWidth == _resultWidth && IsPrefix(tab, next))
         {
-            for (var i = 0; i < _results.Count; i++)
-                _results[i].RevisePath(_session.FormatPath(next[i].Path));
+            for (var i = 0; i < tab.Results.Count; i++)
+                tab.Results[i].RevisePath(tab.Session.FormatPath(next[i].Path));
             var grown = false;
-            for (var i = _results.Count; i < next.Count; i++)
+            for (var i = tab.Results.Count; i < next.Count; i++)
             {
-                _results.Add(Describe(next[i]));
+                tab.Results.Add(Describe(tab, next[i]));
                 grown = true;
             }
 
-            if (grown)
+            if (grown && active)
                 OnPropertyChanged(nameof(ResultCount));
-            SyncVisibleHits();
+            SyncVisible(tab);
             return;
         }
 
-        ReplaceResults(next);
+        ReplaceResults(tab, next, active);
     }
 
-    private void ReplaceResults(IReadOnlyList<Hit>? next = null)
+    private void ReplaceResults(DocumentTab tab, IReadOnlyList<Hit> next, bool active)
     {
-        next ??= _session?.Hits ?? [];
-        // Replacing the list raises selection changes that are not a new choice.
-        _adjustingResults = true;
+        var adjusting = _adjustingResults;
+        if (active)
+            _adjustingResults = true;
         try
         {
-            var currentHit = _current?.Hit;
-            _results.Clear();
-            if (_session is not null)
+            var currentHit = tab.Current?.Hit;
+            tab.Results.Clear();
+            foreach (var hit in next)
+                tab.Results.Add(Describe(tab, hit));
+            tab.BuiltWidth = _resultWidth;
+            SyncVisible(tab);
+            if (currentHit is null)
+                return;
+            FindResult? again = null;
+            for (var i = 0; i < tab.Results.Count; i++)
             {
-                foreach (var hit in next)
-                    _results.Add(Describe(hit));
+                if (!ReferenceEquals(tab.Results[i].Hit, currentHit))
+                    continue;
+                again = tab.Results[i];
+                break;
             }
 
-            _builtWidth = _resultWidth;
-            SyncVisibleHits();
-            if (currentHit is not null)
-            {
-                FindResult? again = null;
-                for (var i = 0; i < _results.Count; i++)
-                {
-                    if (!ReferenceEquals(_results[i].Hit, currentHit))
-                        continue;
-                    again = _results[i];
-                    break;
-                }
-
-                if (again is not null)
-                    CurrentResult = again;
-            }
+            if (again is null)
+                return;
+            if (active)
+                CurrentResult = again;
+            else
+                tab.Current = again;
         }
         finally
         {
-            _adjustingResults = false;
+            if (active)
+                _adjustingResults = adjusting;
         }
 
-        OnPropertyChanged(nameof(ResultCount));
+        if (active)
+            OnPropertyChanged(nameof(ResultCount));
+    }
+
+    private void EnsureSearched(DocumentTab tab)
+    {
+        tab.Searched = true;
+        if (tab.Documents.Count == 0)
+            tab.Documents.Add(new ResultDocument(tab.Path));
+        tab.Documents[0].SetExpanded(true);
     }
 
     private void OpenResults()
@@ -704,15 +1101,15 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(ResultsWindowOpen));
     }
 
-    private void ExpandResults()
+    private void ExpandResults(DocumentTab tab)
     {
-        if (_documents.Count == 0 || _documents[0].IsExpanded)
+        if (!tab.Searched || tab.Documents.Count == 0 || tab.Documents[0].IsExpanded)
             return;
-        _documents[0].SetExpanded(true);
+        tab.Documents[0].SetExpanded(true);
         _adjustingResults = true;
         try
         {
-            SyncVisibleHits();
+            SyncVisible(tab);
         }
         finally
         {
@@ -720,65 +1117,82 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private void SyncVisibleHits()
+    private void SyncVisible(DocumentTab tab)
     {
-        if (_documents.Count == 0)
+        if (!tab.Searched || tab.Documents.Count == 0)
         {
-            if (_visible.Count > 0)
-                _visible.Clear();
+            if (tab.Visible.Count > 0)
+                tab.Visible.Clear();
             return;
         }
 
-        var document = _documents[0];
-        document.SetMatchCount(_results.Count);
-        if (_visible.Count == 0 || _visible[0] is not ResultDocumentLine group || !ReferenceEquals(group.Document, document))
+        var document = tab.Documents[0];
+        document.SetMatchCount(tab.Results.Count);
+        if (tab.Visible.Count == 0 || tab.Visible[0] is not ResultDocumentLine group || !ReferenceEquals(group.Document, document))
         {
-            _visible.Clear();
-            _visible.Add(new ResultDocumentLine(document));
+            tab.Visible.Clear();
+            tab.Visible.Add(new ResultDocumentLine(document));
         }
 
         if (!document.IsExpanded)
         {
-            while (_visible.Count > 1)
-                _visible.RemoveAt(_visible.Count - 1);
-            MarkCurrent();
+            while (tab.Visible.Count > 1)
+                tab.Visible.RemoveAt(tab.Visible.Count - 1);
+            Mark(tab.Visible, tab.Current);
             return;
         }
 
-        var shown = _visible.Count - 1;
-        var prefix = shown <= _results.Count;
+        var shown = tab.Visible.Count - 1;
+        var prefix = shown <= tab.Results.Count;
         for (var i = 0; prefix && i < shown; i++)
         {
-            if (_visible[i + 1] is not ResultHitLine hit || !ReferenceEquals(hit.Result, _results[i]))
+            if (tab.Visible[i + 1] is not ResultHitLine hit || !ReferenceEquals(hit.Result, tab.Results[i]))
                 prefix = false;
         }
 
         if (!prefix)
         {
-            while (_visible.Count > 1)
-                _visible.RemoveAt(_visible.Count - 1);
+            while (tab.Visible.Count > 1)
+                tab.Visible.RemoveAt(tab.Visible.Count - 1);
             shown = 0;
         }
 
-        for (var i = shown; i < _results.Count; i++)
-            _visible.Add(new ResultHitLine(_results[i]));
-        MarkCurrent();
+        for (var i = shown; i < tab.Results.Count; i++)
+            tab.Visible.Add(new ResultHitLine(tab.Results[i]));
+        Mark(tab.Visible, tab.Current);
     }
 
-    private void MarkCurrent()
+    private ObservableCollection<ResultLine> VisibleOfActive() => Active?.Visible ?? _visible;
+
+    private static void Mark(ObservableCollection<ResultLine> visible, FindResult? current)
     {
-        for (var i = 0; i < _visible.Count; i++)
+        for (var i = 0; i < visible.Count; i++)
         {
-            if (_visible[i] is ResultHitLine hit)
-                hit.SetCurrent(ReferenceEquals(hit.Result, _current));
+            if (visible[i] is ResultHitLine hit)
+                hit.SetCurrent(ReferenceEquals(hit.Result, current));
         }
     }
 
-    private FindResult Describe(Hit hit)
+    private FindResult Describe(DocumentTab tab, Hit hit)
     {
-        var text = _session!.ReadHitText(hit, _resultWidth);
-        return new FindResult(hit, text.Text, text.MarkStart, text.MarkLength, _session.FormatPath(hit.Path));
+        var text = tab.Session.ReadHitText(hit, _resultWidth);
+        return new FindResult(hit, text.Text, text.MarkStart, text.MarkLength, tab.Session.FormatPath(hit.Path));
     }
+
+    private TextSearch Criteria() => new()
+    {
+        FindWhat = _findWhat,
+        MatchCase = _matchCase,
+        FieldName = _fieldName,
+        ParentElementName = _parentElementName,
+        GrandfatherElementName = _grandfatherElementName,
+        ParentAttributeName = _parentAttributeName,
+        ElementName = _elementName,
+        AttributeName = _attributeName,
+        Value = _value,
+        StartsWith = _startsWith,
+        EntireCell = _entireCell,
+    };
 
     private void RememberFindWhat()
     {
@@ -813,25 +1227,27 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         return -1;
     }
 
-    private bool IsPrefix(IReadOnlyList<Hit> next)
+    private static bool IsPrefix(DocumentTab tab, IReadOnlyList<Hit> next)
     {
-        if (_results.Count > next.Count)
+        if (tab.Results.Count > next.Count)
             return false;
-        for (var i = 0; i < _results.Count; i++)
+        for (var i = 0; i < tab.Results.Count; i++)
         {
-            if (!ReferenceEquals(_results[i].Hit, next[i]))
+            if (!ReferenceEquals(tab.Results[i].Hit, next[i]))
                 return false;
         }
 
         return true;
     }
 
-    private void PublishScan()
+    private void PublishScan(DocumentTab tab)
     {
-        var progress = _session!.Progress;
-        var length = _session.DocumentLength;
-        var reached = _session.BytesReached;
-        var show = _session.LengthIsFixed
+        tab.NoteProgress();
+        var session = tab.Session;
+        var progress = session.Progress;
+        var length = session.DocumentLength;
+        var reached = session.BytesReached;
+        var show = session.LengthIsFixed
             && length > 0
             && progress is ScanProgress.Scanning or ScanProgress.Stopped;
         var fraction = 0d;
@@ -846,10 +1262,14 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
         ScanFraction = fraction;
         ScanFractionShown = show;
-        RemainingTime = ScanRemainingTime();
-        Error = _session.Error is null
-            ? ""
-            : $"{_session.Error.Message} (line {_session.Error.Line}, column {_session.Error.Column})";
+        RemainingTime = ScanRemainingTime(tab);
+        if (_openFailure is null)
+        {
+            Error = session.Error is null
+                ? ""
+                : $"{session.Error.Message} (line {session.Error.Line}, column {session.Error.Column})";
+        }
+
         Status = progress switch
         {
             ScanProgress.Scanning => "Scanning",
@@ -858,15 +1278,16 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         };
     }
 
-    private string ScanRemainingTime()
+    private static string ScanRemainingTime(DocumentTab tab)
     {
-        var progress = _session!.Progress;
-        var length = _session.DocumentLength;
-        var reached = _session.BytesReached;
-        var show = _session.LengthIsFixed
+        var session = tab.Session;
+        var progress = session.Progress;
+        var length = session.DocumentLength;
+        var reached = session.BytesReached;
+        var show = session.LengthIsFixed
             && length > 0
             && progress is ScanProgress.Scanning or ScanProgress.Stopped;
-        var elapsed = _scanElapsed ?? Environment.TickCount64 - _scanStartedAt;
+        var elapsed = tab.ScanElapsed ?? Environment.TickCount64 - tab.ScanStartedAt;
         if (elapsed < 0)
             elapsed = 0;
         if (progress != ScanProgress.Scanning || !show || elapsed < 1000 || reached <= 0)

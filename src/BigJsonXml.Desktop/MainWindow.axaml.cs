@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 
 namespace BigJsonXml.Desktop;
 
@@ -34,13 +35,30 @@ public partial class MainWindow : Window
         _timer.Start();
     }
 
-    private void FindClicked(object? sender, RoutedEventArgs e)
+    private void FindClicked(object? sender, RoutedEventArgs e) => ShowFindFromUi();
+
+    public void ShowFindFromUi()
     {
         _model.ShowFind();
         if (_find is { IsVisible: true })
             _find.Activate();
         else
             ApplyFindWindow(true);
+    }
+
+    public static void RequestFind(Visual visual)
+    {
+        var window = TopLevel.GetTopLevel(visual) as Window;
+        while (window is not null)
+        {
+            if (window is MainWindow main)
+            {
+                main.ShowFindFromUi();
+                return;
+            }
+
+            window = window.Owner as Window;
+        }
     }
 
     private async void OpenClicked(object? sender, RoutedEventArgs e)
@@ -59,6 +77,13 @@ public partial class MainWindow : Window
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
+        if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            ShowFindFromUi();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key != Key.Escape)
             return;
         _model.ClearMark();

@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 
 namespace BigJsonXml.Desktop;
@@ -20,6 +21,15 @@ public partial class FindWindow : Window
     {
         if (DataContext is ViewerModel model)
             model.FindNext();
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.Key != Key.F || !e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            return;
+        MainWindow.RequestFind(this);
+        e.Handled = true;
     }
 
     protected override void OnClosed(EventArgs e)

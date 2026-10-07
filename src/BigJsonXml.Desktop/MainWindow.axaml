@@ -23,6 +23,7 @@
                  IsVisible="{Binding RemainingTime, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
                  VerticalAlignment="Center"/>
     </StackPanel>
+    <local:TabStrip DockPanel.Dock="Top"/>
     <TextBlock DockPanel.Dock="Bottom" Margin="8" Text="{Binding Error}" TextWrapping="Wrap"/>
     <Grid ColumnDefinitions="*,Auto" RowDefinitions="*,Auto">
       <local:DocumentSurface Grid.Row="0" Grid.Column="0"/>

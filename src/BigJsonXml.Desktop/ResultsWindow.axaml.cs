@@ -110,6 +110,13 @@ public partial class ResultsWindow : Window
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
+        if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            MainWindow.RequestFind(this);
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key != Key.Escape)
             return;
         if (ResultsList.SelectedItem is not null)

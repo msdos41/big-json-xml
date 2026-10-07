@@ -192,6 +192,11 @@ public sealed class DocumentSurface : Control
             model.SelectAll();
             e.Handled = true;
         }
+        else if (e.Key == Key.F)
+        {
+            MainWindow.RequestFind(this);
+            e.Handled = true;
+        }
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
