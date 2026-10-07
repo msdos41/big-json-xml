@@ -1070,6 +1070,40 @@ public class ShellTests
     }
 
     [Fact]
+    public void Closing_a_hidden_tab_keeps_the_row_where_it_was()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        using var model = new ViewerModel();
+        var strip = new TabStrip { Width = 220, Height = TabStrip.RowHeight, DataContext = model };
+        for (var i = 0; i < 4; i++)
+        {
+            var path = WriteNamed($"<root><a>{i}</a></root>", $"document-{i}.xml");
+            model.OpenPath(path);
+        }
+
+        LayoutStrip(strip);
+        model.Activate(model.Tabs[0]);
+        LayoutStrip(strip);
+        model.MoveTabsRight();
+        var parked = model.TabStripOffset;
+        Assert.True(parked > 0);
+        Assert.Equal(0, model.ActiveIndex);
+
+        model.Close(model.Tabs[^1]);
+        LayoutStrip(strip);
+        var total = model.Tabs.Sum(tab => tab.Width);
+        var view = total > 220 + 0.5 ? 220 - DocumentTab.ArrowSpan : 220d;
+        var expected = Math.Min(parked, Math.Max(0, total - view));
+        var revealed = model.Tabs[0].Width <= view ? 0 : model.Tabs[0].Width - view;
+        Assert.NotEqual(revealed, expected);
+        Assert.Equal(expected, model.TabStripOffset);
+        Assert.Equal(0, model.ActiveIndex);
+        Assert.Contains(model.Rows, row => row.Value == "0");
+    }
+
+    [Fact]
     public void The_strip_shows_names_circles_arrows_and_ctrl_f()
     {
         if (Application.Current is null)
@@ -1138,12 +1172,20 @@ public class ShellTests
             Assert.IsNotType<RepeatButton>(right);
             var active = model.ActiveIndex;
             var offset = model.TabStripOffset;
+            Assert.Equal(0, offset);
+            Assert.False(left.IsEnabled);
+            Assert.True(right.IsEnabled);
             left.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(offset, model.TabStripOffset);
+            right.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Equal(active, model.ActiveIndex);
-            Assert.True(model.TabStripOffset < offset);
+            Assert.True(model.TabStripOffset > offset);
             var moved = model.TabStripOffset;
-            left.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Assert.Equal(moved, model.TabStripOffset);
+            if (!model.CanMoveTabsRight)
+            {
+                right.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.Equal(moved, model.TabStripOffset);
+            }
 
             var beforeWheel = model.TabStripOffset;
             var pointer = new Pointer(1, PointerType.Mouse, false);
@@ -1198,6 +1240,12 @@ public class ShellTests
         {
             window.Close();
         }
+    }
+
+    private static void LayoutStrip(TabStrip strip)
+    {
+        strip.Measure(new Size(strip.Width, TabStrip.RowHeight));
+        strip.Arrange(new Rect(0, 0, strip.Width, TabStrip.RowHeight));
     }
 
     private static void Arrange(Window window)
