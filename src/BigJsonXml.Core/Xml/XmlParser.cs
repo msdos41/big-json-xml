@@ -1641,11 +1641,13 @@ internal sealed class XmlParser
 
             if (_brackets >= 2 && span[0] == (byte)'>')
                 return Fail("']]>' is not allowed in text.");
-            if (span.Length > budget)
-                span = span[..budget];
+            var available = span;
+            var capped = available.Length > budget;
+            if (capped)
+                span = available[..budget];
             var stop = span.IndexOfAny(StopBytes);
             var run = stop < 0 ? span : span[..stop];
-            var atEnd = stop < 0 && _byte + span.Length >= _document.Source.Length && _document.Source.IsComplete;
+            var atEnd = stop < 0 && !capped && _byte + span.Length >= _document.Source.Length && _document.Source.IsComplete;
             var text = MeasureUtf8(run, allowPartialTail: stop < 0 && !atEnd);
             if (text.Error is not null)
             {
@@ -1653,8 +1655,51 @@ internal sealed class XmlParser
                 return Fail(text.Error);
             }
 
-            if (text.Count < run.Length)
+            // The budget or the window can leave a lead byte with none of its continuation bytes.
+            if (text.Count == 0 && run.Length > 0 && stop < 0 && !atEnd)
+            {
+                if (!capped)
+                {
+                    var seen = available.Length;
+                    _windowCount = 0;
+                    if (!TrySpan(out var wider, out var more) || wider.Length <= seen)
+                    {
+                        if (more)
+                        {
+                            _signal = Signal.NeedMore;
+                            return SignalEvent();
+                        }
+
+                        return Fail("The document ends in the middle of a character.");
+                    }
+
+                    continue;
+                }
+
+                var needed = available[0] switch
+                {
+                    >= 0xC2 and <= 0xDF => 2,
+                    >= 0xE0 and <= 0xEF => 3,
+                    >= 0xF0 and <= 0xF4 => 4,
+                    _ => 0,
+                };
+                if (needed == 0)
+                    return Fail("The document is not valid UTF-8.");
+                if (needed > available.Length)
+                    return Fail("The document ends in the middle of a character.");
+                var probe = MeasureUtf8(available[..needed], allowPartialTail: false);
+                if (probe.Error is not null || probe.Count != needed)
+                {
+                    _byte += probe.Count;
+                    return Fail(probe.Error ?? "The document is not valid UTF-8.");
+                }
+
+                run = available[..probe.Count];
+            }
+            else if (text.Count < run.Length)
+            {
                 run = run[..text.Count];
+            }
             if (run.Length > 0)
             {
                 if (run.IndexOfAnyExcept(SpaceBytes) >= 0)
@@ -1864,7 +1909,15 @@ internal sealed class XmlParser
         }
 
         var window = MarkupWindow();
-        if (_byte < _windowAt || _byte >= _windowAt + _windowCount)
+        var visibleEnd = _windowAt + _windowCount;
+        if (visibleEnd > _limit)
+            visibleEnd = _limit;
+        var inside = _byte >= _windowAt && _byte < _windowAt + _windowCount;
+        var have = inside ? (int)(visibleEnd - _byte) : 0;
+        var could = (int)Math.Min(window.Length, Math.Min(length, _limit) - _byte);
+        // A UTF-8 character is at most 4 bytes. A shorter tail is not the end of the file,
+        // and leaving it in place makes the text reader wait on bytes it will never see.
+        if (!inside || (have < could && have < 4))
         {
             var want = (int)Math.Min(window.Length, length - _byte);
             var read = _document.Source.Read(_byte, window.AsSpan(0, want));
