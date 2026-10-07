@@ -580,7 +580,7 @@ internal sealed class JsonParser
             }
 
             if (n >= 0)
-                return Digit.Some;
+                return any ? Digit.Some : Digit.None;
         }
     }
 
