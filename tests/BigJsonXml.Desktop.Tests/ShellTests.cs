@@ -8,6 +8,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 namespace BigJsonXml.Desktop.Tests;
@@ -1380,9 +1381,8 @@ public class ShellTests
 
     private static void PassLayout(Window window)
     {
-        window.InvalidateMeasure();
-        window.Measure(new Size(window.Width, window.Height));
-        window.Arrange(new Rect(0, 0, window.Width, window.Height));
+        for (var i = 0; i < 4; i++)
+            Dispatcher.UIThread.RunJobs();
     }
 
     private static void AssertNamesSitOnTheirUnderlines(Window window)
