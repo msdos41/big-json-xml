@@ -158,6 +158,7 @@ internal sealed class DocumentTree
     private readonly Dictionary<(DocumentPath Parent, string Name), DocumentPath> _childPaths = new();
     private readonly Dictionary<string, string> _atNames = new(StringComparer.Ordinal);
     private readonly TextPiece[] _onePiece = new TextPiece[1];
+    private bool _retainRecordBody = true;
 
     public bool Apply(XmlEvent ev, out Folded folded)
     {
@@ -197,13 +198,17 @@ internal sealed class DocumentTree
 
     public Frame Load(XmlParser parser, DocumentPath path)
     {
+        // The caller keeps this element. Nested records stay reachable from their start bytes,
+        // so this read does not retain a second copy of each of them.
+        _retainRecordBody = false;
         var depth = 0;
         while (true)
         {
             var ev = parser.Read();
             if (ev.Kind is XmlEventKind.Done or XmlEventKind.NeedMore or XmlEventKind.Error)
                 break;
-            Apply(ev, out _);
+            if (Apply(ev, out var folded) && folded.Promoted)
+                parser.PreferFlat(folded.Slot.Name);
             if (ev.Kind == XmlEventKind.Start)
             {
                 if (Root is not null && Root.Path == DocumentPath.Root && path != DocumentPath.Root)
@@ -392,7 +397,8 @@ internal sealed class DocumentTree
                 pending.Kind = SlotKind.Record;
                 pending.HasFields = true;
                 pending.Inner = ColumnsOf(child);
-                pending.Detail = child;
+                if (_retainRecordBody)
+                    pending.Detail = child;
             }
 
             return new Folded(parent, pending, child.StartByte, child.EndByte, false);
@@ -417,7 +423,8 @@ internal sealed class DocumentTree
                 slot.Kind = SlotKind.Record;
                 slot.HasFields = true;
                 slot.Inner = ColumnsOf(child);
-                slot.Detail = child;
+                if (_retainRecordBody)
+                    slot.Detail = child;
             }
 
             AddSlot(parent, slot);

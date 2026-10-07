@@ -32,6 +32,8 @@ public sealed partial class ViewerSession : IDisposable
     private readonly HashSet<DocumentPath> _expanded = [];
     private readonly Dictionary<DocumentPath, OffsetIndex> _offsets = [];
     private readonly Dictionary<DocumentPath, Chrome> _chrome = [];
+    private readonly Dictionary<long, LinkedListNode<LoadedFrame>> _loaded = [];
+    private readonly LinkedList<LoadedFrame> _loadedOrder = [];
     private readonly List<Hit> _hits = [];
     private XmlParser? _xml;
     private JsonParser? _json;
@@ -604,10 +606,31 @@ public sealed partial class ViewerSession : IDisposable
 
     private Frame LoadElement(long offset, NsScope scope, DocumentPath path)
     {
-        if (_grammar == Grammar.Json)
-            return JsonLoader.Load(_document, offset, path);
-        var tree = new DocumentTree(_document, documentElement: false);
-        return tree.Load(XmlParser.Fragment(_document, scope, offset, long.MaxValue), path);
+        if (_loaded.TryGetValue(offset, out var cached))
+        {
+            _loadedOrder.Remove(cached);
+            _loadedOrder.AddFirst(cached);
+            return cached.Value.Frame;
+        }
+
+        var frame = _grammar == Grammar.Json
+            ? JsonLoader.Load(_document, offset, path)
+            : new DocumentTree(_document, documentElement: false).Load(XmlParser.Fragment(_document, scope, offset, long.MaxValue), path);
+        Normalize(frame);
+        if (frame.EndByte >= 0)
+            StoreLoaded(offset, frame);
+        return frame;
+    }
+
+    private void StoreLoaded(long offset, Frame frame)
+    {
+        var node = _loadedOrder.AddFirst(new LoadedFrame(offset, frame));
+        _loaded[offset] = node;
+        while (_loaded.Count > 128 && _loadedOrder.Last is LinkedListNode<LoadedFrame> oldest)
+        {
+            _loaded.Remove(oldest.Value.Offset);
+            _loadedOrder.RemoveLast();
+        }
     }
 
     private OffsetIndex EnsureOffsets(DocumentPath path, Frame parent, Slot slot)
@@ -833,6 +856,12 @@ public sealed partial class ViewerSession : IDisposable
         }
 
         return true;
+    }
+
+    private sealed class LoadedFrame(long offset, Frame frame)
+    {
+        public long Offset { get; } = offset;
+        public Frame Frame { get; } = frame;
     }
 
     private sealed class Chrome
