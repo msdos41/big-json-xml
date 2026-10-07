@@ -79,9 +79,13 @@ public sealed class TabStrip : Grid
         {
             foreach (var chip in _chips)
             {
+                var held = chip.Root.Width;
+                chip.Root.Width = double.NaN;
                 chip.Root.Measure(new Size(double.PositiveInfinity, RowHeight));
-                if (chip.Root.DesiredSize.Width > 1)
-                    _model.SetTabWidth(chip.Tab, chip.Root.DesiredSize.Width);
+                var desired = chip.Root.DesiredSize.Width;
+                chip.Root.Width = held;
+                if (desired > 1)
+                    _model.SetTabWidth(chip.Tab, desired);
             }
         }
 
@@ -185,14 +189,16 @@ public sealed class TabStrip : Grid
         var close = new Button
         {
             Name = "TabClose",
-            Content = "\u00D7",
+            Content = CloseGlyph(),
             Width = DocumentTab.CloseSize,
             Height = DocumentTab.CloseSize,
             MinWidth = DocumentTab.CloseSize,
             MinHeight = DocumentTab.CloseSize,
+            MaxWidth = DocumentTab.CloseSize,
+            MaxHeight = DocumentTab.CloseSize,
             Padding = new Thickness(0),
-            FontSize = 16,
-            Foreground = Brushes.Black,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             VerticalAlignment = VerticalAlignment.Center,
@@ -210,8 +216,8 @@ public sealed class TabStrip : Grid
             Margin = new Thickness(DocumentTab.Pad, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        stack.Children.Add(label);
         stack.Children.Add(circle);
+        stack.Children.Add(label);
         stack.Children.Add(close);
         var border = new Border
         {
@@ -233,6 +239,30 @@ public sealed class TabStrip : Grid
         };
         return new Chip(tab, border);
     }
+
+    private static Panel CloseGlyph()
+    {
+        var glyph = new Panel
+        {
+            Name = "TabCloseGlyph",
+            Width = 12,
+            Height = 12,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        glyph.Children.Add(Bar(1, 1, 11, 11));
+        glyph.Children.Add(Bar(11, 1, 1, 11));
+        return glyph;
+    }
+
+    private static Line Bar(double x1, double y1, double x2, double y2) => new()
+    {
+        StartPoint = new Point(x1, y1),
+        EndPoint = new Point(x2, y2),
+        Stroke = Brushes.Black,
+        StrokeThickness = 1.5,
+        StrokeLineCap = PenLineCap.Flat,
+    };
 
     private static bool InsideClose(object? source)
     {
