@@ -654,7 +654,11 @@ internal sealed class XmlParser
         if (!SkipSpaceAllowEmpty())
             return false;
         if (TryPeek(out var c) && (StartsWith("SYSTEM") || StartsWith("PUBLIC")))
-            return Fail("External DTD subsets are not allowed.") is XmlEvent && false;
+        {
+            if (!SkipExternalId() || !SkipSpaceAllowEmpty())
+                return false;
+        }
+
         if (TryPeek(out c) && c == '[')
         {
             if (!ReadChar(out _))
