@@ -103,6 +103,72 @@ public class ExpandStayTests
         Assert.Contains(session.ReadSurface().Rows, row => row.Kind == SurfaceKind.Entry && row.Value == $"f{count + 1}");
     }
 
+    [Fact]
+    public void A_second_pass_over_a_fat_list_row_does_not_reread_the_entry()
+    {
+        var session = SessionFixture.Scan(FatList());
+        session.SetViewport(0, 0, 1100, 800);
+        var list = DocumentPath.Root.Field("item");
+        session.Expand(list);
+        var first = session.ReadSurface();
+        Assert.Contains(first.Rows, row => row.Kind == SurfaceKind.Entry && row.Name == "@id" && row.Value == "0");
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var second = session.ReadSurface();
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Contains(second.Rows, row => row.Kind == SurfaceKind.Entry && row.Name == "@code" && row.Value == "123");
+        Assert.True(allocated < 200_000, $"second surface allocated {allocated} bytes");
+
+        session.SetViewport(420, 0, 1100, 800);
+        var scrollBefore = GC.GetAllocatedBytesForCurrentThread();
+        var scrolled = session.ReadSurface();
+        var scrollAllocated = GC.GetAllocatedBytesForCurrentThread() - scrollBefore;
+        Assert.Contains(scrolled.Rows, row => row.Kind == SurfaceKind.Entry && row.Name == "name" && row.Value == "n0");
+        Assert.True(scrollAllocated < 200_000, $"horizontal scroll allocated {scrollAllocated} bytes");
+
+        var payload = list.WithIndex(1).Field("payload");
+        session.Expand(payload);
+        var open = session.ReadSurface();
+        Assert.Contains(open.Rows, row => row.Kind == SurfaceKind.Entry && row.Value == "cell[400]");
+    }
+
+    [Fact]
+    public void Hit_text_inside_a_fat_entry_is_not_reread_for_every_hit()
+    {
+        var session = SessionFixture.Scan(FatList());
+        session.Search(new TextSearch { FindWhat = "123" });
+        session.PumpAll();
+        Assert.True(session.Hits.Count > 8);
+        for (var i = 0; i < 8; i++)
+        {
+            var text = session.ReadHitText(session.Hits[i], 40);
+            Assert.Contains("123", text.Text, StringComparison.Ordinal);
+        }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 8; i++)
+            _ = session.ReadHitText(session.Hits[i], 40);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(allocated < 200_000, $"hit text allocated {allocated} bytes");
+    }
+
+    private static string FatList()
+    {
+        const int nested = 400;
+        var body = new StringBuilder();
+        body.Append("<root>");
+        for (var item = 0; item < 2; item++)
+        {
+            body.Append($"<item id=\"{item}\" code=\"123\"><name>n{item}</name><payload>");
+            for (var i = 0; i < nested; i++)
+                body.Append($"<cell id=\"c{i}\"><v>123</v></cell>");
+            body.Append("</payload></item>");
+        }
+
+        body.Append("</root>");
+        return body.ToString();
+    }
+
     private static string Feature(int index) =>
         $"<Feature id=\"f{index}\" type=\"line\" visible><Style stroke=\"1\"></Style><Geometry><Start x=\"0\" y=\"1\"></Start></Geometry></Feature>";
 }
