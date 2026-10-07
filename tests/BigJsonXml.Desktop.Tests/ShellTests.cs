@@ -1246,6 +1246,41 @@ public class ShellTests
     }
 
     [Fact]
+    public void A_fitted_row_shows_each_full_name_on_its_underline()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var names = new[]
+        {
+            "背门电线束总成-CD701.xml",
+            "乘客单人座椅坐垫线束总成.xml",
+            "乘客单人座椅坐垫线束总成 (左).xml",
+        };
+        var window = new MainWindow { Width = 1100, Height = 720 };
+        window.Show();
+        try
+        {
+            var model = Assert.IsType<ViewerModel>(window.DataContext);
+            foreach (var name in names)
+                model.OpenPath(WriteNamed("<root><a>1</a></root>", name));
+
+            PassLayout(window);
+            Assert.False(model.TabArrowsVisible);
+            AssertNamesSitOnTheirUnderlines(window);
+
+            window.Width = 480;
+            PassLayout(window);
+            Assert.True(model.TabArrowsVisible);
+            AssertNamesSitOnTheirUnderlines(window);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [Fact]
     public void A_wide_tab_keeps_its_close_button_on_the_underline()
     {
         if (Application.Current is null)
@@ -1341,6 +1376,36 @@ public class ShellTests
     {
         strip.Measure(new Size(strip.Width, TabStrip.RowHeight));
         strip.Arrange(new Rect(0, 0, strip.Width, TabStrip.RowHeight));
+    }
+
+    private static void PassLayout(Window window)
+    {
+        window.InvalidateMeasure();
+        window.Measure(new Size(window.Width, window.Height));
+        window.Arrange(new Rect(0, 0, window.Width, window.Height));
+    }
+
+    private static void AssertNamesSitOnTheirUnderlines(Window window)
+    {
+        var chromes = window.GetVisualDescendants().OfType<Border>().Where(border => border.Name == "TabChrome").ToList();
+        var labels = window.GetVisualDescendants().OfType<TextBlock>().Where(block => block.Name == "TabLabel").ToList();
+        var closes = window.GetVisualDescendants().OfType<Button>().Where(button => button.Name == "TabClose").ToList();
+        Assert.Equal(chromes.Count, labels.Count);
+        Assert.Equal(chromes.Count, closes.Count);
+        for (var i = 0; i < chromes.Count; i++)
+        {
+            var labelRight = labels[i].TranslatePoint(new Point(labels[i].Bounds.Width, 0), chromes[i])!.Value.X;
+            var closeLeft = closes[i].TranslatePoint(default, chromes[i])!.Value.X;
+            var closeRight = closes[i].TranslatePoint(new Point(closes[i].Bounds.Width, 0), chromes[i])!.Value.X;
+            Assert.True(labelRight > 1);
+            Assert.InRange(labelRight, 0, closeLeft + 0.5);
+            Assert.InRange(closeRight, labelRight, chromes[i].Bounds.Width + 0.5);
+            if (i + 1 < chromes.Count)
+            {
+                var nextLeft = chromes[i + 1].TranslatePoint(default, chromes[i])!.Value.X;
+                Assert.InRange(nextLeft, chromes[i].Bounds.Width - 0.5, chromes[i].Bounds.Width + 0.5);
+            }
+        }
     }
 
     private static void Arrange(Window window)
