@@ -4,11 +4,11 @@
 
 **Blocked by:** 02: Finish an XML scan sooner. 03: Finish a JSON scan sooner. 04: Finish a text search sooner.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Each example document is scanned to completion through the viewer session. The wall time is lower than the baseline recorded in the parent spec.
-- [ ] A text search of each example document finishes in less wall time than that baseline. Hit count, path, and match stretch match the search of that same document before this work.
-- [ ] After the scan, and again after the search, the working set stays on the order of a few tens of megabytes. The managed heap grows with list-entry offsets and with the hit list, not with a second copy of the document.
-- [ ] The distinct-name document of about 500MB still finishes within the existing fifteen-second bar.
-- [ ] The new times are appended to the parent spec. The suite does not encode them as a seconds target.
-- [ ] The example documents stay outside the repository.
+- [x] Each example document is scanned to completion through the viewer session. The wall time is lower than the baseline recorded in the parent spec.
+- [x] A text search of each example document finishes in less wall time than that baseline. Hit count, path, and match stretch match the search of that same document before this work.
+- [x] After the scan, and again after the search, the working set stays on the order of a few tens of megabytes. The managed heap grows with list-entry offsets and with the hit list, not with a second copy of the document.
+- [x] The distinct-name document of about 500MB still finishes within the existing fifteen-second bar.
+- [x] The new times are appended to the parent spec. The suite does not encode them as a seconds target.
+- [x] The example documents stay outside the repository.

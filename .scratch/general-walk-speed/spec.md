@@ -1,6 +1,6 @@
 # Faster general scan and search
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -116,3 +116,21 @@ No new number of seconds is promised. After the change, the example documents ar
 - Glossary names in `CONTEXT.md` are the names to use. This spec uses Document, Scan, Outline, Viewer, Text search, Find what, Hit, Path, Field name, Parent element name, Grandfather element name, Parent attribute name, List field, Entry, and Scalar field.
 - The timing corpus that motivated the work is local employee JSON and XML documents of about 50MB, 200MB, and 1GB, plus three `.vxf` documents of about 500MB, 1GB, and 2GB that open as XML. On one machine, before this work, the 2GB document scanned in about 77 seconds and a text search for a short literal took about 49 seconds. The scan allocated on the order of 95GB and retained about 11MB of managed heap. Those numbers are the baseline to beat. They are not a new acceptance bar.
 - `CONTEXT.md` did not change. No new domain term was introduced, and none of the existing definitions moved.
+
+## Remeasured
+
+Same machine, through the viewer session, after this work. Employee files were searched for `Heidi`. The `.vxf` files were searched for `DELight`, which occurs only in a processing instruction and a comment, so the hit list is empty. Times are wall time. Working set is the process working set after a forced collection. These numbers are not a suite bar.
+
+| Document | Scan | Search | Hits | Managed after scan | Working set after scan |
+| --- | --- | --- | --- | --- | --- |
+| employees-50-MB.json | 0.57s | 0.50s | 84 | 1.6MB | 29MB |
+| employees-200-MB.json | 1.15s | 1.61s | 315 | 2.4MB | 30MB |
+| employees-1-GB.json | 4.24s | 7.07s | 1669 | 5.6MB | 38MB |
+| employees-50-MB.xml | 1.53s | 0.77s | 84 | 1.9MB | 35MB |
+| employees-200-MB.xml | 4.41s | 2.56s | 315 | 2.7MB | 39MB |
+| employees-1-GB.xml | 19.83s | 11.90s | 1669 | 5.8MB | 43MB |
+| test_500mb.vxf | 4.48s | 7.75s | 0 | 3.8MB | 40MB |
+| test_1gb.vxf | 8.95s | 16.33s | 0 | 6.1MB | 41MB |
+| test_2gb.vxf | 20.15s | 37.49s | 0 | 10.1MB | 46MB |
+
+The 2GB document was the baseline of about 77s to scan, about 49s to search, about 95GB allocated, and about 11MB retained. This reading scanned it in 20.15s and searched it in 37.49s, allocated about 10GB, and retained 10.1MB. Working set after every scan stayed inside a few tens of megabytes. Every `Heidi` hit on the 50MB and 200MB employee files, and on both 1GB employee files, matched the path, offset, and length from commit `02644c1`. The existing fifteen-second suite bar still passes.
