@@ -337,6 +337,39 @@ public class OneRightEdgeTests
     }
 
     [Fact]
+    public void A_drag_with_a_deeper_cell_open_remains_when_that_cell_closes()
+    {
+        var session = SessionFixture.Scan("""
+            <root>
+              <mid><inner><id>1</id><name>Ada</name></inner></mid>
+            </root>
+            """);
+        var mid = DocumentPath.Root.Field("mid");
+        var inner = mid.Field("inner");
+        session.Expand(mid);
+        session.Expand(inner);
+        session.SetRecordValueWidth(DocumentPath.Root, 800);
+
+        var open = Show(session);
+        Assert.Equal(800, Field(open, mid).Width);
+        Assert.Equal(576, Field(open, inner).Width);
+        Assert.Equal(352, Field(open, inner.Field("id")).Width);
+        SameEdge(Field(open, mid), Field(open, inner));
+        SameEdge(Field(open, inner), Field(open, inner.Field("id")));
+
+        session.Collapse(inner);
+        var closed = Show(session);
+        Assert.Equal(800, Field(closed, mid).Width);
+        Assert.Equal(576, Field(closed, inner).Width);
+
+        session.Expand(inner);
+        var again = Show(session);
+        Assert.Equal(800, Field(again, mid).Width);
+        Assert.Equal(352, Field(again, inner.Field("id")).Width);
+        SameEdge(Field(again, mid), Field(again, inner));
+    }
+
+    [Fact]
     public void A_neighbor_stretched_by_a_deeper_open_returns_when_that_table_closes()
     {
         var session = SessionFixture.Scan("""
