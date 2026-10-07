@@ -24,7 +24,7 @@ public class StopOnUnsafeXmlTests
     }
 
     [Fact]
-    public void External_dtd_is_not_fetched_and_stops_the_scan()
+    public void External_dtd_is_not_fetched_and_the_document_opens()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -34,11 +34,56 @@ public class StopOnUnsafeXmlTests
             <root><a>1</a></root>
             """);
 
+        Assert.Equal(ScanProgress.Completed, session.Progress);
+        Assert.Null(session.Error);
+        Assert.False(listener.Pending());
+        Assert.Equal("1", session.Field("a").Text);
+    }
+
+    [Fact]
+    public void Public_external_dtd_is_skipped_and_the_document_opens()
+    {
+        var session = SessionFixture.Scan("""
+            <!DOCTYPE project PUBLIC "-//Mentor Graphics Corporation//Project 2014.1//EN" "D:/CHS/dtd/project.dtd">
+            <project id="_1"><name>CD701</name></project>
+            """);
+
+        Assert.Equal(ScanProgress.Completed, session.Progress);
+        Assert.Null(session.Error);
+        Assert.Equal("_1", session.Field("@id").Text);
+        Assert.Equal("CD701", session.Field("name").Text);
+    }
+
+    [Fact]
+    public void External_id_does_not_hide_an_internal_subset()
+    {
+        var session = SessionFixture.Scan("""
+            <!DOCTYPE root SYSTEM "missing.dtd" [
+              <!ENTITY e "inside">
+            ]>
+            <root><a>&e;</a></root>
+            """);
+
+        Assert.Equal(ScanProgress.Completed, session.Progress);
+        Assert.Equal("inside", session.Field("a").Text);
+    }
+
+    [Fact]
+    public void An_entity_only_the_external_subset_would_define_stops_the_scan()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var session = SessionFixture.Scan($"""
+            <!DOCTYPE root SYSTEM "http://127.0.0.1:{port}/missing.dtd">
+            <root><a>1</a>&missing;</root>
+            """);
+
         Assert.Equal(ScanProgress.Stopped, session.Progress);
         Assert.NotNull(session.Error);
-        Assert.Contains("External DTD", session.Error.Message, StringComparison.Ordinal);
+        Assert.Contains("not defined", session.Error.Message, StringComparison.Ordinal);
         Assert.False(listener.Pending());
-        Assert.Throws<InvalidOperationException>(() => session.ReadRecord(DocumentPath.Root));
+        Assert.Equal("1", session.Field("a").Text);
     }
 
     [Fact]
