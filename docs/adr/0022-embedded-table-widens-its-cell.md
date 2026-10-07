@@ -1,4 +1,10 @@
+---
+status: superseded by ADR-0048
+---
+
 # An embedded table stays in its cell and widens that cell
+
+Superseded in part by ADR-0048. Session-scoped widths, collapse restoring the host width, capped defaults, and no scrollbar on an embedded table still stand and are restated there. A drag no longer pins the width, clips the embedded table, or blocks a later open from growing it.
 
 Opening a cell does not open or close a sibling cell. The embedded table is laid out inside that cell's rectangle, not as rows under the entry across the rest of the table. The entry is as tall as its tallest open cell. This sharpens ADR-0009. ADR-0015's collapse rule applies when no cell in the row remains open.
 

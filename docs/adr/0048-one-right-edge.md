@@ -1,0 +1,11 @@
+# One right edge for a cell and its embedded table
+
+An embedded table's right edge is the cell's right edge. ADR-0022's pin-and-clip rule is withdrawn. What still stands from that ADR: a width belongs to one table for the session, reopening the document restores defaults, collapse restores the host width from before the open, defaults stay capped, and an embedded table has no scrollbar of its own.
+
+Dragging the shared right edge changes the value side of a record table, or the last field column of a list table. The same change is applied to every deeper table that ends on that edge, and to every cell that shares the width. A wider embedded table in another cell has that flexible side set to the new edge and remembered. Columns the drag does not change keep their widths. The drag stops when any affected cell would be under 32, four character widths, or under the floor of an open embedded table inside it: that table's other columns, its index track, and its expand control, plus the same floor again. The drag does not then shrink those other columns. There is no maximum.
+
+Dragging a divider to the left of that edge changes only its own column. Every vertical line to its right moves by the same amount, through nested tables, the host cell, and each ancestor. Remembered widths to the right of the divider stay, except an embedded table in another cell on the moving edge, which is set to the new edge as above. A divider that is itself an embedded table's right edge changes that table as a right-edge drag. The same floors stop the drag.
+
+A shared width already wider than a newly opened table shows the gap filled by the flexible side, and that fill is not remembered. Opening a deeper table grows this width, and every ancestor, only when the new table needs more. It does not shrink a wider width, and a neighbor's fill is not remembered. A drag during the open does not replace the host width that collapse restores. After collapse, a host that was already wider fills the flexible side again. Widths kept on the embedded table can grow the host on the next open.
+
+Rejected: clipping, and then refusing to grow; holding the outer edge still by spending the flexible side; shrinking every column once the flexible side is at 32; keeping a during-open narrowing that went below the pre-open host width after collapse.
