@@ -364,6 +364,19 @@ public class OutlineLockTests
         Assert.Empty(repeated.Hits);
     }
 
+    [Fact]
+    public void Utf8_text_that_crosses_a_large_read_stays_in_the_outline()
+    {
+        const int dots = 100_000;
+        var session = SessionFixture.Scan($"<doc>{new string('\u30FB', dots)}ENDMARK</doc>");
+        Assert.Equal(ScanProgress.Completed, session.Progress);
+        Assert.StartsWith("\u30FB", session.ReadScalar(DocumentPath.Root.Field("#text")).Text, StringComparison.Ordinal);
+        AssertHits(
+            session,
+            new TextSearch { FindWhat = "ENDMARK", ElementName = false, AttributeName = false },
+            $"/doc/#text@{dots}+7");
+    }
+
     private static FieldView Cell(ListView view, int row, string name) =>
         view.Entries[row].Cells.Single(cell => cell.Name == name);
 
