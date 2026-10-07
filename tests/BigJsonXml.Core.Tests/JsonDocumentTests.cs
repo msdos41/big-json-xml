@@ -360,6 +360,18 @@ public class JsonDocumentTests
         Assert.False(string.IsNullOrEmpty(session.Error!.Message));
     }
 
+    [Theory]
+    [InlineData("1.")]
+    [InlineData("0.")]
+    [InlineData("1.e2")]
+    [InlineData("-1.")]
+    public void A_fraction_without_a_digit_does_not_finish(string json)
+    {
+        var session = Open(json);
+        Assert.Equal(ScanProgress.Stopped, session.Progress);
+        Assert.Equal("The JSON value is not finished.", session.Error!.Message);
+    }
+
     [Fact]
     public void Invalid_utf8_stops_on_that_byte_and_keeps_the_prefix()
     {
