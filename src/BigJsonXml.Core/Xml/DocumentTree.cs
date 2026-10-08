@@ -52,6 +52,11 @@ internal sealed class Slot
     // JSON object shown while collapsed. XML leaves this empty and shows the element name.
     public string? Closed;
 
+    // Direct fields of a record, remembered so a collapsed cell does not open it again.
+    // -1 means the outline was not recorded.
+    public int OutlineCount = -1;
+    public bool OutlineSoleList;
+
     // JSON list entry offsets. XML leaves this empty and scans children when the list opens.
     public List<long>? EntryStarts;
 }
@@ -214,7 +219,12 @@ internal sealed class DocumentTree
                 if (Root is not null && Root.Path == DocumentPath.Root && path != DocumentPath.Root)
                     Root.Path = path;
                 if (!ev.Empty)
+                {
                     depth++;
+                    // Names at this level are the outline. Their children are read when that field is opened.
+                    if (depth >= 3)
+                        parser.SkipNestedContent();
+                }
                 else if (depth == 0)
                     break;
             }
@@ -397,6 +407,7 @@ internal sealed class DocumentTree
                 pending.Kind = SlotKind.Record;
                 pending.HasFields = true;
                 pending.Inner = ColumnsOf(child);
+                NoteOutline(pending, child);
                 if (_retainRecordBody)
                     pending.Detail = child;
             }
@@ -423,6 +434,7 @@ internal sealed class DocumentTree
                 slot.Kind = SlotKind.Record;
                 slot.HasFields = true;
                 slot.Inner = ColumnsOf(child);
+                NoteOutline(slot, child);
                 if (_retainRecordBody)
                     slot.Detail = child;
             }
@@ -583,6 +595,12 @@ internal sealed class DocumentTree
         }
     }
 
+    private static void NoteOutline(Slot slot, Frame child)
+    {
+        slot.OutlineCount = child.Slots.Count;
+        slot.OutlineSoleList = child.Slots.Count == 1 && child.Slots[0].Kind == SlotKind.List;
+    }
+
     private static List<Column> TextColumns(Slot slot)
     {
         var columns = new List<Column>();
@@ -700,6 +718,8 @@ internal sealed class DocumentTree
         slot.Detail = null;
         slot.Closed = null;
         slot.EntryStarts = null;
+        slot.OutlineCount = -1;
+        slot.OutlineSoleList = false;
         return slot;
     }
 

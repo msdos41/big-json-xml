@@ -78,6 +78,7 @@ internal sealed class XmlParser
     private byte[]? _window;
     private long _windowAt;
     private int _windowCount;
+    private byte[]? _skipWindow;
     private long _textFrom = -1;
     private bool _textNonWs;
     private int _textLine = 1;
@@ -97,6 +98,7 @@ internal sealed class XmlParser
 
     private static readonly SearchValues<byte> StopBytes = SearchValues.Create("<&"u8);
     private static readonly SearchValues<byte> SpaceBytes = SearchValues.Create(" \t\r\n"u8);
+    private static readonly SearchValues<byte> TagMarks = SearchValues.Create("\"'>/"u8);
 
     private XmlParser(XmlDocument document, bool fragment)
     {
@@ -1945,6 +1947,278 @@ internal sealed class XmlParser
     }
 
     private byte[] MarkupWindow() => _window ??= new byte[_fragment ? 4096 : 256 * 1024];
+
+    /// <summary>
+    /// The start tag is already open. Move to its end tag and leave that tag for the next read.
+    /// Nested markup is not turned into events; a later open of that nested element reads it.
+    /// </summary>
+    internal void SkipNestedContent()
+    {
+        if (_error is not null || _inputs.Count > 0 || _hasLow || _open.Count == 0)
+            return;
+        if (_document.Encoding.CodePage != 65001)
+            return;
+        var buf = _skipWindow ??= new byte[64 * 1024];
+        var count = 0;
+        var i = 0;
+        var depth = 1;
+
+        bool Take(out byte value)
+        {
+            if (i >= count && !Refill())
+            {
+                value = 0;
+                return false;
+            }
+
+            value = buf[i++];
+            return true;
+        }
+
+        bool Refill()
+        {
+            if (i > 0)
+            {
+                AdvanceLines(buf.AsSpan(0, i));
+                _byte += i;
+                var tail = count - i;
+                if (tail > 0)
+                    Buffer.BlockCopy(buf, i, buf, 0, tail);
+                count = tail;
+                i = 0;
+            }
+
+            var cap = buf.Length - count;
+            if (cap == 0)
+                return count > i;
+            var origin = _byte + count;
+            var fileLeft = _document.Source.Length - origin;
+            if (_limit < _document.Source.Length)
+                fileLeft = Math.Min(fileLeft, _limit - origin);
+            if (fileLeft <= 0)
+                return false;
+            var want = (int)Math.Min(cap, fileLeft);
+            var read = _document.Source.Read(origin, buf.AsSpan(count, want));
+            if (read <= 0)
+                return false;
+            count += read;
+            return true;
+        }
+
+        bool Die(string message)
+        {
+            Fail(message);
+            return false;
+        }
+
+        void Finish(int endAt)
+        {
+            AdvanceLines(buf.AsSpan(0, endAt));
+            _byte += endAt;
+            _windowCount = 0;
+        }
+
+        bool SkipUntil(byte first, byte second, byte third)
+        {
+            var prev = 0;
+            var prev2 = 0;
+            while (Take(out var b))
+            {
+                if (prev2 == first && prev == second && b == third)
+                    return true;
+                prev2 = prev;
+                prev = b;
+            }
+
+            return Die("The document ends before a tag is closed.");
+        }
+
+        bool SkipStart()
+        {
+            var quote = 0;
+            var sawSlash = false;
+            while (true)
+            {
+                if (i >= count && !Refill())
+                    return Die("The document ends before a tag is closed.");
+                if (quote != 0)
+                {
+                    var quoted = buf.AsSpan(i, count - i);
+                    var end = quoted.IndexOf((byte)quote);
+                    if (end < 0)
+                    {
+                        i = count;
+                        continue;
+                    }
+
+                    i += end + 1;
+                    quote = 0;
+                    continue;
+                }
+
+                var span = buf.AsSpan(i, count - i);
+                var rel = span.IndexOfAny(TagMarks);
+                if (rel < 0)
+                {
+                    if (sawSlash && span.IndexOfAnyExcept(SpaceBytes) >= 0)
+                        return Die("A tag is not closed.");
+                    i = count;
+                    continue;
+                }
+
+                if (sawSlash && span[..rel].IndexOfAnyExcept(SpaceBytes) >= 0)
+                    return Die("A tag is not closed.");
+                i += rel;
+                var b = buf[i++];
+                if (b is (byte)'"' or (byte)'\'')
+                {
+                    quote = b;
+                    sawSlash = false;
+                    continue;
+                }
+
+                if (b == (byte)'>')
+                {
+                    if (!sawSlash)
+                        depth++;
+                    return true;
+                }
+
+                sawSlash = true;
+            }
+        }
+
+        while (depth > 0)
+        {
+            if (i >= count && !Refill())
+            {
+                Die("The document ends before a tag is closed.");
+                return;
+            }
+
+            var text = buf.AsSpan(i, count - i);
+            var mark = text.IndexOf((byte)'<');
+            if (mark < 0)
+            {
+                i = count;
+                continue;
+            }
+
+            i += mark;
+            var at = i;
+            var marked = _byte;
+            i++;
+            if (i >= count && !Refill())
+            {
+                Die("The document ends before a tag is closed.");
+                return;
+            }
+
+            var next = buf[i++];
+
+            if (next == (byte)'/' && depth == 1)
+            {
+                if (_byte != marked)
+                {
+                    // The '<' filled the buffer and was counted. Put the cursor back on it.
+                    _byte--;
+                    if (_column > 1)
+                        _column--;
+                    _windowCount = 0;
+                    return;
+                }
+
+                Finish(at);
+                return;
+            }
+
+            if (next == (byte)'/')
+            {
+                var closed = false;
+                while (Take(out var end))
+                {
+                    if (end == (byte)'>')
+                    {
+                        depth--;
+                        closed = true;
+                        break;
+                    }
+                }
+
+                if (!closed)
+                {
+                    Die("The document ends before a tag is closed.");
+                    return;
+                }
+
+                continue;
+            }
+
+            if (next == (byte)'!')
+            {
+                if (!Take(out var bang) || !Take(out var bang2))
+                {
+                    Die("The document ends before a tag is closed.");
+                    return;
+                }
+
+                if (bang == (byte)'-' && bang2 == (byte)'-')
+                {
+                    if (!SkipUntil((byte)'-', (byte)'-', (byte)'>'))
+                        return;
+                    continue;
+                }
+
+                if (bang == (byte)'[' && bang2 == (byte)'C' && SkipLiteral("DATA["u8))
+                {
+                    if (!SkipUntil((byte)']', (byte)']', (byte)'>'))
+                        return;
+                    continue;
+                }
+
+                Die("This declaration is not allowed here.");
+                return;
+            }
+
+            if (next == (byte)'?')
+            {
+                var prev = (byte)'?';
+                var closed = false;
+                while (Take(out var pi))
+                {
+                    if (prev == (byte)'?' && pi == (byte)'>')
+                    {
+                        closed = true;
+                        break;
+                    }
+
+                    prev = pi;
+                }
+
+                if (!closed)
+                {
+                    Die("The document ends before a tag is closed.");
+                    return;
+                }
+
+                continue;
+            }
+
+            if (!SkipStart())
+                return;
+        }
+
+        bool SkipLiteral(ReadOnlySpan<byte> literal)
+        {
+            foreach (var expected in literal)
+            {
+                if (!Take(out var found) || found != expected)
+                    return false;
+            }
+
+            return true;
+        }
+    }
 
     private void DropFlat()
     {

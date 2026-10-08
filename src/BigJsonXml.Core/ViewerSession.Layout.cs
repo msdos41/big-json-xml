@@ -476,6 +476,8 @@ public sealed partial class ViewerSession
         list = null!;
         if (slot.Kind != SlotKind.Record || slot.Closed is not null)
             return false;
+        if (slot.OutlineCount == 0 || slot.OutlineCount > 1 || (slot.OutlineCount == 1 && !slot.OutlineSoleList))
+            return false;
         frame = Opened(slot, path);
         if (frame.Slots.Count != 1)
             return false;
