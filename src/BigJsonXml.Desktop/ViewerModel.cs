@@ -542,6 +542,21 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             tab.NoteProgress();
             SyncResults(tab, false);
         }
+
+        if (ApplyPendingFits(active))
+            Refresh();
+    }
+
+    private bool ApplyPendingFits(DocumentTab? active)
+    {
+        var applied = false;
+        foreach (var tab in _tabs.ToArray())
+        {
+            if (tab.Session.AdvanceFit() == FitAdvance.Applied && ReferenceEquals(tab, active))
+                applied = true;
+        }
+
+        return applied;
     }
 
     public void SetViewportSize(double width, double height)
@@ -726,6 +741,12 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     public void FitWidth(SurfaceRow row)
     {
+        var tab = Active;
+        if (tab is null || row.WidthTable is null || row.Axis == WidthAxis.None)
+            return;
+        tab.Session.BeginFit(row.Axis, row.WidthTable, row.WidthColumn);
+        if (tab.Session.AdvanceFit() == FitAdvance.Applied)
+            Refresh();
     }
 
     public void DragWidth(SurfaceRow row, double width)
@@ -733,6 +754,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         var tab = Active;
         if (tab is null || row.WidthTable is null)
             return;
+        tab.Session.CancelFit();
         switch (row.Axis)
         {
             case WidthAxis.RecordName:

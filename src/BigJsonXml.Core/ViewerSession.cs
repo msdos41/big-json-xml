@@ -616,12 +616,22 @@ public sealed partial class ViewerSession : IDisposable
             return cached.Value.Frame;
         }
 
+        var frame = ReadFrame(offset, scope, path);
+        if (frame.EndByte >= 0)
+            StoreLoaded(offset, frame);
+        return frame;
+    }
+
+    // A fit walks every entry once. Those frames stay out of the view cache.
+    private Frame ReadFrame(long offset, NsScope scope, DocumentPath path)
+    {
+        if (_loaded.TryGetValue(offset, out var cached))
+            return cached.Value.Frame;
+
         var frame = _grammar == Grammar.Json
             ? JsonLoader.Load(_document, offset, path)
             : new DocumentTree(_document, documentElement: false).Load(XmlParser.Fragment(_document, scope, offset, long.MaxValue), path);
         Normalize(frame);
-        if (frame.EndByte >= 0)
-            StoreLoaded(offset, frame);
         return frame;
     }
 

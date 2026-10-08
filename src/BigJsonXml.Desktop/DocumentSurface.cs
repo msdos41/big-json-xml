@@ -157,6 +157,15 @@ public sealed class DocumentSurface : Control
         if (hit.Resize && hit.Row is not null)
         {
             _press.Cancel();
+            if (e.ClickCount > 1)
+            {
+                _drag = null;
+                model.FitWidth(hit.Row);
+                e.Pointer.Capture(null);
+                e.Handled = true;
+                return;
+            }
+
             _drag = hit.Row;
             Cursor = ResizeCursor;
             e.Pointer.Capture(this);
