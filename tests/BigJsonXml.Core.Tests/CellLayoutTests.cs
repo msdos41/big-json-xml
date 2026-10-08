@@ -664,19 +664,26 @@ public class CellLayoutTests
     [Fact]
     public void Fitting_a_collapsed_label_includes_the_expand_gutter()
     {
-        var session = SessionFixture.Scan("""
+        const string kid = "thisnameisdefinitelylongerthantwentyfive";
+        var session = SessionFixture.Scan($"""
             <root>
-              <item><wrap><kid>a</kid><kid>b</kid></wrap></item>
-              <item><wrap><kid>c</kid><kid>d</kid></wrap></item>
+              <item><wrap><{kid}>a</{kid}><{kid}>b</{kid}></wrap></item>
+              <item><wrap><{kid}>c</{kid}><{kid}>d</{kid}></wrap></item>
             </root>
             """);
         var list = DocumentPath.Root.Field("item");
-        session.Fit(WidthAxis.ListColumn, list, "wrap");
         session.Expand(list);
-        var frame = Show(session, 1200, 800);
+        var before = Show(session);
+        var top = before.Rows.Single(row => row.Kind == SurfaceKind.EntryIndex && row.Name == "1");
+        var clipped = before.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Name == "wrap" && row.Y == top.Y);
+        Assert.True(clipped.IsCutOff);
+
+        var label = $"{kid}[2]";
+        var needed = label.Length * ViewerSession.Advance + ViewerSession.ExpandGutter;
+        session.Fit(WidthAxis.ListColumn, list, "wrap");
+        var frame = Show(session, 4000, 800);
         var header = frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "wrap");
-        var label = "kid[2]";
-        Assert.Equal(label.Length * ViewerSession.Advance + ViewerSession.ExpandGutter, header.Width);
+        Assert.True(header.Width >= needed);
         var cells = frame.Rows.Where(row => row.Kind == SurfaceKind.Entry && row.Name == "wrap").ToList();
         Assert.Equal(2, cells.Count);
         Assert.All(cells, row => Assert.False(row.IsCutOff));
