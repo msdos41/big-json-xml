@@ -139,6 +139,49 @@ public class LargeScanRuleTests
         Assert.True(clock.ElapsedMilliseconds < 250, $"Opening one record took {clock.ElapsedMilliseconds} ms.");
         Assert.True(allocated < 1_000_000, $"Opening one record allocated {allocated} bytes.");
     }
+
+    [Fact]
+    public void Opening_a_list_entry_does_not_parse_a_nested_field_body()
+    {
+        const int count = 200_000;
+        var xml = new StringBuilder();
+        xml.Append("<root><item id=\"1\"><title>T</title><deep>");
+        xml.Append("<head>H</head><pad note=\"a&gt;b\"><!-- <ghost></ghost> --><![CDATA[<ghost>]]>");
+        for (var i = 0; i < count; i++)
+            xml.Append("<g><!--. --><h>0123456789abcdefghij</h></g>");
+        xml.Append("<mark>M</mark></pad></deep><after>A</after></item><item id=\"2\"><title>U</title></item></root>");
+        var session = SessionFixture.Scan(xml.ToString());
+        var list = DocumentPath.Root.Field("item");
+        session.Expand(list);
+
+        var clock = Stopwatch.StartNew();
+        var cells = session.ReadList(list, 0, 1).Entries[0].Cells;
+        clock.Stop();
+
+        Assert.Equal("T", cells.Single(cell => cell.Name == "title").Text);
+        Assert.Equal(FieldKind.Record, cells.Single(cell => cell.Name == "deep").Kind);
+        Assert.Equal("A", cells.Single(cell => cell.Name == "after").Text);
+        Assert.True(clock.ElapsedMilliseconds < 150, $"Opening the entry took {clock.ElapsedMilliseconds} ms.");
+
+        var deep = list.WithIndex(1).Field("deep");
+        session.Expand(deep);
+        var nested = session.ReadRecord(deep);
+        Assert.Equal("H", nested.Fields.Single(field => field.Name == "head").Text);
+        Assert.Equal(FieldKind.Record, nested.Fields.Single(field => field.Name == "pad").Kind);
+
+        var pad = deep.Field("pad");
+        session.Expand(pad);
+        var inside = session.ReadRecord(pad);
+        Assert.Equal("a>b", inside.Fields.Single(field => field.Name == "@note").Text);
+        Assert.Equal("M", inside.Fields.Single(field => field.Name == "mark").Text);
+        Assert.Equal(count, inside.Fields.Single(field => field.Name == "g").ListCount);
+        Assert.DoesNotContain(inside.Fields, field => field.Name == "ghost");
+
+        var rows = pad.Field("g");
+        session.Expand(rows);
+        var entry = session.ReadList(rows, count - 1, 1).Entries[0];
+        Assert.Equal("0123456789abcdefghij", entry.Cells.Single(cell => cell.Name == "h").Text);
+    }
 }
 
 [Collection("large-scan")]
