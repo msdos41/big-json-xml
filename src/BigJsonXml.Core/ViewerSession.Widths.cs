@@ -35,6 +35,20 @@ public sealed partial class ViewerSession
         return (digits + 1) * Advance;
     }
 
+    public void Fit(WidthAxis axis, DocumentPath table, string? column = null)
+    {
+    }
+
+    public void BeginFit(WidthAxis axis, DocumentPath table, string? column)
+    {
+    }
+
+    public FitAdvance AdvanceFit() => FitAdvance.Idle;
+
+    public void CancelFit()
+    {
+    }
+
     public void SetRecordNameWidth(DocumentPath recordPath, double width)
     {
         var state = Width(_nameWidths, recordPath);

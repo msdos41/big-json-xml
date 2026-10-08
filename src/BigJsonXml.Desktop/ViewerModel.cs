@@ -724,6 +724,10 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             SetSelection(_selection with { Start = 0, End = _selection.Label.Length });
     }
 
+    public void FitWidth(SurfaceRow row)
+    {
+    }
+
     public void DragWidth(SurfaceRow row, double width)
     {
         var tab = Active;

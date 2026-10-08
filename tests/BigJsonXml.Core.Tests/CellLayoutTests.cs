@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 
 namespace BigJsonXml.Tests;
 
@@ -598,6 +599,123 @@ public class CellLayoutTests
         Assert.True(marked.ScalarText);
         Assert.Equal(window.WindowStart, marked.TextStart);
         Assert.True(marked.TextStart > 0);
+    }
+
+    [Fact]
+    public void Fitting_a_record_divider_shows_the_longest_name_and_value()
+    {
+        const string longName = "thisnameisdefinitelylongerthantwentyfive";
+        var note = "abcdefghijklmnopqrstuvwxyz";
+        var session = SessionFixture.Scan(
+            $"""<root id="1"><name>Ada</name><note>{note}</note><{longName}>x</{longName}></root>""");
+
+        session.Fit(WidthAxis.RecordName, DocumentPath.Root);
+        session.Fit(WidthAxis.RecordValue, DocumentPath.Root);
+        var frame = Show(session, 4000, 800);
+
+        var names = frame.Rows.Where(row => row.Kind == SurfaceKind.FieldName).ToList();
+        var values = frame.Rows.Where(row => row.Kind == SurfaceKind.Field).ToList();
+        Assert.Equal(longName.Length * ViewerSession.Advance, names[0].Width);
+        Assert.All(names, row => Assert.Equal(names[0].Width, row.Width));
+        var longLabel = names.Single(row => row.Name == longName);
+        Assert.False(longLabel.IsCutOff);
+        Assert.Equal(longName, longLabel.Value);
+        Assert.Equal(note.Length * ViewerSession.Advance, values[0].Width);
+        Assert.All(values, row => Assert.Equal(values[0].Width, row.Width));
+        var noteCell = values.Single(row => row.Name == "note");
+        Assert.False(noteCell.IsCutOff);
+        Assert.Equal(note, noteCell.Value);
+    }
+
+    [Fact]
+    public void Fitting_a_list_column_reads_every_entry_and_keeps_the_other_column()
+    {
+        var decoded = "HELLO&WORLD!!";
+        var longer = "0123456789abcd";
+        var items = new StringBuilder();
+        items.Append("<item id=\"1\">HELLO&amp;WORLD!!</item>");
+        for (var i = 0; i < 12; i++)
+            items.Append($"<item id=\"{i + 2}\">x</item>");
+        items.Append($"<item id=\"99\">{longer}</item>");
+        var session = SessionFixture.Scan($"<root>{items}</root>");
+        var list = DocumentPath.Root.Field("item");
+        session.SetViewport(0, 0, 240, ViewerSession.RowHeight);
+
+        session.Fit(WidthAxis.ListColumn, list, "#text");
+        session.Expand(list);
+        var frame = Show(session, 2000, 2000);
+        var text = frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "#text");
+        var id = frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "@id");
+        Assert.Equal(longer.Length * ViewerSession.Advance, text.Width);
+        Assert.Equal(ViewerSession.DefaultWidth, id.Width);
+        var entity = frame.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Name == "#text" && row.Y == frame.Rows.Single(row => row.Kind == SurfaceKind.EntryIndex && row.Name == "1").Y);
+        var last = frame.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Name == "#text" && row.Y == frame.Rows.Single(row => row.Kind == SurfaceKind.EntryIndex && row.Name == "14").Y);
+        Assert.False(entity.IsCutOff);
+        Assert.Equal(decoded, entity.Value);
+        Assert.False(last.IsCutOff);
+        Assert.Equal(longer, last.Value);
+
+        session.Fit(WidthAxis.ListColumn, list, "@id");
+        var shrunk = Show(session, 2000, 2000);
+        Assert.Equal(ViewerSession.MinWidth, shrunk.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "@id").Width);
+        Assert.Equal(longer.Length * ViewerSession.Advance, shrunk.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "#text").Width);
+    }
+
+    [Fact]
+    public void Fitting_a_collapsed_label_includes_the_expand_gutter()
+    {
+        var session = SessionFixture.Scan("""
+            <root>
+              <item><wrap><kid>a</kid><kid>b</kid></wrap></item>
+              <item><wrap><kid>c</kid><kid>d</kid></wrap></item>
+            </root>
+            """);
+        var list = DocumentPath.Root.Field("item");
+        session.Fit(WidthAxis.ListColumn, list, "wrap");
+        session.Expand(list);
+        var frame = Show(session, 1200, 800);
+        var header = frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "wrap");
+        var label = "kid[2]";
+        Assert.Equal(label.Length * ViewerSession.Advance + ViewerSession.ExpandGutter, header.Width);
+        var cells = frame.Rows.Where(row => row.Kind == SurfaceKind.Entry && row.Name == "wrap").ToList();
+        Assert.Equal(2, cells.Count);
+        Assert.All(cells, row => Assert.False(row.IsCutOff));
+        Assert.All(cells, row => Assert.Equal(label, row.Value));
+    }
+
+    [Fact]
+    public void Fitting_stops_at_500_characters_without_decoding_the_rest()
+    {
+        var huge = new string('q', 2_000);
+        var session = SessionFixture.Scan($"<root><note>{huge}</note></root>");
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        session.Fit(WidthAxis.RecordValue, DocumentPath.Root);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var cell = Show(session, 5000, 400).Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "note");
+
+        Assert.Equal(ViewerSession.FitCharacterCap * ViewerSession.Advance, cell.Width);
+        Assert.True(cell.IsCutOff);
+        Assert.Equal(ViewerSession.FitCharacterCap, cell.Value!.Length);
+        Assert.Equal(huge[..ViewerSession.FitCharacterCap], cell.Value);
+        Assert.True(allocated < 80_000, $"allocated {allocated} bytes");
+    }
+
+    [Fact]
+    public void Fitting_a_json_column_uses_the_shown_literal()
+    {
+        var body = string.Concat(Enumerable.Repeat("\\u0041", 20));
+        var session = SessionFixture.Scan("{\"rows\":[{\"t\":\"" + body + "\"},{\"u\":1}]}");
+        var list = DocumentPath.Root.Field("rows");
+        session.Fit(WidthAxis.ListColumn, list, "t");
+        session.Expand(list);
+        var shown = new string('A', 20);
+        var literal = "\"" + shown + "\"";
+        var frame = Show(session, 2000, 800);
+        var header = frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "t");
+        Assert.Equal(literal.Length * ViewerSession.Advance, header.Width);
+        var cell = frame.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Name == "t" && row.Value == literal);
+        Assert.False(cell.IsCutOff);
+        Assert.Equal(ViewerSession.DefaultWidth, frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "u").Width);
     }
 
     private static double ColumnWidth(ViewerSession session, DocumentPath list, string name) =>

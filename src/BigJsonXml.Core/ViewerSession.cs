@@ -12,6 +12,7 @@ public sealed partial class ViewerSession : IDisposable
     public const double Advance = 8;
     public const double DefaultWidth = 200;
     public const double MinWidth = 32;
+    public const int FitCharacterCap = 500;
     public const double RowHeight = 24;
     public const double ExpandButtonInset = 10;
     public const double ExpandButtonSize = 12;

@@ -32,6 +32,13 @@ public enum WidthAxis
     ListColumn,
 }
 
+public enum FitAdvance
+{
+    Idle,
+    Working,
+    Applied,
+}
+
 /// <summary>
 /// The point where a well-formedness error stopped the scan.
 /// Tables built before this point stay available.

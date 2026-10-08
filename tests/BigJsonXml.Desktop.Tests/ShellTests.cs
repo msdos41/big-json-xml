@@ -702,6 +702,35 @@ public class ShellTests
     }
 
     [Fact]
+    public void Fitting_from_the_model_widens_one_column_after_a_tick()
+    {
+        var text = new string('m', 30);
+        var path = Write($"<root><title>{text}</title><item id=\"1\">a</item><item id=\"22\">b</item></root>");
+        using var model = new ViewerModel();
+        model.OpenPath(path);
+
+        var title = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "title");
+        Assert.True(title.IsCutOff);
+        model.FitWidth(title);
+        for (var i = 0; i < 20 && model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "title").Width == ViewerSession.DefaultWidth; i++)
+            model.Tick();
+
+        var fitted = model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "title");
+        Assert.Equal(text.Length * ViewerSession.Advance, fitted.Width);
+        Assert.False(fitted.IsCutOff);
+        Assert.Equal(text, fitted.Value);
+        Assert.Equal(ViewerSession.DefaultWidth, model.Rows.Single(row => row.Kind == SurfaceKind.FieldName && row.Name == "title").Width);
+
+        model.Toggle(model.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "item"));
+        var id = model.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "@id");
+        model.FitWidth(id);
+        for (var i = 0; i < 20 && model.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "@id").Width == ViewerSession.DefaultWidth; i++)
+            model.Tick();
+        Assert.Equal(ViewerSession.MinWidth, model.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "@id").Width);
+        Assert.Equal(ViewerSession.DefaultWidth, model.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "#text").Width);
+    }
+
+    [Fact]
     public void A_column_edge_uses_the_horizontal_resize_cursor()
     {
         var header = new SurfaceRow(
