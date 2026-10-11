@@ -115,3 +115,7 @@ _Avoid_: XPath, byte offset, row number, `text()`
 **Hit**:
 One search match. It remembers its path and the stretch of that field's text that matched, so the viewer can expand the embedded tables on that path and scroll that cell into view; two matches in one field are two hits, and a hit on a list entry's own element name is that entry. A hit on a JSON field name is that field on an entry that has it.
 _Avoid_: Result row, match span
+
+**Column fit**:
+The width a column takes after a double-click on its edge. On a list table it is the widest cell of that column across every entry, and it stops growing once a cell is already five hundred characters. On a record table it is the widest field name, or the widest value, of that one record.
+_Avoid_: Autofit, auto-size, resize, best fit
