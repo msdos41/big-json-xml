@@ -622,4 +622,40 @@ public class FindTests
         Assert.Contains("123", session.ReadHitText(session.Hits[0], 20).Text, StringComparison.Ordinal);
         Assert.Contains("123", session.ReadHitText(session.Hits[1], 20).Text, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Hit_text_stays_readable_when_a_simple_field_becomes_a_list()
+    {
+        var xml = new System.Text.StringBuilder();
+        xml.Append("<root>");
+        for (var i = 0; i < 40; i++)
+            xml.Append("<item>123</item>");
+        xml.Append("</root>");
+        var source = new MemoryByteSource();
+        source.Append(System.Text.Encoding.UTF8.GetBytes(xml.ToString()));
+        source.Complete();
+        var session = ViewerSession.Open(source);
+        for (var step = 0; step < 100_000 && session.Progress == ScanProgress.Scanning; step++)
+            session.Pump(32);
+
+        var item = Assert.Single(session.ReadRecord(DocumentPath.Root).Fields, field => field.Name == "item");
+        Assert.Equal(FieldKind.List, item.Kind);
+
+        session.Search(new TextSearch { FindWhat = "123" });
+        var seen = 0;
+        for (var step = 0; step < 100_000; step++)
+        {
+            var more = session.Pump(1);
+            for (; seen < session.Hits.Count; seen++)
+            {
+                var text = session.ReadHitText(session.Hits[seen], 20);
+                Assert.Contains("123", text.Text, StringComparison.Ordinal);
+            }
+
+            if (!more && session.Progress != ScanProgress.Scanning)
+                break;
+        }
+
+        Assert.Equal(40, session.Hits.Count);
+    }
 }

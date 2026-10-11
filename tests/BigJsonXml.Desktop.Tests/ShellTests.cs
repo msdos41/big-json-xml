@@ -239,6 +239,47 @@ public class ShellTests
     }
 
     [Fact]
+    public void Closing_results_while_many_hits_are_still_arriving_keeps_the_window_open()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var path = WriteRepeated("123", 200);
+        var window = new MainWindow { Width = 1100, Height = 720 };
+        window.Show();
+        try
+        {
+            var model = Assert.IsType<ViewerModel>(window.DataContext);
+            model.OpenPath(path);
+            for (var i = 0; i < 100 && model.Status != "Complete"; i++)
+                model.Tick();
+            Assert.Equal("Complete", model.Status);
+
+            Click(window, "Find");
+            var find = Assert.Single(window.OwnedWindows.OfType<FindWindow>(), candidate => candidate.IsVisible);
+            model.FindWhat = "123";
+            Click(find, "Find All");
+            var results = Assert.Single(VisibleResults(find, window));
+            for (var i = 0; i < 40 && model.ResultCount < 200; i++)
+                model.Tick();
+
+            Assert.Equal(200, model.ResultCount);
+            Assert.Contains("123", model.Results[0].Text, StringComparison.Ordinal);
+            results.Close();
+            Assert.True(window.IsVisible);
+            Assert.False(model.ResultsWindowOpen);
+            model.Tick();
+            Assert.True(window.IsVisible);
+            Assert.Equal(200, model.ResultCount);
+        }
+        finally
+        {
+            if (window.IsVisible)
+                window.Close();
+        }
+    }
+
+    [Fact]
     public void Closing_the_search_windows_clears_the_mark_on_the_document()
     {
         if (Application.Current is null)
@@ -1510,6 +1551,22 @@ public class ShellTests
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".xml");
         File.WriteAllText(path, xml);
+        return path;
+    }
+
+    private static string WriteRepeated(string value, int count)
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".xml");
+        using var writer = new StreamWriter(path);
+        writer.Write("<root>");
+        for (var i = 0; i < count; i++)
+        {
+            writer.Write("<item>");
+            writer.Write(value);
+            writer.Write("</item>");
+        }
+
+        writer.Write("</root>");
         return path;
     }
 
