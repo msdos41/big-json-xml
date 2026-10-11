@@ -37,6 +37,7 @@ internal sealed class XmlEvent
     public NsScope Scope = NsScope.Empty;
     public List<XmlAttr> Attributes = [];
     public List<FlatField> FlatFields = [];
+    public bool SameShape;
     public TextPiece Text;
     public bool HasText;
     public bool TrustedText;
@@ -94,6 +95,13 @@ internal sealed class XmlParser
     private readonly Dictionary<int, HashSet<string>> _flatAtDepth = new();
     private readonly Dictionary<string, string> _atColumns = new(StringComparer.Ordinal);
     private readonly List<FlatField> _flatFields = [];
+    private readonly List<string> _flatShape = [];
+    private readonly List<FieldKey> _shapeKeys = [];
+    private readonly List<string> _shapeBuild = [];
+    private readonly List<(int At, int Len)> _attrSpans = [];
+    private int _shapeIndex;
+    private bool _sameShape;
+    private bool _haveShape;
     private string _hashText = "#text";
 
     private static readonly SearchValues<byte> StopBytes = SearchValues.Create("<&"u8);
@@ -269,12 +277,21 @@ internal sealed class XmlParser
 
     internal List<FlatField> FlatFields => _flatFields;
 
+    internal bool FlatSameShape { get; private set; }
+
     internal bool TryNextFlat(string name, out long start, out long end)
     {
         start = 0;
         end = 0;
-        if (!NextOpens(name) || !TryFlatElement(out var ev) || ev.Name != name)
+        var before = _byte;
+        var signal = _signal;
+        if (!SkipSpaceBytes() || !NextOpens(name) || !TryFlatElement(out var ev) || ev.Name != name)
+        {
+            _byte = before;
+            _signal = signal;
             return false;
+        }
+
         start = ev.ByteStart;
         end = ev.ByteEnd;
         return true;
@@ -297,7 +314,9 @@ internal sealed class XmlParser
     {
         if (_open.Count == 0)
             return;
-        var depth = _open.Count - 1;
+        // The next sibling is read with only this list's ancestors still open.
+        // Promotion often runs while a descendant start is already on the stack.
+        var depth = OpenDepthForNext(name);
         if (!_flatAtDepth.TryGetValue(depth, out var names))
         {
             names = new HashSet<string>(StringComparer.Ordinal);
@@ -305,6 +324,25 @@ internal sealed class XmlParser
         }
 
         names.Add(name);
+    }
+
+    private int OpenDepthForNext(string name)
+    {
+        var below = 0;
+        var seen = false;
+        foreach (var open in _open)
+        {
+            if (!seen)
+            {
+                if (open == name)
+                    seen = true;
+                continue;
+            }
+
+            below++;
+        }
+
+        return seen ? below : _open.Count;
     }
 
     private XmlEvent ReadMarkup()
@@ -1607,6 +1645,7 @@ internal sealed class XmlParser
         _event.Line = _line;
         _event.Column = _column;
         _event.ErrorByte = 0;
+        _event.SameShape = false;
         return _event;
     }
 
@@ -1654,6 +1693,32 @@ internal sealed class XmlParser
             var stop = span.IndexOfAny(StopBytes);
             var run = stop < 0 ? span : span[..stop];
             var atEnd = stop < 0 && !capped && _byte + span.Length >= _document.Source.Length && _document.Source.IsComplete;
+            if (run.Length >= 48 && run.IndexOfAnyInRange((byte)0x80, (byte)0xFF) < 0)
+            {
+                if (run.IndexOf((byte)']') >= 0 && run.IndexOf("]]>"u8) >= 0)
+                    return Fail("']]>' is not allowed in text.");
+                if (run.Length > 0)
+                {
+                    if (run.IndexOfAnyExcept(SpaceBytes) >= 0)
+                        _textNonWs = true;
+                    _brackets = TrailingBrackets(run, _brackets);
+                    _byte += run.Length;
+                    budget -= run.Length;
+                }
+
+                if (stop < 0)
+                {
+                    if (budget == 0)
+                        return ContinueText();
+                    continue;
+                }
+
+                if (span[stop] == (byte)'<')
+                    return FinishText();
+                RewindText();
+                return ReadTextSlow();
+            }
+
             var text = MeasureUtf8(run, allowPartialTail: stop < 0 && !atEnd);
             if (text.Error is not null)
             {
@@ -2229,10 +2294,12 @@ internal sealed class XmlParser
     private bool TryFlatElement(out XmlEvent ev)
     {
         ev = _event;
-        if (_inputs.Count > 0 || _hasLow || _document.Encoding.CodePage != 65001 || _open.Count == 0)
+        if (_flatAtDepth.Count == 0 || _inputs.Count > 0 || _hasLow || _document.Encoding.CodePage != 65001 || _open.Count == 0)
             return false;
+
         if (!_flatAtDepth.TryGetValue(_open.Count, out var names) || names.Count == 0)
             return false;
+
         if (!TrySpan(out var span, out _) || span.Length < 3 || span[0] != (byte)'<' || span[1] is (byte)'/' or (byte)'!' or (byte)'?')
             return false;
         var index = 1;
@@ -2262,8 +2329,9 @@ internal sealed class XmlParser
 
         if (matched is null)
             return false;
+
         _flatFields.Clear();
-        if (!ConsumeFlat(span, index, matched, out var consumed))
+        if (!ConsumeFlat(span, index, matched, out var consumed) && !RetryFlat(matched, out consumed))
         {
             _flatFields.Clear();
             return false;
@@ -2277,12 +2345,40 @@ internal sealed class XmlParser
         ev.ByteStart = start;
         ev.ByteEnd = _byte;
         ev.FlatFields = _flatFields;
+        ev.SameShape = FlatSameShape;
         return true;
+    }
+
+    private bool RetryFlat(string matched, out int consumed)
+    {
+        consumed = 0;
+        _flatFields.Clear();
+        var window = MarkupWindow();
+        var have = _windowAt + _windowCount - _byte;
+        if (have >= window.Length || _byte + have >= _document.Source.Length)
+            return false;
+        _windowCount = 0;
+        if (!TrySpan(out var span, out _) || span.Length < 3 || span[0] != (byte)'<' || span[1] is (byte)'/' or (byte)'!' or (byte)'?')
+            return false;
+        var index = 1;
+        if (!ScanName(span, ref index, out var nameAt, out var nameLen) || nameLen != matched.Length)
+            return false;
+        for (var i = 0; i < nameLen; i++)
+        {
+            if ((byte)matched[i] != span[nameAt + i])
+                return false;
+        }
+
+        return ConsumeFlat(span, index, matched, out consumed);
     }
 
     private bool ConsumeFlat(ReadOnlySpan<byte> span, int index, string name, out int consumed)
     {
         consumed = 0;
+        _shapeBuild.Clear();
+        _shapeIndex = 0;
+        _sameShape = _haveShape;
+        _attrSpans.Clear();
         if (!SkipFlatAttributes(span, ref index, record: true))
             return false;
         if (index >= span.Length)
@@ -2290,6 +2386,7 @@ internal sealed class XmlParser
         if (span[index] == (byte)'/' && index + 1 < span.Length && span[index + 1] == (byte)'>')
         {
             consumed = index + 2;
+            FinishShape();
             return true;
         }
 
@@ -2304,31 +2401,13 @@ internal sealed class XmlParser
                 return false;
             if (span[index] != (byte)'<')
             {
-                var nonWs = false;
-                while (index < span.Length && span[index] != (byte)'<')
-                {
-                    var b = span[index];
-                    if (b == (byte)'&')
-                        return false;
-                    if (b >= 0x80)
-                    {
-                        if (!SkipUtf8(span, ref index))
-                            return false;
-                        nonWs = true;
-                        continue;
-                    }
-
-                    if (b is not ((byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n'))
-                        nonWs = true;
-                    index++;
-                }
-
-                if (depth == 1 && nonWs && !sawText)
-                {
-                    sawText = true;
-                    _flatFields.Add(new FlatField(FieldKey.Text, _hashText));
-                }
-
+                var rest = span[index..];
+                var rel = rest.IndexOfAny(StopBytes);
+                if ((uint)rel >= (uint)rest.Length || rest[rel] != (byte)'<')
+                    return false;
+                if (depth == 1 && rest[..rel].IndexOfAnyExcept(SpaceBytes) >= 0 && !FlatText(rest[..rel], true, ref sawText))
+                    return false;
+                index += rel;
                 continue;
             }
 
@@ -2352,14 +2431,22 @@ internal sealed class XmlParser
 
             if (span[index + 1] is (byte)'!' or (byte)'?')
                 return false;
+            if (depth != 1)
+            {
+                if (!SkipStartTag(span, ref index, out var nestedEmpty))
+                    return false;
+                if (!nestedEmpty)
+                    depth++;
+                continue;
+            }
+
+            if (TryPlainChild(span, ref index))
+                continue;
+
             index++;
             if (!ScanName(span, ref index, out var childAt, out var childLen))
                 return false;
-            if (depth == 1)
-            {
-                var child = InternAscii(span.Slice(childAt, childLen));
-                _flatFields.Add(new FlatField(FieldKey.Elem("", child), child));
-            }
+            Accept(span.Slice(childAt, childLen), NameKind.Element);
 
             if (!SkipFlatAttributes(span, ref index, record: false))
                 return false;
@@ -2378,6 +2465,206 @@ internal sealed class XmlParser
         }
 
         consumed = index;
+        FinishShape();
+        return true;
+    }
+
+    private bool TryPlainChild(ReadOnlySpan<byte> span, ref int index)
+    {
+        var nameAt = index + 1;
+        if ((uint)nameAt >= (uint)span.Length || !IsAsciiNameStart(span[nameAt]))
+            return false;
+        var cursor = nameAt + 1;
+        while ((uint)cursor < (uint)span.Length && IsAsciiNameChar(span[cursor]))
+            cursor++;
+        if ((uint)cursor >= (uint)span.Length)
+            return false;
+        var nameLen = cursor - nameAt;
+        while ((uint)cursor < (uint)span.Length && IsXmlSpace(span[cursor]))
+            cursor++;
+        if ((uint)(cursor + 1) < (uint)span.Length && span[cursor] == (byte)'/' && span[cursor + 1] == (byte)'>')
+        {
+            RecordChild(span.Slice(nameAt, nameLen));
+            index = cursor + 2;
+            return true;
+        }
+
+        if ((uint)cursor >= (uint)span.Length || span[cursor] != (byte)'>')
+            return false;
+        var text = cursor + 1;
+        var end = text;
+        while ((uint)end < (uint)span.Length)
+        {
+            var bite = span[end];
+            if (bite is (byte)'<' or (byte)'&')
+                break;
+            end++;
+        }
+
+        if ((uint)(end + 2 + nameLen) >= (uint)span.Length || span[end] != (byte)'<' || span[end + 1] != (byte)'/')
+            return false;
+        if (!span.Slice(end + 2, nameLen).SequenceEqual(span.Slice(nameAt, nameLen)) || span[end + 2 + nameLen] != (byte)'>')
+            return false;
+        RecordChild(span.Slice(nameAt, nameLen));
+        index = end + 3 + nameLen;
+        return true;
+    }
+
+    private void RecordChild(ReadOnlySpan<byte> bytes) => Accept(bytes, NameKind.Element);
+
+    private void Accept(ReadOnlySpan<byte> bytes, NameKind kind)
+    {
+        if (_sameShape
+            && _shapeIndex < _flatShape.Count
+            && _shapeKeys[_shapeIndex].Kind == kind
+            && _flatShape[_shapeIndex].Length == bytes.Length
+            && AsciiEqual(bytes, _flatShape[_shapeIndex]))
+        {
+            _shapeIndex++;
+            return;
+        }
+
+        if (_sameShape)
+        {
+            _sameShape = false;
+            for (var i = 0; i < _shapeIndex; i++)
+            {
+                var known = _flatShape[i];
+                _shapeBuild.Add(known);
+                _flatFields.Add(FieldOf(_shapeKeys[i], known));
+            }
+        }
+
+        var made = InternAscii(bytes);
+        var key = kind switch
+        {
+            NameKind.Attribute => FieldKey.Attr("", made),
+            NameKind.Text => FieldKey.Text,
+            _ => FieldKey.Elem("", made),
+        };
+        _shapeBuild.Add(made);
+        _flatFields.Add(FieldOf(key, made));
+        _shapeIndex = int.MaxValue;
+    }
+
+    private void AcceptText()
+    {
+        if (_sameShape
+            && _shapeIndex < _flatShape.Count
+            && _shapeKeys[_shapeIndex].Kind == NameKind.Text)
+        {
+            _shapeIndex++;
+            return;
+        }
+
+        if (_sameShape)
+        {
+            _sameShape = false;
+            for (var i = 0; i < _shapeIndex; i++)
+            {
+                var known = _flatShape[i];
+                _shapeBuild.Add(known);
+                _flatFields.Add(FieldOf(_shapeKeys[i], known));
+            }
+        }
+
+        _shapeBuild.Add(_hashText);
+        _flatFields.Add(new FlatField(FieldKey.Text, _hashText));
+        _shapeIndex = int.MaxValue;
+    }
+
+    private FlatField FieldOf(FieldKey key, string local)
+    {
+        var name = key.Kind == NameKind.Attribute ? AttributeColumn(local) : local;
+        return new FlatField(key, name);
+    }
+
+    private void FinishShape()
+    {
+        if (_haveShape && _sameShape && _shapeIndex == _flatShape.Count)
+        {
+            FlatSameShape = true;
+            _shapeIndex = 0;
+            return;
+        }
+
+        if (_sameShape)
+        {
+            for (var i = 0; i < _shapeIndex; i++)
+            {
+                var known = _flatShape[i];
+                _shapeBuild.Add(known);
+                _flatFields.Add(FieldOf(_shapeKeys[i], known));
+            }
+        }
+
+        FlatSameShape = false;
+        _flatShape.Clear();
+        _shapeKeys.Clear();
+        _flatShape.AddRange(_shapeBuild);
+        foreach (var field in _flatFields)
+            _shapeKeys.Add(field.Key);
+        _shapeBuild.Clear();
+        _shapeIndex = 0;
+        _haveShape = true;
+    }
+
+    private static bool AsciiEqual(ReadOnlySpan<byte> bytes, string text)
+    {
+        for (var i = 0; i < bytes.Length; i++)
+        {
+            if (bytes[i] != (byte)text[i])
+                return false;
+        }
+
+        return true;
+    }
+
+    private bool FlatText(ReadOnlySpan<byte> text, bool record, ref bool sawText)
+    {
+        if (text.IsEmpty)
+            return true;
+        if (text.IndexOf((byte)'&') >= 0)
+            return false;
+        if (text.IndexOfAnyInRange((byte)0x80, (byte)0xFF) >= 0)
+            return FlatTextSlow(text, record, ref sawText);
+        if (record && !sawText && text.IndexOfAnyExcept(SpaceBytes) >= 0)
+        {
+            sawText = true;
+            AcceptText();
+        }
+
+        return true;
+    }
+
+    private bool FlatTextSlow(ReadOnlySpan<byte> text, bool record, ref bool sawText)
+    {
+        var index = 0;
+        var nonWs = false;
+        while (index < text.Length)
+        {
+            var b = text[index];
+            if (b == (byte)'&')
+                return false;
+            if (b >= 0x80)
+            {
+                if (!SkipUtf8(text, ref index))
+                    return false;
+                nonWs = true;
+                continue;
+            }
+
+            if (!IsXmlSpace(b))
+                nonWs = true;
+            index++;
+        }
+
+        if (record && nonWs && !sawText)
+        {
+            sawText = true;
+            AcceptText();
+        }
+
         return true;
     }
 
@@ -2398,8 +2685,15 @@ internal sealed class XmlParser
                 return false;
             if (record)
             {
-                var local = InternAscii(attr);
-                _flatFields.Add(new FlatField(FieldKey.Attr("", local), AttributeColumn(local)));
+                for (var seen = 0; seen < _attrSpans.Count; seen++)
+                {
+                    var prev = _attrSpans[seen];
+                    if (prev.Len == attrLen && span.Slice(prev.At, prev.Len).SequenceEqual(attr))
+                        return false;
+                }
+
+                _attrSpans.Add((attrAt, attrLen));
+                Accept(attr, NameKind.Attribute);
             }
 
             while (index < span.Length && IsXmlSpace(span[index]))
@@ -2413,25 +2707,83 @@ internal sealed class XmlParser
                 index++;
             if (index >= span.Length || span[index] is not ((byte)'"' or (byte)'\''))
                 return false;
-            var quote = span[index++];
-            while (index < span.Length && span[index] != quote)
+            if (!SkipQuoted(span, ref index))
+                return false;
+        }
+    }
+
+    private bool SkipQuoted(ReadOnlySpan<byte> span, ref int index)
+    {
+        if (index >= span.Length)
+            return false;
+        var quote = span[index++];
+        var rest = span[index..];
+        var rel = rest.IndexOf(quote);
+        if (rel < 0)
+            return false;
+        var body = rest[..rel];
+        if (body.IndexOf((byte)'<') >= 0 || body.IndexOf((byte)'&') >= 0)
+            return false;
+        var high = body.IndexOfAnyInRange((byte)0x80, (byte)0xFF);
+        if (high >= 0)
+        {
+            var cursor = high;
+            while (cursor < body.Length)
             {
-                if (span[index] is (byte)'<' or (byte)'&')
-                    return false;
-                if (span[index] >= 0x80)
+                if (body[cursor] < 0x80)
                 {
-                    if (!SkipUtf8(span, ref index))
-                        return false;
+                    cursor++;
                     continue;
                 }
 
+                if (!SkipUtf8(body, ref cursor))
+                    return false;
+            }
+        }
+
+        index += rel + 1;
+        return true;
+    }
+
+    private static bool SkipStartTag(ReadOnlySpan<byte> span, ref int index, out bool empty)
+    {
+        empty = false;
+        index++;
+        while ((uint)index < (uint)span.Length)
+        {
+            var mark = span[index];
+            if (mark == (byte)'>')
+            {
                 index++;
+                return true;
             }
 
-            if (index >= span.Length)
+            if (mark == (byte)'/' && index + 1 < span.Length && span[index + 1] == (byte)'>')
+            {
+                index += 2;
+                empty = true;
+                return true;
+            }
+
+            if (mark is (byte)'"' or (byte)'\'')
+            {
+                index++;
+                var rel = span[index..].IndexOf(mark);
+                if (rel < 0)
+                    return false;
+                var body = span.Slice(index, rel);
+                if (body.IndexOf((byte)'<') >= 0 || body.IndexOf((byte)'&') >= 0)
+                    return false;
+                index += rel + 1;
+                continue;
+            }
+
+            if (mark == (byte)'&')
                 return false;
             index++;
         }
+
+        return false;
     }
 
     private string AttributeColumn(string local)
@@ -2567,34 +2919,42 @@ internal sealed class XmlParser
                 var quote = span[i];
                 i++;
                 var valueAt = i;
-                while (i < span.Length && span[i] != quote)
-                {
-                    if (span[i] is (byte)'<' or (byte)'&')
-                    {
-                        _raw.RemoveRange(marked, _raw.Count - marked);
-                        return false;
-                    }
-
-                    if (span[i] >= 0x80)
-                    {
-                        if (!SkipUtf8(span, ref i))
-                        {
-                            _raw.RemoveRange(marked, _raw.Count - marked);
-                            return false;
-                        }
-
-                        continue;
-                    }
-
-                    i++;
-                }
-
-                if (i >= span.Length)
+                var rest = span[i..];
+                var rel = rest.IndexOf(quote);
+                if (rel < 0)
                 {
                     _raw.RemoveRange(marked, _raw.Count - marked);
                     return false;
                 }
 
+                var body = rest[..rel];
+                if (body.IndexOf((byte)'<') >= 0 || body.IndexOf((byte)'&') >= 0)
+                {
+                    _raw.RemoveRange(marked, _raw.Count - marked);
+                    return false;
+                }
+
+                var high = body.IndexOfAnyInRange((byte)0x80, (byte)0xFF);
+                if (high >= 0)
+                {
+                    var cursor = high;
+                    while (cursor < body.Length)
+                    {
+                        if (body[cursor] < 0x80)
+                        {
+                            cursor++;
+                            continue;
+                        }
+
+                        if (!SkipUtf8(body, ref cursor))
+                        {
+                            _raw.RemoveRange(marked, _raw.Count - marked);
+                            return false;
+                        }
+                    }
+                }
+
+                i += rel;
                 piece = TextPiece.Bytes(_byte + valueAt, _byte + i, attribute: true);
                 i++;
             }

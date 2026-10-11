@@ -529,7 +529,7 @@ public sealed partial class ViewerSession : IDisposable
         var limit = System.Diagnostics.Stopwatch.Frequency / 80;
         while (_xml!.TryNextFlat(slot.Name, out var start, out var end))
         {
-            if (!_tree.SameFlat(slot, _xml.FlatFields))
+            if (!_xml.FlatSameShape && !_tree.SameFlat(slot, _xml.FlatFields))
                 _tree.MergeFlat(slot, _xml.FlatFields);
             slot.Count++;
             slot.EndByte = end;

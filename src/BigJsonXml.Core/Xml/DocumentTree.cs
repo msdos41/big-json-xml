@@ -514,6 +514,12 @@ internal sealed class DocumentTree
         slot.Count++;
         slot.EndByte = ev.ByteEnd;
         parent.StableByte = ev.ByteEnd;
+        if (ev.SameShape)
+        {
+            folded = new Folded(parent, slot, ev.ByteStart, ev.ByteEnd, false);
+            return true;
+        }
+
         var columns = slot.Columns;
         var fields = ev.FlatFields;
         var same = fields.Count == columns.Count;
