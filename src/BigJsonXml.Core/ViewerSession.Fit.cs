@@ -5,6 +5,7 @@ namespace BigJsonXml;
 public sealed partial class ViewerSession
 {
     private const int FitSliceMilliseconds = 32;
+    private static readonly IReadOnlyList<Nest> NoNests = [];
     private FitRun? _fit;
 
     public void Fit(WidthAxis axis, DocumentPath table, string? column = null)
@@ -48,9 +49,43 @@ public sealed partial class ViewerSession
 
     private void StepFit(FitRun run)
     {
+        if (run.Child is not null)
+        {
+            StepFit(run.Child);
+            if (!run.Child.Finished)
+                return;
+            if (run.Child.Width >= MinWidth)
+                run.Width = Math.Max(run.Width, run.Child.Width + run.Child.HostFixed + ExpandGutter);
+            run.Child = null;
+            run.NestAt++;
+        }
+
+        if (run.Nests is { Count: > 0 } && run.NestAt < run.Nests.Count)
+        {
+            var nest = run.Nests[run.NestAt];
+            if (nest.Axis == WidthAxis.None)
+            {
+                run.Width = Math.Max(run.Width, nest.FixedWidth + ExpandGutter);
+                run.NestAt++;
+                return;
+            }
+
+            run.Child = new FitRun(nest.Axis, nest.Table, nest.Column) { HostFixed = nest.FixedWidth };
+            return;
+        }
+
         if (run.Axis != WidthAxis.ListColumn)
         {
-            run.Width = MeasureRecord(run);
+            if (!run.Ready)
+            {
+                run.Width = MeasureRecord(run);
+                run.Ready = true;
+                if (run.Axis == WidthAxis.RecordValue)
+                    run.Nests = NestsUnderRecord(run.Table);
+                if (run.Nests is { Count: > 0 })
+                    return;
+            }
+
             run.Finished = true;
             return;
         }
@@ -63,11 +98,95 @@ public sealed partial class ViewerSession
             return;
         }
 
-        if (!TryMeasureFast(run, run.Offsets.Offsets[run.Next], run.ColumnSlot.Key))
-            MeasureEntry(run, run.Next);
-        run.Next++;
-        if (run.Next >= run.Count || run.Width >= FitCeiling)
-            run.Finished = true;
+        if (!run.EntriesDone)
+        {
+            if (!TryMeasureFast(run, run.Offsets.Offsets[run.Next], run.ColumnSlot.Key))
+                MeasureEntry(run, run.Next);
+            run.Next++;
+            if (run.Next < run.Count && run.Width < FitCeiling)
+                return;
+            run.EntriesDone = true;
+            if (run.Column is not null)
+                run.Nests = NestsUnderColumn(run.Table, run.Column);
+            if (run.Nests is not { Count: > 0 })
+                run.Finished = true;
+            return;
+        }
+
+        run.Finished = true;
+    }
+
+    // An open table ends on this edge. Fitting the edge sizes that table's flexible side.
+    private IReadOnlyList<Nest> NestsUnderRecord(DocumentPath record)
+    {
+        List<Nest>? nests = null;
+        foreach (var path in _expanded)
+        {
+            if (!IsDirectField(record, path))
+                continue;
+            nests ??= [];
+            TryAddNest(nests, path);
+        }
+
+        return nests ?? NoNests;
+    }
+
+    private IReadOnlyList<Nest> NestsUnderColumn(DocumentPath list, string column)
+    {
+        List<Nest>? nests = null;
+        foreach (var path in _expanded)
+        {
+            if (!IsColumnCell(list, column, path))
+                continue;
+            nests ??= [];
+            TryAddNest(nests, path);
+        }
+
+        return nests ?? NoNests;
+    }
+
+    private void TryAddNest(List<Nest> nests, DocumentPath cell)
+    {
+        try
+        {
+            AddNest(nests, cell);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private void AddNest(List<Nest> nests, DocumentPath cell)
+    {
+        var (_, slot) = Locate(cell);
+        if (slot.Kind == SlotKind.List)
+        {
+            AddListNest(nests, cell, slot);
+            return;
+        }
+
+        if (slot.Kind == SlotKind.Record && TrySoleList(slot, cell, out _, out var sole))
+        {
+            AddListNest(nests, cell.Field(sole.Name), sole);
+            return;
+        }
+
+        if (slot.Kind == SlotKind.Record)
+            nests.Add(new Nest(WidthAxis.RecordValue, cell, null, OwnName(cell)));
+    }
+
+    private void AddListNest(List<Nest> nests, DocumentPath list, Slot slot)
+    {
+        if (slot.Columns.Count == 0)
+        {
+            nests.Add(new Nest(WidthAxis.None, list, null, IndexTrackWidth(slot.Count)));
+            return;
+        }
+
+        var fixedWidth = IndexTrackWidth(slot.Count);
+        for (var i = 0; i < slot.Columns.Count - 1; i++)
+            fixedWidth += OwnColumn(list, slot.Columns[i].Name);
+        nests.Add(new Nest(WidthAxis.ListColumn, list, slot.Columns[^1].Name, fixedWidth));
     }
 
     private double MeasureRecord(FitRun run)
@@ -245,8 +364,21 @@ public sealed partial class ViewerSession
         public int Count { get; set; }
         public bool Ready { get; set; }
         public bool Finished { get; set; }
+        public bool EntriesDone { get; set; }
+        public double HostFixed { get; set; }
+        public int NestAt { get; set; }
+        public FitRun? Child { get; set; }
+        public IReadOnlyList<Nest>? Nests { get; set; }
         public Slot List { get; set; } = null!;
         public Column ColumnSlot { get; set; } = null!;
         public OffsetIndex Offsets { get; set; } = null!;
+    }
+
+    private readonly struct Nest(WidthAxis axis, DocumentPath table, string? column, double fixedWidth)
+    {
+        public WidthAxis Axis { get; } = axis;
+        public DocumentPath Table { get; } = table;
+        public string? Column { get; } = column;
+        public double FixedWidth { get; } = fixedWidth;
     }
 }
