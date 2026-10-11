@@ -725,6 +725,69 @@ public class CellLayoutTests
         Assert.Equal(ViewerSession.DefaultWidth, frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "u").Width);
     }
 
+    [Fact]
+    public void Fitting_the_host_value_fits_an_open_lists_last_column()
+    {
+        const string longValue = "SHANGHAI ZHONG AN ELECTRIC APPL";
+        var session = SessionFixture.Scan(
+            "{\"CaseId\":\"EDM\",\"DrawingInfos\":[{\"name\":\"A\",\"value\":\"0\"},{\"name\":\"B\",\"value\":\"" + longValue + "\"}]}");
+        var list = DocumentPath.Root.Field("DrawingInfos");
+        session.Expand(list);
+        var before = Show(session, 4000, 800);
+        Assert.Equal(ViewerSession.DefaultWidth, before.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "value").Width);
+        Assert.True(before.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Name == "value" && row.Value!.Contains("SHANGHAI", StringComparison.Ordinal)).IsCutOff);
+
+        session.Fit(WidthAxis.RecordValue, DocumentPath.Root);
+        var frame = Show(session, 4000, 800);
+        var literal = "\"" + longValue + "\"";
+        var header = frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "value");
+        var cell = frame.Rows.Single(row => row.Kind == SurfaceKind.Entry && row.Name == "value" && row.Y > header.Y + ViewerSession.RowHeight);
+        Assert.Equal(literal.Length * ViewerSession.Advance, header.Width);
+        Assert.Equal(literal, cell.Value);
+        Assert.False(cell.IsCutOff);
+        Assert.Equal(ViewerSession.DefaultWidth, frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "name").Width);
+        var caseId = frame.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "CaseId");
+        Assert.False(caseId.IsCutOff);
+        Assert.Equal("\"EDM\"", caseId.Value);
+    }
+
+    [Fact]
+    public void Fitting_the_host_value_fits_an_open_table_inside_the_last_column()
+    {
+        const string city = "SHANGHAI ZHONG AN ELECTRIC APPL";
+        var session = SessionFixture.Scan(
+            "{\"CaseId\":\"EDM\",\"DrawingInfos\":[{\"name\":\"A\",\"value\":{\"city\":\"" + city + "\"}}]}");
+        var list = DocumentPath.Root.Field("DrawingInfos");
+        session.Expand(list);
+        session.Expand(list.WithIndex(1).Field("value"));
+
+        session.Fit(WidthAxis.RecordValue, DocumentPath.Root);
+        var frame = Show(session, 4000, 800);
+        var literal = "\"" + city + "\"";
+        var cell = frame.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "city");
+        Assert.Equal(literal, cell.Value);
+        Assert.False(cell.IsCutOff);
+        Assert.Equal(literal.Length * ViewerSession.Advance, cell.Width);
+        Assert.Equal(ViewerSession.DefaultWidth, frame.Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.Name == "name").Width);
+    }
+
+    [Fact]
+    public void Fitting_a_record_value_ignores_a_closed_list()
+    {
+        const string longValue = "SHANGHAI ZHONG AN ELECTRIC APPL";
+        var session = SessionFixture.Scan(
+            "{\"CaseId\":\"EDM\",\"DrawingInfos\":[{\"name\":\"A\",\"value\":\"" + longValue + "\"}]}");
+
+        session.Fit(WidthAxis.RecordValue, DocumentPath.Root);
+        var frame = Show(session, 4000, 400);
+        var drawing = frame.Rows.Single(row => row.Kind == SurfaceKind.Field && row.Name == "DrawingInfos");
+        var label = "DrawingInfos[1]";
+        var needed = (label.Length * ViewerSession.Advance) + ViewerSession.ExpandGutter;
+        Assert.Equal(needed, drawing.Width);
+        Assert.Equal(label, drawing.Value);
+        Assert.False(drawing.IsCutOff);
+    }
+
     private static double ColumnWidth(ViewerSession session, DocumentPath list, string name) =>
         Show(session).Rows.Single(row => row.Kind == SurfaceKind.ColumnHeader && row.WidthTable!.Equals(list) && row.Name == name).Width;
 
