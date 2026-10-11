@@ -106,6 +106,7 @@ internal sealed partial class JsonParser
         _sink = sink;
         _needleText = needle;
         _needleBytes = needleBytes;
+        _needleInHash = needle.Length > 0 && "#value".Contains(needle);
         _seeking = true;
         _trailCount = 0;
         try
@@ -187,8 +188,8 @@ internal sealed partial class JsonParser
 
     private Walk WalkObject(int depth, long deadline, ref Place repeated)
     {
-        if (depth == 0 && !_seeking && _haveShape)
-            return WalkShaped(deadline);
+        if (depth == 0 && _haveShape)
+            return WalkShaped(deadline, ref repeated);
         Consume((byte)'{');
         var keys = RentKeys();
         var first = true;
@@ -201,7 +202,7 @@ internal sealed partial class JsonParser
                 if (mark == (byte)'}')
                 {
                     Consume(mark);
-                    if (depth == 0 && !_seeking)
+                    if (depth == 0)
                         LearnShape();
                     return Walk.Ok;
                 }
@@ -438,7 +439,7 @@ internal sealed partial class JsonParser
     }
 
     // The direct keys already match a previous item. A mismatch rewinds so the event reader records the new columns.
-    private Walk WalkShaped(long deadline)
+    private Walk WalkShaped(long deadline, ref Place repeated)
     {
         if (!_lineDirty)
             _lineAt = _pos;
@@ -525,74 +526,85 @@ internal sealed partial class JsonParser
 
             i = end + 1;
             _column += len + 2;
+            var keyIndex = matched;
             matched++;
-            if (!SkipShapedSpace(ref span, ref i, ref origin, ref charged))
-                return Walk.Defer;
-            if (span[i] != (byte)':')
+            var named = false;
+            if (_seeking)
             {
-                DropShape();
-                return Walk.Defer;
+                PushTrail(_shapeNames[keyIndex]);
+                ConsiderName(_shapeNames[keyIndex]);
+                named = true;
             }
 
-            i++;
-            _column++;
-            if (!SkipShapedSpace(ref span, ref i, ref origin, ref charged))
-                return Walk.Defer;
-            mark = span[i];
-            if (mark == (byte)'"')
+            try
             {
-                var valueAt = i;
-                var valueClose = PlainClose(span, i);
-                if (valueClose < 0)
+                if (!SkipShapedSpace(ref span, ref i, ref origin, ref charged))
                     return Walk.Defer;
-                i = valueClose + 1;
-                _column += i - valueAt;
-            }
-            else if (mark is (byte)'{' or (byte)'[')
-            {
-                var opener = origin + i;
-                var line = _line;
-                var column = _column;
-                var cr = _cr;
-                var at = _lineAt;
-                var dirty = _lineDirty;
-                _pos = opener;
-                if (!SkipFast(deadline, mark))
+                if (span[i] != (byte)':')
                 {
-                    _pos = opener;
-                    _line = line;
-                    _column = column;
-                    _cr = cr;
-                    _lineAt = at;
-                    _lineDirty = dirty;
-                    _holdLine = false;
-                    _windowAt = -1;
-                    _windowCount = 0;
-                    if (_lineAt < _pos)
-                        SyncLine();
-                    _lineAt = _pos;
-                    _lineDirty = false;
-                    if (!SkipContainer(deadline, mark))
-                        return Walk.Defer;
-                    _lineAt = _pos;
-                    _holdLine = true;
+                    DropShape();
+                    return Walk.Defer;
                 }
 
-                if (!Window(out span, out _))
+                i++;
+                _column++;
+                if (!SkipShapedSpace(ref span, ref i, ref origin, ref charged))
                     return Walk.Defer;
-                origin = _pos;
-                i = 0;
-                charged = 0;
-            }
-            else
-            {
-                var atEnd = origin + span.Length >= _source.Length;
-                if (!atEnd && span.Length - i < 24)
+                mark = span[i];
+                if (mark == (byte)'"')
                 {
-                    Charge(span[charged..i]);
-                    _pos = origin + i;
-                    if (!TryByte(out mark, out _) || !SkipAtom(deadline, mark))
+                    var valueAt = i;
+                    var valueClose = PlainClose(span, i);
+                    if (valueClose < 0)
                         return Walk.Defer;
+                    i = valueClose + 1;
+                    _column += i - valueAt;
+                    if (_seeking)
+                        ReportSpan(span.Slice(valueAt, i - valueAt));
+                }
+                else if (mark is (byte)'{' or (byte)'[')
+                {
+                    var opener = origin + i;
+                    var line = _line;
+                    var column = _column;
+                    var cr = _cr;
+                    var at = _lineAt;
+                    var dirty = _lineDirty;
+                    _pos = opener;
+                    if (!SkipFast(deadline, mark))
+                    {
+                        // A nested walk that already moved may have reported hits. Rewind the item.
+                        if (_seeking && _pos != opener)
+                            return Walk.Defer;
+                        _pos = opener;
+                        _line = line;
+                        _column = column;
+                        _cr = cr;
+                        _lineAt = at;
+                        _lineDirty = dirty;
+                        _holdLine = false;
+                        _windowAt = -1;
+                        _windowCount = 0;
+                        if (_lineAt < _pos)
+                            SyncLine();
+                        _lineAt = _pos;
+                        _lineDirty = false;
+                        if (_seeking)
+                        {
+                            var inner = WalkValue(1, deadline, ref repeated, inArray: false);
+                            if (inner != Walk.Ok)
+                                return inner;
+                            _holdLine = true;
+                        }
+                        else
+                        {
+                            if (!SkipContainer(deadline, mark))
+                                return Walk.Defer;
+                            _lineAt = _pos;
+                            _holdLine = true;
+                        }
+                    }
+
                     if (!Window(out span, out _))
                         return Walk.Defer;
                     origin = _pos;
@@ -601,14 +613,40 @@ internal sealed partial class JsonParser
                 }
                 else
                 {
-                    var atom = i;
-                    if (!EatAtom(span, ref i, atEnd))
-                        return Walk.Defer;
-                    _column += i - atom;
+                    var atEnd = origin + span.Length >= _source.Length;
+                    if (!atEnd && span.Length - i < 24)
+                    {
+                        Charge(span[charged..i]);
+                        _pos = origin + i;
+                        var atomAt = _pos;
+                        if (!TryByte(out mark, out _) || !SkipAtom(deadline, mark))
+                            return Walk.Defer;
+                        if (_seeking)
+                            SearchRaw(atomAt, _pos);
+                        if (!Window(out span, out _))
+                            return Walk.Defer;
+                        origin = _pos;
+                        i = 0;
+                        charged = 0;
+                    }
+                    else
+                    {
+                        var atom = i;
+                        if (!EatAtom(span, ref i, atEnd))
+                            return Walk.Defer;
+                        _column += i - atom;
+                        if (_seeking)
+                            ReportSpan(span.Slice(atom, i - atom));
+                    }
                 }
-            }
 
-            afterValue = true;
+                afterValue = true;
+            }
+            finally
+            {
+                if (named)
+                    PopTrail();
+            }
         }
     }
 
@@ -645,6 +683,8 @@ internal sealed partial class JsonParser
         var count = _directKeys.Count;
         if (_shapeKeys.Length != count)
             _shapeKeys = new byte[count][];
+        if (_shapeNames.Length != count)
+            _shapeNames = new string[count];
         for (var i = 0; i < count; i++)
         {
             var name = _directKeys[i];
@@ -664,6 +704,7 @@ internal sealed partial class JsonParser
             }
 
             _shapeKeys[i] = bytes;
+            _shapeNames[i] = name;
         }
 
         _haveShape = true;
@@ -709,6 +750,8 @@ internal sealed partial class JsonParser
         Span<Frame> frames = stackalloc Frame[32];
         Span<(long At, int Len)> keys = stackalloc (long, int)[256];
         Span<ulong> fps = stackalloc ulong[256];
+        Span<(long At, int Len)> seekKey = stackalloc (long, int)[32];
+        Span<int> seekCount = stackalloc int[32];
         frames[0] = new Frame(open == (byte)'{', 0);
         var depth = 0;
         var keyTop = 0;
@@ -873,9 +916,13 @@ internal sealed partial class JsonParser
                     keys[keyTop++] = (content, length);
                     frames[depth].Keys++;
                     frames[depth].State = stColon;
+                    if (_seeking)
+                        NoteSeekKey(content, length, keyAt, span, depth, frames, seekKey, seekCount);
                 }
                 else
                 {
+                    if (_seeking)
+                        NoteSeekValue(content - 1, content + length + 1, state == stArr, depth, frames, seekKey, seekCount);
                     frames[depth].Any = true;
                     frames[depth].State = state == stArr ? stArrComma : stComma;
                 }
@@ -947,10 +994,18 @@ internal sealed partial class JsonParser
             {
                 if (state is not (stValue or stArr) || depth + 1 == frames.Length || keyTop + 24 > keys.Length)
                     return false;
+                if (_seeking && state == stArr)
+                {
+                    seekCount[depth]++;
+                    if (_needleInHash && mark == (byte)'[')
+                        EmitHash(depth, frames, seekKey, seekCount);
+                }
+
                 i++;
                 _column++;
                 depth++;
                 frames[depth] = new Frame(mark == (byte)'{', keyTop);
+                seekCount[depth] = 0;
                 continue;
             }
 
@@ -960,8 +1015,11 @@ internal sealed partial class JsonParser
             if (!atEnd && span.Length - i < 24)
             {
                 _pos = origin + i;
+                var atomAt = _pos;
                 if (!TryByte(out mark, out _) || !SkipAtom(deadline, mark))
                     return false;
+                if (_seeking)
+                    NoteSeekValue(atomAt, _pos, state == stArr, depth, frames, seekKey, seekCount);
                 if (!Window(out span, out _))
                     return false;
                 origin = _pos;
@@ -973,6 +1031,8 @@ internal sealed partial class JsonParser
                 if (!EatAtom(span, ref i, atEnd))
                     return false;
                 _column += i - atom;
+                if (_seeking)
+                    NoteSeekSlice(span.Slice(atom, i - atom), state == stArr, depth, frames, seekKey, seekCount);
                 frames[depth].Any = true;
                 frames[depth].State = state == stArr ? stArrComma : stComma;
             }
@@ -1560,14 +1620,72 @@ internal sealed partial class JsonParser
         }
     }
 
-    private void SearchRaw(long start, long end)
+    private void NoteSeekKey(
+        long content,
+        int length,
+        int keyAt,
+        ReadOnlySpan<byte> windowSpan,
+        int depth,
+        Span<Frame> frames,
+        Span<(long At, int Len)> seekKey,
+        Span<int> seekCount)
     {
-        var needle = _needleBytes;
-        if (_sink is null || needle.Length == 0)
+        seekKey[depth] = (content, length);
+        if (length < _needleBytes.Length)
             return;
+        if ((uint)keyAt < (uint)windowSpan.Length && keyAt + length <= windowSpan.Length)
+        {
+            ReportSeekName(windowSpan.Slice(keyAt, length), content, length, depth, frames, seekKey, seekCount);
+            return;
+        }
+
+        Span<byte> stack = stackalloc byte[128];
+        if (length > stack.Length || ReadSource(content, stack[..length]) != length)
+            return;
+        ReportSeekName(stack[..length], content, length, depth, frames, seekKey, seekCount);
+    }
+
+    private void ReportSeekName(
+        ReadOnlySpan<byte> text,
+        long content,
+        int length,
+        int depth,
+        Span<Frame> frames,
+        Span<(long At, int Len)> seekKey,
+        Span<int> seekCount)
+    {
+        if (!HasNeedle(text))
+            return;
+        var mark = _trailCount;
+        PushSeek(depth, false, frames, seekKey, seekCount);
+        ReportName(text, InternSource(content, length));
+        _trailCount = mark;
+    }
+
+    private void NoteSeekValue(
+        long start,
+        long end,
+        bool arrayElement,
+        int depth,
+        Span<Frame> frames,
+        Span<(long At, int Len)> seekKey,
+        Span<int> seekCount)
+    {
         var length = (int)(end - start);
-        if (length < needle.Length)
+        if (length < 0)
             return;
+        if (length > 0 && start >= _windowAt && end <= _windowAt + _windowCount)
+        {
+            NoteSeekSlice(_window.AsSpan((int)(start - _windowAt), length), arrayElement, depth, frames, seekKey, seekCount);
+            return;
+        }
+
+        if (length == 0 || length < _needleBytes.Length)
+        {
+            NoteSeekSlice([], arrayElement, depth, frames, seekKey, seekCount);
+            return;
+        }
+
         Span<byte> stack = stackalloc byte[256];
         byte[]? rented = null;
         var buf = length <= stack.Length ? stack[..length] : default;
@@ -1579,17 +1697,141 @@ internal sealed partial class JsonParser
 
         try
         {
-            if (ReadSource(start, buf) != length)
-                return;
-            var from = 0;
-            while (from <= buf.Length - needle.Length)
+            if (ReadSource(start, buf) == length)
+                NoteSeekSlice(buf, arrayElement, depth, frames, seekKey, seekCount);
+            else
+                NoteSeekSlice([], arrayElement, depth, frames, seekKey, seekCount);
+        }
+        finally
+        {
+            if (rented is not null)
+                ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    private void NoteSeekSlice(
+        ReadOnlySpan<byte> token,
+        bool arrayElement,
+        int depth,
+        Span<Frame> frames,
+        Span<(long At, int Len)> seekKey,
+        Span<int> seekCount)
+    {
+        if (arrayElement)
+        {
+            seekCount[depth]++;
+            if (_needleInHash)
+                EmitHash(depth, frames, seekKey, seekCount);
+        }
+
+        if (!HasNeedle(token))
+            return;
+        var mark = _trailCount;
+        PushSeek(depth, arrayElement, frames, seekKey, seekCount);
+        ReportSpan(token);
+        _trailCount = mark;
+    }
+
+    private void EmitHash(
+        int depth,
+        Span<Frame> frames,
+        Span<(long At, int Len)> seekKey,
+        Span<int> seekCount)
+    {
+        var mark = _trailCount;
+        PushSeek(depth, true, frames, seekKey, seekCount);
+        ConsiderName("#value");
+        _trailCount = mark;
+    }
+
+    // Keys inside this nested value. The direct key is already on the trail.
+    private void PushSeek(
+        int depth,
+        bool scalar,
+        Span<Frame> frames,
+        Span<(long At, int Len)> seekKey,
+        Span<int> seekCount)
+    {
+        for (var level = 0; level <= depth; level++)
+        {
+            if (frames[level].Object)
             {
-                var found = buf[from..].IndexOf(needle);
-                if (found < 0)
-                    return;
-                _sink.ValueHit(_trail.AsSpan(0, _trailCount), from + found, needle.Length);
-                from += found + 1;
+                var key = seekKey[level];
+                PushTrail(InternSource(key.At, key.Len));
+                continue;
             }
+
+            IndexTrail(seekCount[level]);
+            if (level < depth && frames[level + 1].Object)
+                continue;
+            if (level < depth || scalar)
+                PushTrail("#value");
+        }
+    }
+
+    private bool HasNeedle(ReadOnlySpan<byte> buf)
+    {
+        var needle = _needleBytes;
+        return needle.Length > 0 && buf.Length >= needle.Length && buf.IndexOf(needle) >= 0;
+    }
+
+    private void ReportName(ReadOnlySpan<byte> bytes, string name)
+    {
+        var needle = _needleBytes;
+        var from = 0;
+        while (from <= bytes.Length - needle.Length)
+        {
+            var found = bytes[from..].IndexOf(needle);
+            if (found < 0)
+                return;
+            _sink!.NameHit(_trail.AsSpan(0, _trailCount), found, needle.Length, name);
+            from += found + 1;
+        }
+    }
+
+    private void ReportSpan(ReadOnlySpan<byte> buf)
+    {
+        var needle = _needleBytes;
+        if (_sink is null || needle.Length == 0 || buf.Length < needle.Length)
+            return;
+        var from = 0;
+        while (from <= buf.Length - needle.Length)
+        {
+            var found = buf[from..].IndexOf(needle);
+            if (found < 0)
+                return;
+            _sink.ValueHit(_trail.AsSpan(0, _trailCount), from + found, needle.Length);
+            from += found + 1;
+        }
+    }
+
+    private void SearchRaw(long start, long end)
+    {
+        var needle = _needleBytes;
+        if (_sink is null || needle.Length == 0)
+            return;
+        var length = (int)(end - start);
+        if (length < needle.Length)
+            return;
+        if (start >= _windowAt && end <= _windowAt + _windowCount)
+        {
+            ReportSpan(_window.AsSpan((int)(start - _windowAt), length));
+            return;
+        }
+
+        Span<byte> stack = stackalloc byte[256];
+        byte[]? rented = null;
+        var buf = length <= stack.Length ? stack[..length] : default;
+        if (length > stack.Length)
+        {
+            rented = ArrayPool<byte>.Shared.Rent(length);
+            buf = rented.AsSpan(0, length);
+        }
+
+        try
+        {
+            if (ReadSource(start, buf) == length)
+                ReportSpan(buf);
         }
         finally
         {

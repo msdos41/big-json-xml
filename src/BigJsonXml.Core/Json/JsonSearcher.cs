@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using BigJsonXml.Xml;
 
 namespace BigJsonXml.Json;
@@ -7,7 +9,7 @@ namespace BigJsonXml.Json;
 /// Text search over a JSON document. Values are the shown literals. Field names use the
 /// element-name switch. Attribute names and parent attributes match nothing.
 /// </summary>
-internal sealed class JsonSearcher : IScanSearch
+internal sealed class JsonSearcher : IScanSearch, IJsonItem
 {
     private readonly XmlDocument _document;
     private readonly JsonParser _parser;
@@ -16,7 +18,10 @@ internal sealed class JsonSearcher : IScanSearch
     private readonly List<int> _matches = [];
     private readonly Stack<Node> _stack = new();
     private readonly Stack<Node> _spare = new();
+    private readonly bool _bulk;
+    private readonly byte[] _needleBytes;
     private string _pending = "";
+    private Node? _visitArray;
 
     public JsonSearcher(XmlDocument document, TextSearch search, List<Hit> hits)
     {
@@ -24,6 +29,8 @@ internal sealed class JsonSearcher : IScanSearch
         _parser = JsonParser.Document(document);
         _search = search;
         _hits = hits;
+        _bulk = CanBulk(document, search);
+        _needleBytes = _bulk ? Encoding.ASCII.GetBytes(search.FindWhat) : [];
     }
 
     public bool Done { get; private set; }
@@ -57,7 +64,9 @@ internal sealed class JsonSearcher : IScanSearch
             case JsonEventKind.ArrayEnd:
                 if (_stack.Count > 0)
                     Recycle(_stack.Pop());
-                return SearchStep.Work;
+                if (!Done)
+                    VisitBulk();
+                return Done ? SearchStep.Idle : SearchStep.Work;
             case JsonEventKind.ArrayStart:
                 OnArray();
                 return SearchStep.Work;
@@ -66,7 +75,9 @@ internal sealed class JsonSearcher : IScanSearch
                 return Done ? SearchStep.Idle : SearchStep.Work;
             case JsonEventKind.Scalar:
                 OnScalar(ev);
-                return SearchStep.Work;
+                if (!Done)
+                    VisitBulk();
+                return Done ? SearchStep.Idle : SearchStep.Work;
             default:
                 return SearchStep.Work;
         }
@@ -314,6 +325,68 @@ internal sealed class JsonSearcher : IScanSearch
         foreach (var step in path.Steps)
             hit.Steps.Add(step);
         _hits.Add(hit);
+    }
+
+    private void VisitBulk()
+    {
+        if (!_bulk || _stack.Count == 0)
+            return;
+        var parent = _stack.Peek();
+        if (!parent.Array)
+            return;
+        var deadline = Stopwatch.GetTimestamp() + Stopwatch.Frequency / 125;
+        _visitArray = parent;
+        while (Stopwatch.GetTimestamp() < deadline)
+        {
+            var origin = _hits.Count;
+            var take = _parser.TryVisitItem(deadline, this, _search.FindWhat, _needleBytes);
+            if (take is JsonParser.ItemTake.Defer or JsonParser.ItemTake.Repeated)
+            {
+                if (_hits.Count > origin)
+                    _hits.RemoveRange(origin, _hits.Count - origin);
+                if (take == JsonParser.ItemTake.Repeated)
+                    Done = true;
+                return;
+            }
+
+            if (take == JsonParser.ItemTake.None)
+                return;
+            parent.Count++;
+        }
+    }
+
+    void IJsonItem.ValueHit(ReadOnlySpan<DocumentPath.Step> trail, int offset, int length) =>
+        Add(ItemPath(trail), offset, length);
+
+    void IJsonItem.NameHit(ReadOnlySpan<DocumentPath.Step> trail, int offset, int length, string name) =>
+        AddName(ItemPath(trail), offset, length, name);
+
+    private DocumentPath ItemPath(ReadOnlySpan<DocumentPath.Step> trail)
+    {
+        var path = _visitArray!.Path.WithIndex(_visitArray.Count + 1);
+        for (var i = 0; i < trail.Length; i++)
+            path = path.Field(trail[i].Name, trail[i].OneBasedIndex);
+        return path;
+    }
+
+    private static bool CanBulk(XmlDocument document, TextSearch search)
+    {
+        if (!document.Source.IsComplete || !search.MatchCase || search.StartsWith || search.EntireCell)
+            return false;
+        if (!search.ElementName || !search.Value)
+            return false;
+        if (search.FieldName.Length != 0 || search.ParentElementName.Length != 0
+            || search.GrandfatherElementName.Length != 0 || search.ParentAttributeName.Length != 0)
+            return false;
+        if (search.FindWhat.Length == 0)
+            return false;
+        foreach (var unit in search.FindWhat)
+        {
+            if (unit > 127)
+                return false;
+        }
+
+        return true;
     }
 
     private sealed class Node

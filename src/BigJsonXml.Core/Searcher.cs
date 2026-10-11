@@ -1,4 +1,7 @@
+using System.Buffers;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using BigJsonXml.Xml;
 
 namespace BigJsonXml;
@@ -27,13 +30,24 @@ internal sealed class Searcher : IScanSearch
     private readonly Stack<SFrame> _stack = new();
     private readonly Stack<SFrame> _spare = new();
     private readonly TextPiece[] _one = new TextPiece[1];
+    private readonly bool _flat;
+    private readonly byte[] _needle;
+    private XmlParser _active;
 
     public Searcher(XmlDocument document, TextSearch search, List<Hit> hits)
     {
         _document = document;
         _parser = XmlParser.Create(document);
+        _active = _parser;
         _search = search;
         _hits = hits;
+        _flat = CanFlat(document, search);
+        _needle = _flat ? Encoding.ASCII.GetBytes(search.FindWhat) : [];
+        if (_flat)
+        {
+            _parser.OmitFlatShape = true;
+            _parser.UseSearchNeedle(_needle);
+        }
     }
 
     public bool Done { get; private set; }
@@ -42,7 +56,11 @@ internal sealed class Searcher : IScanSearch
     {
         if (Done)
             return SearchStep.Idle;
-        var ev = _parser.Read();
+        return Apply(_parser.Read());
+    }
+
+    private SearchStep Apply(XmlEvent ev)
+    {
         switch (ev.Kind)
         {
             case XmlEventKind.NeedMore:
@@ -60,9 +78,123 @@ internal sealed class Searcher : IScanSearch
             case XmlEventKind.Text:
                 OnText(ev);
                 return SearchStep.Work;
+            case XmlEventKind.Flat:
+                OnFlat(ev);
+                return SearchStep.Work;
             default:
                 return SearchStep.Work;
         }
+    }
+
+    // A repeated sibling the flat scan already accepted. A miss stays a count. A hit is read again as events.
+    private void OnFlat(XmlEvent ev)
+    {
+        if (_stack.Count == 0)
+            return;
+        var parser = _active;
+        var name = ev.Local;
+        var start = ev.ByteStart;
+        var end = ev.ByteEnd;
+        var deadline = Stopwatch.GetTimestamp() + Stopwatch.Frequency / 80;
+        var key = FieldKey.Elem("", name);
+        while (true)
+        {
+            TakeFlat(name, start, end);
+            if (Stopwatch.GetTimestamp() >= deadline)
+                return;
+            var missed = parser.CountFlatMisses(name, _needle);
+            if (missed > 0)
+            {
+                var parent = _stack.Peek();
+                parent.SetCount(key, parent.CountOf(key) + missed);
+                if (Stopwatch.GetTimestamp() >= deadline)
+                    return;
+            }
+
+            if (!parser.TryNextFlat(name, out start, out end))
+                return;
+        }
+    }
+
+    private void TakeFlat(string name, long start, long end)
+    {
+        if (!HoldsNeedle(start, end))
+        {
+            var parent = _stack.Peek();
+            var key = FieldKey.Elem("", name);
+            parent.SetCount(key, parent.CountOf(key) + 1);
+            return;
+        }
+
+        var fragment = XmlParser.Fragment(_document, _stack.Peek().Scope, start, end);
+        fragment.OmitFlatShape = true;
+        fragment.UseSearchNeedle(_needle);
+        var saved = _active;
+        _active = fragment;
+        try
+        {
+            while (true)
+            {
+                var inner = fragment.Read();
+                if (inner.Kind is XmlEventKind.Done or XmlEventKind.NeedMore or XmlEventKind.Error)
+                    break;
+                Apply(inner);
+            }
+        }
+        finally
+        {
+            _active = saved;
+        }
+    }
+
+    private bool HoldsNeedle(long start, long end)
+    {
+        var length = (int)(end - start);
+        if (length < _needle.Length)
+            return false;
+        if (_active.TryWindow(start, end, out var owned))
+            return owned.IndexOf(_needle) >= 0;
+        var rented = ArrayPool<byte>.Shared.Rent(length);
+        try
+        {
+            var buf = rented.AsSpan(0, length);
+            var got = 0;
+            while (got < length)
+            {
+                var n = _document.Source.Read(start + got, buf[got..]);
+                if (n <= 0)
+                    return true;
+                got += n;
+            }
+
+            return buf.IndexOf(_needle) >= 0;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    private static bool CanFlat(XmlDocument document, TextSearch search)
+    {
+        if (!document.Source.IsComplete || document.Encoding.CodePage != 65001)
+            return false;
+        if (!search.MatchCase || search.StartsWith || search.EntireCell)
+            return false;
+        if (!search.ElementName || !search.AttributeName || !search.Value)
+            return false;
+        if (search.FieldName.Length != 0 || search.ParentElementName.Length != 0
+            || search.GrandfatherElementName.Length != 0 || search.ParentAttributeName.Length != 0)
+            return false;
+        if (search.FindWhat.Length == 0)
+            return false;
+        foreach (var unit in search.FindWhat)
+        {
+            if (unit < ' ' || unit > '~' || unit == '@')
+                return false;
+        }
+
+        return true;
     }
 
     private void OnStart(XmlEvent ev)
@@ -76,10 +208,11 @@ internal sealed class Searcher : IScanSearch
             root.Ns = ev.Ns;
             root.Local = ev.Local;
             root.HitOrigin = _hits.Count;
-            if (ev.Attributes.Count > 0)
+            if (ev.Attributes.Count > 0 || ev.MissAttribute)
                 root.SawAttribute = true;
             _stack.Push(root);
-            SearchDisplayedName(root.Path, ev.Name, element: true, container: null);
+            if (!ev.SearchMiss)
+                SearchDisplayedName(root.Path, ev.Name, element: true, container: null);
             SearchAttributes(root, ev);
             if (ev.Empty)
                 OnEnd();
@@ -104,12 +237,13 @@ internal sealed class Searcher : IScanSearch
         frame.Ns = ev.Ns;
         frame.Local = ev.Local;
         frame.Index = index;
-        frame.SawAttribute = ev.Attributes.Count > 0;
+        frame.SawAttribute = ev.Attributes.Count > 0 || ev.MissAttribute;
         frame.Parent = parent;
         frame.HitOrigin = _hits.Count;
         parent.SawElement = true;
         _stack.Push(frame);
-        SearchDisplayedName(frame.Path, display, element: true, container: parent);
+        if (!ev.SearchMiss)
+            SearchDisplayedName(frame.Path, display, element: true, container: parent);
         SearchAttributes(frame, ev);
         if (ev.Empty)
             OnEnd();
@@ -134,6 +268,8 @@ internal sealed class Searcher : IScanSearch
         if (_stack.Count == 0)
             return;
         var frame = _stack.Pop();
+        if (_flat && frame.Index == 2)
+            _active.PreferFlat(frame.Local);
         if (_stack.Count == 0 || !frame.IsSimple || frame.Index is not null)
             SearchOwnText(frame);
         else

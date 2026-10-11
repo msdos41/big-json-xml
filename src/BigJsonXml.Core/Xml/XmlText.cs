@@ -679,6 +679,20 @@ internal static class ExpandedText
             pattern = rentedNeedle.AsSpan(0, n);
         }
 
+        var length = piece.End - piece.Start;
+        if (length <= 512)
+        {
+            try
+            {
+                return MatchSmall(source, piece, jsonString, needle, matchCase, pattern, offsets);
+            }
+            finally
+            {
+                if (rentedNeedle is not null)
+                    ArrayPool<byte>.Shared.Return(rentedNeedle);
+            }
+        }
+
         var rented = ArrayPool<byte>.Shared.Rent(64 * 1024 + overlap);
         try
         {
@@ -714,6 +728,27 @@ internal static class ExpandedText
                 ArrayPool<byte>.Shared.Return(rentedNeedle);
         }
 
+        return true;
+    }
+
+    private static bool MatchSmall(
+        IByteSource source,
+        TextPiece piece,
+        bool jsonString,
+        string needle,
+        bool matchCase,
+        Span<byte> pattern,
+        List<int> offsets)
+    {
+        var length = (int)(piece.End - piece.Start);
+        Span<byte> buf = stackalloc byte[512];
+        var hay = buf[..length];
+        if (ReadFull(source, piece.Start, hay) != length || !AllOk(hay, piece, jsonString))
+            return false;
+        if (!matchCase)
+            Fold(hay);
+        FillPattern(needle, matchCase, pattern);
+        AddHits(hay, pattern, 0, offsets);
         return true;
     }
 

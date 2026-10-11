@@ -38,6 +38,8 @@ internal sealed class XmlEvent
     public List<XmlAttr> Attributes = [];
     public List<FlatField> FlatFields = [];
     public bool SameShape;
+    public bool SearchMiss;
+    public bool MissAttribute;
     public TextPiece Text;
     public bool HasText;
     public bool TrustedText;
@@ -103,6 +105,7 @@ internal sealed class XmlParser
     private bool _sameShape;
     private bool _haveShape;
     private string _hashText = "#text";
+    private byte[] _searchNeedle = [];
 
     private static readonly SearchValues<byte> StopBytes = SearchValues.Create("<&"u8);
     private static readonly SearchValues<byte> SpaceBytes = SearchValues.Create(" \t\r\n"u8);
@@ -279,6 +282,59 @@ internal sealed class XmlParser
 
     internal bool FlatSameShape { get; private set; }
 
+    // Search only needs the element bytes. The scan keeps the column shape.
+    internal bool OmitFlatShape { get; set; }
+
+    internal void UseSearchNeedle(byte[] needle) => _searchNeedle = needle;
+
+    // Following same-name empty tags whose bytes do not hold the needle. A hit, a body, or an entity stays for the next read.
+    internal int CountFlatMisses(string name, ReadOnlySpan<byte> needle)
+    {
+        if (!OmitFlatShape || name.Length is 0 or > 128 || needle.Length == 0 || _inputs.Count > 0 || _hasLow)
+            return 0;
+        foreach (var unit in name)
+        {
+            if (unit > 127)
+                return 0;
+        }
+
+        if (!TrySpan(out var span, out _))
+            return 0;
+
+        Span<byte> literal = stackalloc byte[name.Length];
+        for (var n = 0; n < name.Length; n++)
+            literal[n] = (byte)name[n];
+
+        var skipped = 0;
+        var cursor = 0;
+        while ((uint)cursor < (uint)span.Length)
+        {
+            var i = cursor;
+            while ((uint)i < (uint)span.Length && IsXmlSpace(span[i]))
+                i++;
+            if ((uint)(i + literal.Length + 1) >= (uint)span.Length || span[i] != (byte)'<')
+                break;
+            if (!span.Slice(i + 1, literal.Length).SequenceEqual(literal))
+                break;
+            var after = i + 1 + literal.Length;
+            if ((uint)after >= (uint)span.Length)
+                break;
+            var mark = span[after];
+            if (!IsXmlSpace(mark) && mark != (byte)'>' && mark != (byte)'/')
+                break;
+            if (!TrySkipSimple(span, after, out var consumed) || consumed <= i)
+                break;
+            if (span.Slice(i, consumed - i).IndexOf(needle) >= 0)
+                break;
+            cursor = consumed;
+            skipped++;
+        }
+
+        if (skipped > 0)
+            _byte += cursor;
+        return skipped;
+    }
+
     internal bool TryNextFlat(string name, out long start, out long end)
     {
         start = 0;
@@ -349,6 +405,9 @@ internal sealed class XmlParser
     {
         if (TryFlatElement(out var flat))
             return flat;
+        if (_searchNeedle.Length > 0 && _inputs.Count == 0 && !_hasLow && _document.Encoding.CodePage == 65001
+            && TrySearchMiss(out var missed))
+            return missed;
         if (_inputs.Count == 0 && !_hasLow && _document.Encoding.CodePage == 65001 && TryPlainMarkup(out var plain))
             return plain;
         var startByte = _byte;
@@ -1646,6 +1705,8 @@ internal sealed class XmlParser
         _event.Column = _column;
         _event.ErrorByte = 0;
         _event.SameShape = false;
+        _event.SearchMiss = false;
+        _event.MissAttribute = false;
         return _event;
     }
 
@@ -2013,6 +2074,16 @@ internal sealed class XmlParser
 
     private byte[] MarkupWindow() => _window ??= new byte[_fragment ? 4096 : 256 * 1024];
 
+    internal bool TryWindow(long start, long end, out ReadOnlySpan<byte> slice)
+    {
+        slice = default;
+        var window = _window;
+        if (window is null || start < _windowAt || end > _windowAt + _windowCount || end < start)
+            return false;
+        slice = window.AsSpan((int)(start - _windowAt), (int)(end - start));
+        return true;
+    }
+
     /// <summary>
     /// The start tag is already open. Move to its end tag and leave that tag for the next read.
     /// Nested markup is not turned into events; a later open of that nested element reads it.
@@ -2375,11 +2446,13 @@ internal sealed class XmlParser
     private bool ConsumeFlat(ReadOnlySpan<byte> span, int index, string name, out int consumed)
     {
         consumed = 0;
+        if (OmitFlatShape && TrySkipSimple(span, index, out consumed))
+            return true;
         _shapeBuild.Clear();
         _shapeIndex = 0;
         _sameShape = _haveShape;
         _attrSpans.Clear();
-        if (!SkipFlatAttributes(span, ref index, record: true))
+        if (!SkipFlatAttributes(span, ref index, record: !OmitFlatShape))
             return false;
         if (index >= span.Length)
             return false;
@@ -2405,7 +2478,7 @@ internal sealed class XmlParser
                 var rel = rest.IndexOfAny(StopBytes);
                 if ((uint)rel >= (uint)rest.Length || rest[rel] != (byte)'<')
                     return false;
-                if (depth == 1 && rest[..rel].IndexOfAnyExcept(SpaceBytes) >= 0 && !FlatText(rest[..rel], true, ref sawText))
+                if (depth == 1 && rest[..rel].IndexOfAnyExcept(SpaceBytes) >= 0 && !FlatText(rest[..rel], !OmitFlatShape, ref sawText))
                     return false;
                 index += rel;
                 continue;
@@ -2510,7 +2583,50 @@ internal sealed class XmlParser
         return true;
     }
 
-    private void RecordChild(ReadOnlySpan<byte> bytes) => Accept(bytes, NameKind.Element);
+    // An empty tag's bytes are enough for a search. A body, an entity, or a nested tag uses the general walk.
+    private bool TrySkipSimple(ReadOnlySpan<byte> span, int index, out int consumed)
+    {
+        consumed = 0;
+        var quote = (byte)0;
+        var i = index;
+        while ((uint)i < (uint)span.Length)
+        {
+            var b = span[i++];
+            if (quote != 0)
+            {
+                if (b == quote)
+                    quote = 0;
+                else if (b is (byte)'<' or (byte)'&')
+                    return false;
+                continue;
+            }
+
+            if (b is (byte)'"' or (byte)'\'')
+            {
+                quote = b;
+                continue;
+            }
+
+            if (b == (byte)'/')
+            {
+                if ((uint)i >= (uint)span.Length || span[i] != (byte)'>')
+                    return false;
+                consumed = i + 1;
+                return true;
+            }
+
+            if (b is (byte)'>' or (byte)'<')
+                return false;
+        }
+
+        return false;
+    }
+
+    private void RecordChild(ReadOnlySpan<byte> bytes)
+    {
+        if (!OmitFlatShape)
+            Accept(bytes, NameKind.Element);
+    }
 
     private void Accept(ReadOnlySpan<byte> bytes, NameKind kind)
     {
@@ -2581,6 +2697,8 @@ internal sealed class XmlParser
 
     private void FinishShape()
     {
+        if (OmitFlatShape)
+            return;
         if (_haveShape && _sameShape && _shapeIndex == _flatShape.Count)
         {
             FlatSameShape = true;
@@ -2724,6 +2842,12 @@ internal sealed class XmlParser
         var body = rest[..rel];
         if (body.IndexOf((byte)'<') >= 0 || body.IndexOf((byte)'&') >= 0)
             return false;
+        if (OmitFlatShape)
+        {
+            index += rel + 1;
+            return true;
+        }
+
         var high = body.IndexOfAnyInRange((byte)0x80, (byte)0xFF);
         if (high >= 0)
         {
@@ -2805,6 +2929,75 @@ internal sealed class XmlParser
                 return false;
         }
 
+        return true;
+    }
+
+    // A start tag with no needle, entity, or prefix needs no attribute objects. The text reader still sees a body.
+    private bool TrySearchMiss(out XmlEvent ev)
+    {
+        ev = _event;
+        if (!TrySpan(out var span, out _) || span.Length < 3 || span[0] != (byte)'<' || span[1] is (byte)'/' or (byte)'!' or (byte)'?')
+            return false;
+        var i = 1;
+        if (!ScanName(span, ref i, out var nameAt, out var nameLen) || span.Slice(nameAt, nameLen).Contains((byte)':'))
+            return false;
+
+        var tag = i;
+        var quote = (byte)0;
+        while ((uint)tag < (uint)span.Length)
+        {
+            var b = span[tag];
+            if (quote != 0)
+            {
+                if (b == quote)
+                    quote = 0;
+                else if (b is (byte)'<' or (byte)'&' || b >= 0x80)
+                    return false;
+                tag++;
+                continue;
+            }
+
+            if (b is (byte)'"' or (byte)'\'')
+            {
+                quote = b;
+                tag++;
+                continue;
+            }
+
+            if (b is (byte)'<' or (byte)'&' || b >= 0x80)
+                return false;
+            if (b == (byte)'/')
+            {
+                var j = tag + 1;
+                while ((uint)j < (uint)span.Length && IsXmlSpace(span[j]))
+                    j++;
+                if ((uint)j >= (uint)span.Length || span[j] != (byte)'>')
+                    return false;
+                return FinishSearchMiss(span, j + 1, nameAt, nameLen, empty: true, out ev);
+            }
+
+            if (b == (byte)'>')
+                return FinishSearchMiss(span, tag + 1, nameAt, nameLen, empty: false, out ev);
+            tag++;
+        }
+
+        return false;
+    }
+
+    private bool FinishSearchMiss(ReadOnlySpan<byte> span, int consumed, int nameAt, int nameLen, bool empty, out XmlEvent ev)
+    {
+        var body = span.Slice(0, consumed);
+        if (body.IndexOf((byte)':') >= 0 || body.IndexOf(_searchNeedle) >= 0 || body.IndexOf("xmlns"u8) >= 0)
+        {
+            ev = _event;
+            return false;
+        }
+
+        var hasAttribute = body.Slice(nameAt + nameLen).Contains((byte)'=');
+        if (!CommitPlainStart(span, consumed, nameAt, nameLen, empty, out ev))
+            return false;
+        ev.SearchMiss = true;
+        ev.MissAttribute = hasAttribute;
         return true;
     }
 

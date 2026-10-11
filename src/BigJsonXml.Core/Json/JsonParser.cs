@@ -204,6 +204,8 @@ internal sealed partial class JsonParser
     private DocumentPath.Step[] _trail = new DocumentPath.Step[8];
     private int _trailCount;
     private byte[][] _shapeKeys = [];
+    private string[] _shapeNames = [];
+    private bool _needleInHash;
     private bool _haveShape;
     private bool _sameShape;
     private bool _breaksTrusted;
@@ -875,6 +877,8 @@ internal sealed partial class JsonParser
     {
         if (length <= 0)
             return InternAscii([]);
+        if (offset >= _windowAt && offset + length <= _windowAt + _windowCount)
+            return InternAscii(_window.AsSpan((int)(offset - _windowAt), length));
         Span<byte> stack = stackalloc byte[256];
         byte[]? rented = null;
         var buf = length <= stack.Length ? stack[..length] : default;
