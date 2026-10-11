@@ -4,14 +4,14 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The viewer session is the only seam. Tests open a document, pump the scan, search, expand, column-fit, and read the outline, the hits, and the width.
-- [ ] For the generated XML document, the outline's names, kinds, list counts, and columns match what the session reports today. A closed record keeps an outline and no second body.
-- [ ] Opening one entry uses the place the scan stored. Collapsing the list does not drop that place.
-- [ ] A text search reports the same hits as today for every condition: contains, starts with, entire cell, Match case on and off, element name, attribute name, and value each switched off, plus a field name, a parent element name, a grandfather element name, and a parent attribute name.
-- [ ] Each hit keeps its path, match offset, and match length. Two matches in one field stay two hits. Hits stay in document order. An empty Find what has no hits.
-- [ ] A JSON value is the literal the cell shows. `{}` and a collapsed `Name[n]` are not values. A JSON attribute name and a JSON parent attribute match nothing. A repeated JSON key still stops the scan.
-- [ ] A column fit of a long list of short cells applies the width produced by measuring every entry. It stops growing once a cell is already five hundred characters. The width matches what the session produces today.
-- [ ] One slice of a scan, and one slice of a column fit, still returns well under a tenth of a second.
-- [ ] This ticket does not change how long a scan, a search, or a gesture takes, and it does not add a seconds target.
+- [x] The viewer session is the only seam. Tests open a document, pump the scan, search, expand, column-fit, and read the outline, the hits, and the width.
+- [x] For the generated XML document, the outline's names, kinds, list counts, and columns match what the session reports today. A closed record keeps an outline and no second body.
+- [x] Opening one entry uses the place the scan stored. Collapsing the list does not drop that place.
+- [x] A text search reports the same hits as today for every condition: contains, starts with, entire cell, Match case on and off, element name, attribute name, and value each switched off, plus a field name, a parent element name, a grandfather element name, and a parent attribute name.
+- [x] Each hit keeps its path, match offset, and match length. Two matches in one field stay two hits. Hits stay in document order. An empty Find what has no hits.
+- [x] A JSON value is the literal the cell shows. `{}` and a collapsed `Name[n]` are not values. A JSON attribute name and a JSON parent attribute match nothing. A repeated JSON key still stops the scan.
+- [x] A column fit of a long list of short cells applies the width produced by measuring every entry. It stops growing once a cell is already five hundred characters. The width matches what the session produces today.
+- [x] One slice of a scan, and one slice of a column fit, still returns well under a tenth of a second.
+- [x] This ticket does not change how long a scan, a search, or a gesture takes, and it does not add a seconds target.
