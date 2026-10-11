@@ -4,14 +4,14 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Every file in the timing set is measured through the viewer session. The documents stay outside the repository.
-- [ ] The scan clock runs from the start of the forward reading to the completed outline. Process start and the file dialog are not included.
-- [ ] The signing search is the default text search. Find what is three characters, fixed per document, with at least one hit and no more than two thousand. Its clock ends when the hit list is complete.
-- [ ] After the scan, the gestures use the list with the greatest entry count, or the earliest when counts tie. Expand once, then scroll down one viewport, then scroll across one viewport, then drag the first data column ten character widths wider, then column-fit that column. A remainder shorter than a viewport moves to the end of that axis.
-- [ ] The first data column is the first column that is not the entry index. The expand is not included in the column-fit clock. The list is already expanded when the fit starts.
-- [ ] A document with no list uses the open record's value column for the drag and the column fit, one scroll on each axis, and the first expandable cell for the expand.
-- [ ] An axis whose content already fits is recorded as not required to halve.
-- [ ] The three working-set points and the sequential-read time are recorded beside the clocks.
-- [ ] The table is appended to the spec. The numbers already in the spec's further notes are not reused as this baseline. The viewer does not change, and the suite does not gain a seconds target.
+- [x] Every file in the timing set is measured through the viewer session. The documents stay outside the repository.
+- [x] The scan clock runs from the start of the forward reading to the completed outline. Process start and the file dialog are not included.
+- [x] The signing search is the default text search. Find what is three characters, fixed per document, with at least one hit and no more than two thousand. Its clock ends when the hit list is complete.
+- [x] After the scan, the gestures use the list with the greatest entry count, or the earliest when counts tie. Expand once, then scroll down one viewport, then scroll across one viewport, then drag the first data column ten character widths wider, then column-fit that column. A remainder shorter than a viewport moves to the end of that axis.
+- [x] The first data column is the first column that is not the entry index. The expand is not included in the column-fit clock. The list is already expanded when the fit starts.
+- [x] A document with no list uses the open record's value column for the drag and the column fit, one scroll on each axis, and the first expandable cell for the expand.
+- [x] An axis whose content already fits is recorded as not required to halve.
+- [x] The three working-set points and the sequential-read time are recorded beside the clocks.
+- [x] The table is appended to the spec. The numbers already in the spec's further notes are not reused as this baseline. The viewer does not change, and the suite does not gain a seconds target.
