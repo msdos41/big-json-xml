@@ -20,6 +20,8 @@ internal readonly struct JsonNote
 
     public long EntryStart { get; init; }
 
+    public Slot? Slot { get; init; }
+
     public static JsonNote Halt(string message, JsonEvent ev) => new()
     {
         Stop = true,
@@ -29,11 +31,12 @@ internal readonly struct JsonNote
         Column = ev.Column,
     };
 
-    public static JsonNote Entry(DocumentPath path, long start) => new()
+    public static JsonNote Entry(DocumentPath path, long start, Slot slot) => new()
     {
         HasEntry = true,
         Path = path,
         EntryStart = start,
+        Slot = slot,
     };
 }
 
@@ -239,7 +242,27 @@ internal sealed class JsonTree
         var list = array.List!;
         list.Count++;
         list.EntryStarts!.Add(start);
-        return JsonNote.Entry(list.Path!, start);
+        return JsonNote.Entry(list.Path!, start, list);
+    }
+
+    public void AddDrained(Slot list, long start, IReadOnlyList<string> keys, bool valueColumn)
+    {
+        if (valueColumn)
+            AddColumn(list, ValueKey, "#value");
+        else
+        {
+            foreach (var name in keys)
+                AddColumn(list, FieldKey.Elem("", name), name);
+        }
+
+        list.Count++;
+        list.EntryStarts!.Add(start);
+    }
+
+    public void AddSame(Slot list, long start)
+    {
+        list.Count++;
+        list.EntryStarts!.Add(start);
     }
 
     private static void AddColumn(Slot list, FieldKey key, string name)

@@ -141,7 +141,7 @@ internal static class JsonSniff
 /// <summary>
 /// One forward reading of a JSON value. A document read also watches for a second value.
 /// </summary>
-internal sealed class JsonParser
+internal sealed partial class JsonParser
 {
     private const int PhValue = 0;
     private const int PhKey = 1;
@@ -193,6 +193,28 @@ internal sealed class JsonParser
     private int _markLine = 1;
     private int _markColumn = 1;
     private bool _markCr;
+    private readonly Stack<HashSet<string>> _keySets = new();
+    private readonly List<string> _directKeys = new();
+    private long _takenStart;
+    private bool _takenObject;
+    private bool _seeking;
+    private IJsonItem? _sink;
+    private string _needleText = "";
+    private byte[] _needleBytes = [];
+    private DocumentPath.Step[] _trail = new DocumentPath.Step[8];
+    private int _trailCount;
+    private byte[][] _shapeKeys = [];
+    private bool _haveShape;
+    private bool _sameShape;
+    private bool _breaksTrusted;
+    private long _lineAt;
+    private long _markLineAt;
+    private bool _lineDirty;
+    private bool _holdLine;
+
+    internal bool FlatSameShape => _sameShape;
+
+    internal IReadOnlyList<string> DirectKeys => _directKeys;
 
     private JsonParser(IByteSource source, long offset, bool oneValue)
     {
@@ -1027,6 +1049,11 @@ internal sealed class JsonParser
     private void Consume(byte value)
     {
         _pos++;
+        if (_holdLine)
+        {
+            _column++;
+            return;
+        }
         if (_cr)
         {
             _cr = false;
@@ -1058,6 +1085,7 @@ internal sealed class JsonParser
         _markLine = _line;
         _markColumn = _column;
         _markCr = _cr;
+        _markLineAt = _lineAt;
     }
 
     private void Rewind()
@@ -1066,6 +1094,29 @@ internal sealed class JsonParser
         _line = _markLine;
         _column = _markColumn;
         _cr = _markCr;
+        _lineAt = _markLineAt;
+        _holdLine = false;
+        _lineDirty = false;
+    }
+
+    // The fast array walk does not count breaks. A rewind or the closing bracket catches the cursor up.
+    private void SyncLine()
+    {
+        var hold = _holdLine;
+        _holdLine = false;
+        Span<byte> buf = stackalloc byte[4096];
+        var at = _lineAt;
+        while (at < _pos)
+        {
+            var n = (int)Math.Min(buf.Length, _pos - at);
+            if (ReadSource(at, buf[..n]) != n)
+                break;
+            Charge(buf[..n]);
+            at += n;
+        }
+
+        _lineAt = _pos;
+        _holdLine = hold;
     }
 
     private Place Here() => new(_pos, _line, _column);
@@ -1192,6 +1243,13 @@ internal sealed class JsonParser
 
     private void AdvanceSpace(ReadOnlySpan<byte> run)
     {
+        if (_holdLine)
+        {
+            _pos += run.Length;
+            NoteBreaksSlow(run);
+            return;
+        }
+
         var i = 0;
         if (_cr && run.Length > 0)
         {

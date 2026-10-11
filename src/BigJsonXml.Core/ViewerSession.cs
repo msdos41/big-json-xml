@@ -451,13 +451,44 @@ public sealed partial class ViewerSession : IDisposable
             return;
         }
 
-        if (note.HasEntry
-            && note.Path is DocumentPath path
-            && _offsets.TryGetValue(new OffsetKey(0, path), out var index)
-            && note.EntryStart >= index.Watermark)
+        if (note.HasEntry && note.Path is DocumentPath path && note.Slot is Slot slot)
         {
-            index.Offsets.Add(note.EntryStart);
-            index.Watermark = note.EntryStart + 1;
+            RememberEntry(path, note.EntryStart);
+            DrainJson(slot, path);
+        }
+    }
+
+    private void RememberEntry(DocumentPath path, long start)
+    {
+        if (_offsets.TryGetValue(new OffsetKey(0, path), out var index) && start >= index.Watermark)
+        {
+            index.Offsets.Add(start);
+            index.Watermark = start + 1;
+        }
+    }
+
+    private void DrainJson(Slot slot, DocumentPath path)
+    {
+        var stamp = System.Diagnostics.Stopwatch.GetTimestamp();
+        var limit = System.Diagnostics.Stopwatch.Frequency / 80;
+        var deadline = stamp + limit;
+        while (System.Diagnostics.Stopwatch.GetTimestamp() - stamp < limit)
+        {
+            var take = _json!.TryTakeArrayItem(deadline, out var start, out var stopByte, out var stopLine, out var stopColumn);
+            if (take is JsonParser.ItemTake.None or JsonParser.ItemTake.Defer)
+                return;
+            if (take == JsonParser.ItemTake.Repeated)
+            {
+                Error = new ScanStop("A repeated key stops the scan.", stopByte, stopLine, stopColumn);
+                Progress = ScanProgress.Stopped;
+                return;
+            }
+
+            if (_json.FlatSameShape)
+                _jsonTree!.AddSame(slot, start);
+            else
+                _jsonTree!.AddDrained(slot, start, _json.DirectKeys, take == JsonParser.ItemTake.Value);
+            RememberEntry(path, start);
         }
     }
 
