@@ -63,7 +63,8 @@ public sealed partial class ViewerSession
             return;
         }
 
-        MeasureEntry(run, run.Next);
+        if (!TryMeasureFast(run, run.Offsets.Offsets[run.Next], run.ColumnSlot.Key))
+            MeasureEntry(run, run.Next);
         run.Next++;
         if (run.Next >= run.Count || run.Width >= FitCeiling)
             run.Finished = true;
