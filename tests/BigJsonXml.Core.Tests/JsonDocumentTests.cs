@@ -344,6 +344,23 @@ public class JsonDocumentTests
         Assert.Equal(json.LastIndexOf("\"a\"", StringComparison.Ordinal), session.Error.ByteOffset);
     }
 
+    [Fact]
+    public void A_repeated_key_in_a_later_item_stops_the_scan()
+    {
+        var session = Open("{\"items\":[{\"a\":1},{\"b\":{\"c\":1,\"c\":2}}]}");
+        Assert.Equal(ScanProgress.Stopped, session.Progress);
+        Assert.Equal("A repeated key stops the scan.", session.Error!.Message);
+        Assert.Equal(1, session.Field("items").ListCount);
+    }
+
+    [Fact]
+    public void An_ill_formed_number_in_a_later_item_stops_the_scan()
+    {
+        var session = Open("{\"items\":[{\"a\":1},{\"b\":{\"c\":01}}]}");
+        Assert.Equal(ScanProgress.Stopped, session.Progress);
+        Assert.Equal(1, session.Field("items").ListCount);
+    }
+
     [Theory]
     [InlineData("{\"a\":1,}")]
     [InlineData("{\"a\":1}//no")]
