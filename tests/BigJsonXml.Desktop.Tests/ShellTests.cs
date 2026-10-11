@@ -150,6 +150,40 @@ public class ShellTests
     }
 
     [Fact]
+    public void Closing_either_search_window_stops_the_query()
+    {
+        StoppedAfter(closeFind: false);
+        StoppedAfter(closeFind: true);
+    }
+
+    private static void StoppedAfter(bool closeFind)
+    {
+        var source = new MemoryByteSource();
+        source.Append("<root><item>123</item>");
+        using var model = new ViewerModel();
+        model.Open(source);
+        model.ShowFind();
+        model.FindWhat = "123";
+        model.MatchCase = false;
+        model.FindAll();
+        Assert.Equal(1, model.ResultCount);
+
+        source.Append("<item>nope</item><item>123</item></root>");
+        source.Complete();
+        if (closeFind)
+            model.CloseFind();
+        else
+            model.CloseResults();
+
+        for (var i = 0; i < 40 && model.Tabs[0].Progress == ScanProgress.Scanning; i++)
+            model.Tick();
+
+        Assert.Equal(ScanProgress.Completed, model.Tabs[0].Progress);
+        Assert.Equal(1, model.ResultCount);
+        Assert.Equal("123", model.Results[0].Text);
+    }
+
+    [Fact]
     public void Closing_search_windows_clears_the_document_mark()
     {
         var path = Write("<root><n>aa</n><n>ab</n></root>");

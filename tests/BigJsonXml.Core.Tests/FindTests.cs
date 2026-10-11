@@ -658,4 +658,22 @@ public class FindTests
 
         Assert.Equal(40, session.Hits.Count);
     }
+
+    [Fact]
+    public void Cancel_search_keeps_hits_already_found_and_lets_the_scan_finish()
+    {
+        var source = new MemoryByteSource();
+        source.Append("<root><item>123</item><item>nope</item><item>123</item></root>");
+        source.Complete();
+        var session = ViewerSession.Open(source);
+        session.Search(new TextSearch { FindWhat = "123", MatchCase = false });
+        for (var step = 0; step < 100_000 && session.Hits.Count < 1; step++)
+            Assert.True(session.Pump(1));
+
+        Assert.Single(session.Hits);
+        session.CancelSearch();
+        session.PumpAll();
+        Assert.Single(session.Hits);
+        Assert.Equal(ScanProgress.Completed, session.Progress);
+    }
 }
