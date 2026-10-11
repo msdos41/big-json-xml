@@ -4,12 +4,12 @@
 
 **Blocked by:** 03: Halve the XML scan. 04: Halve the JSON scan.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Every document in the timing set finishes the signing search in at most half the median recorded for it in ticket 01. Find what is the same three-character sequence used for that baseline, with at least one hit and no more than two thousand.
-- [ ] A search whose baseline is already within twice a sequential read of that file is recorded as missing the half and is no slower than that baseline.
-- [ ] Each hit keeps its path, match offset, and match length, in document order. Two matches in one field stay two hits.
-- [ ] Starts with, entire cell, Match case off, and a field name, parent element name, grandfather element name, or parent attribute name keep the hits pinned in ticket 02 and are no slower than they are today.
-- [ ] An empty Find what has no hits. Comments are not hits. A JSON attribute name and a JSON parent attribute match nothing. A JSON value stays the literal the cell shows.
-- [ ] The working set at the end of the signing search is at most one and a half times the figure recorded for that document in ticket 01.
-- [ ] Hits can still appear while a scan is in progress. The search does not consult list-entry offsets.
+- [x] Every document in the timing set finishes the signing search in at most half the median recorded for it in ticket 01. Find what is the same three-character sequence used for that baseline, with at least one hit and no more than two thousand.
+- [x] A search whose baseline is already within twice a sequential read of that file is recorded as missing the half and is no slower than that baseline.
+- [x] Each hit keeps its path, match offset, and match length, in document order. Two matches in one field stay two hits.
+- [x] Starts with, entire cell, Match case off, and a field name, parent element name, grandfather element name, or parent attribute name keep the hits pinned in ticket 02 and are no slower than they are today.
+- [x] An empty Find what has no hits. Comments are not hits. A JSON attribute name and a JSON parent attribute match nothing. A JSON value stays the literal the cell shows.
+- [x] The working set at the end of the signing search is at most one and a half times the figure recorded for that document in ticket 01.
+- [x] Hits can still appear while a scan is in progress. The search does not consult list-entry offsets.
