@@ -278,6 +278,8 @@ public sealed partial class ViewerSession : IDisposable
         };
     }
 
+    public void CancelSearch() => _search = null;
+
     public string FormatPath(DocumentPath path)
     {
         ArgumentNullException.ThrowIfNull(path);

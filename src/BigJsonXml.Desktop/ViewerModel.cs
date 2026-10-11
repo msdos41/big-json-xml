@@ -110,7 +110,10 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         if (resultsWereOpen)
             OnPropertyChanged(nameof(ResultsWindowOpen));
         if (findWasOpen || resultsWereOpen)
+        {
+            StopSearches();
             ClearMarks();
+        }
     }
 
     public void CloseResults()
@@ -119,6 +122,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             return;
         _resultsWindowOpen = false;
         OnPropertyChanged(nameof(ResultsWindowOpen));
+        StopSearches();
         ClearMark();
     }
 
@@ -679,6 +683,12 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             tab.Session.ClearMark();
         if (Active is not null)
             Refresh();
+    }
+
+    private void StopSearches()
+    {
+        foreach (var tab in _tabs)
+            tab.Session.CancelSearch();
     }
 
     public void Toggle(SurfaceRow row)
