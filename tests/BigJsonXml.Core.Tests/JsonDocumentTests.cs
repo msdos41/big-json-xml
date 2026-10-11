@@ -362,6 +362,37 @@ public class JsonDocumentTests
     }
 
     [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void A_repeated_key_after_a_nested_item_keeps_its_line(string br)
+    {
+        var json = "{\"items\":[" + br
+            + "{\"a\":1}," + br
+            + "{\"b\":{\"n\":1}}," + br
+            + "{\"b\":{\"n\":1," + br
+            + "\"m\":2}}," + br
+            + "{\"b\":{\"c\":1,\"c\":2}}" + br
+            + "]}";
+        var session = Open(json);
+        Assert.Equal(ScanProgress.Stopped, session.Progress);
+        Assert.Equal("A repeated key stops the scan.", session.Error!.Message);
+        Assert.Equal(3, session.Field("items").ListCount);
+        Assert.Equal(6, session.Error.Line);
+        Assert.Equal(13, session.Error.Column);
+    }
+
+    [Fact]
+    public void A_repeated_key_on_the_same_line_keeps_its_column()
+    {
+        var session = Open("{\"items\":[{\"a\":1},{\"b\":{\"n\":1}},{\"b\":{\"n\":1}},{\"b\":{\"c\":1,\"c\":2}}]}");
+        Assert.Equal(ScanProgress.Stopped, session.Progress);
+        Assert.Equal("A repeated key stops the scan.", session.Error!.Message);
+        Assert.Equal(3, session.Field("items").ListCount);
+        Assert.Equal(1, session.Error.Line);
+        Assert.Equal(59, session.Error.Column);
+    }
+
+    [Theory]
     [InlineData("{\"a\":1,}")]
     [InlineData("{\"a\":1}//no")]
     [InlineData("{\"a\":1,\"b\":NaN}")]
