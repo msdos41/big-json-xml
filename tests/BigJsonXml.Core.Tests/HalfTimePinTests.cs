@@ -52,6 +52,19 @@ public class HalfTimePinTests
     }
 
     [Fact]
+    public void A_default_json_search_keeps_both_matches_in_one_value()
+    {
+        const string json = """{"items":[{"name":"RTM=123 and 123"}]}""";
+        var session = SessionFixture.Scan(json);
+        session.Search(new TextSearch { FindWhat = "123" });
+        session.PumpAll();
+
+        Assert.Equal(
+            ["/items[1]/name@5+3", "/items[1]/name@13+3"],
+            session.Hits.Select(hit => $"{session.FormatPath(hit.Path)}@{hit.CharacterOffset}+{hit.MatchLength}").ToArray());
+    }
+
+    [Fact]
     public void One_scan_slice_and_one_column_fit_slice_stay_short()
     {
         const int count = 20_000;
