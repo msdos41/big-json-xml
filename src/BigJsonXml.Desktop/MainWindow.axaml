@@ -28,10 +28,12 @@
     <Grid ColumnDefinitions="*,Auto" RowDefinitions="*,Auto">
       <local:DocumentSurface Grid.Row="0" Grid.Column="0"/>
       <ScrollBar Grid.Row="0" Grid.Column="1" Orientation="Vertical"
+                 AllowAutoHide="False"
                  Minimum="0" Maximum="{Binding ScrollMaxY}"
                  ViewportSize="{Binding ViewportHeight}"
                  Value="{Binding ScrollY, Mode=TwoWay}"/>
       <ScrollBar Grid.Row="1" Grid.Column="0" Orientation="Horizontal"
+                 AllowAutoHide="False"
                  Minimum="0" Maximum="{Binding ScrollMaxX}"
                  ViewportSize="{Binding ViewportWidth}"
                  Value="{Binding ScrollX, Mode=TwoWay}"/>
