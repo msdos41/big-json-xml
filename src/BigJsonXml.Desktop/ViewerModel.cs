@@ -1085,7 +1085,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             var grown = false;
             for (var i = tab.Results.Count; i < next.Count; i++)
             {
-                tab.Results.Add(Describe(tab, next[i]));
+                if (!TryDescribe(tab, next[i], out var described))
+                    break;
+                tab.Results.Add(described);
                 grown = true;
             }
 
@@ -1108,7 +1110,11 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             var currentHit = tab.Current?.Hit;
             tab.Results.Clear();
             foreach (var hit in next)
-                tab.Results.Add(Describe(tab, hit));
+            {
+                if (!TryDescribe(tab, hit, out var described))
+                    break;
+                tab.Results.Add(described);
+            }
             tab.BuiltWidth = _resultWidth;
             SyncVisible(tab);
             if (currentHit is null)
@@ -1225,10 +1231,22 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private FindResult Describe(DocumentTab tab, Hit hit)
+    private bool TryDescribe(DocumentTab tab, Hit hit, out FindResult result)
     {
-        var text = tab.Session.ReadHitText(hit, _resultWidth);
-        return new FindResult(hit, text.Text, text.MarkStart, text.MarkLength, tab.Session.FormatPath(hit.Path));
+        try
+        {
+            var text = tab.Session.ReadHitText(hit, _resultWidth);
+            result = new FindResult(hit, text.Text, text.MarkStart, text.MarkLength, tab.Session.FormatPath(hit.Path));
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            // The tree and the search take turns. A hit can name a cell that is
+            // not readable yet. Leave it for the next refresh instead of tearing
+            // the process down while the results window is closing.
+            result = null!;
+            return false;
+        }
     }
 
     private TextSearch Criteria() => new()

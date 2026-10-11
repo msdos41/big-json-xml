@@ -308,7 +308,8 @@ public sealed partial class ViewerSession : IDisposable
             characterWidth = 1;
         if (hit.OnName)
             return NameHitText(hit.NameText, hit.CharacterOffset, hit.MatchLength, characterWidth);
-        var pieces = Pieces(hit.Path);
+        if (!TryHitPieces(hit, out var pieces))
+            throw new InvalidOperationException($"{hit.Path} is not a scalar.");
         var length = ExpandedText.Count(_document, pieces);
         if (length <= characterWidth)
         {
@@ -731,10 +732,30 @@ public sealed partial class ViewerSession : IDisposable
 
     private List<TextPiece> Pieces(DocumentPath path)
     {
-        var (_, slot) = Locate(path);
-        if (slot.Kind != SlotKind.Scalar)
-            throw new InvalidOperationException($"{path} is not a scalar.");
-        return slot.Text;
+        if (TryScalar(path, out var pieces))
+            return pieces;
+        throw new InvalidOperationException($"{path} is not a scalar.");
+    }
+
+    // Search can still hold the first simple match on the field path after the
+    // tree has already promoted that field to a list.
+    private bool TryHitPieces(Hit hit, out List<TextPiece> pieces)
+    {
+        if (TryScalar(hit.Path, out pieces))
+            return true;
+        if (!hit.SimpleText || hit.Path.Steps.Count == 0 || hit.Path.Steps[^1].OneBasedIndex is not null)
+            return false;
+        try
+        {
+            var (_, slot) = Locate(hit.Path);
+            if (slot.Kind != SlotKind.List)
+                return false;
+            return TryScalar(hit.Path.WithIndex(1).Field("#text"), out pieces);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
     }
 
     private bool TryScalar(DocumentPath path, out List<TextPiece> pieces)
