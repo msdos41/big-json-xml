@@ -9,9 +9,24 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 {
     public const int ScanSliceMilliseconds = 32;
     public const int ScanIdleMilliseconds = 16;
+    public const int QuiescentScanSliceMilliseconds = 64;
+    public const int QuiescentScanIdleMilliseconds = 4;
+    public const int QuiescenceThresholdMilliseconds = 250;
+    public const int ScanRefreshIntervalMilliseconds = 33;
     public const double FoundColumnMin = 64;
     public const double FoundColumnMax = 4000;
     public const double FoundColumnPadding = 8;
+
+    public int CurrentScanSliceMilliseconds { get; internal set; } = ScanSliceMilliseconds;
+    public int CurrentScanIdleMilliseconds { get; internal set; } = ScanIdleMilliseconds;
+    public long LastInteractionTime { get; set; } = Environment.TickCount64;
+
+    public void NoteUserInteraction(long timestamp = 0)
+    {
+        LastInteractionTime = timestamp > 0 ? timestamp : Environment.TickCount64;
+        CurrentScanSliceMilliseconds = ScanSliceMilliseconds;
+        CurrentScanIdleMilliseconds = ScanIdleMilliseconds;
+    }
 
     private readonly ObservableCollection<DocumentTab> _tabs = [];
     private readonly ObservableCollection<FindResult> _emptyResults = [];
