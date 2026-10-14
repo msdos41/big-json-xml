@@ -4,10 +4,10 @@
 
 **Blocked by:** 01: Record the baseline for deeply nested multi-list documents.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A test fixture pins the root fields, kinds, list counts, and column header names for the target document.
-- [ ] List entry offsets for deep micro-lists are pinned, and opening an entry by index returns the expected cell values without walking sibling entries.
-- [ ] A test asserts that unclosed non-simple child elements appear in the parent record table while scanning is still in progress inside that element (ADR 0021).
-- [ ] A test asserts that mixed content, empty tags, and attribute-only elements retain their current outline representation.
-- [ ] All tests run through the `ViewerSession` public seam without asserting internal parser state.
+- [x] A test fixture pins the root fields, kinds, list counts, and column header names for the target document.
+- [x] List entry offsets for deep micro-lists are pinned, and opening an entry by index returns the expected cell values without walking sibling entries.
+- [x] A test asserts that unclosed non-simple child elements appear in the parent record table while scanning is still in progress inside that element (ADR 0021).
+- [x] A test asserts that mixed content, empty tags, and attribute-only elements retain their current outline representation.
+- [x] All tests run through the `ViewerSession` public seam without asserting internal parser state.
