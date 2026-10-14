@@ -394,10 +394,13 @@ public sealed partial class ViewerSession : IDisposable
         ScrollIntoView(hit.Path);
     }
 
-    public void Dispose() => _owned?.Dispose();
+    public void Dispose()
+    {
+        _xml?.Dispose();
+        _owned?.Dispose();
+    }
 
     internal long XmlStartCount => _xml?.StartCount ?? 0;
-
     internal int XmlShapeCacheCount => _xml?.ShapeCacheCount ?? 0;
 
     private bool Detect()
@@ -538,13 +541,20 @@ public sealed partial class ViewerSession : IDisposable
 
         if (!_tree.Apply(ev, out var folded))
             return;
+
+        if (!folded.Promoted && folded.Slot.Kind != SlotKind.List)
+            return;
+
         var path = folded.Slot.Path ?? folded.Parent.Path.Field(folded.Slot.Name);
         var key = OffsetKey.For(folded.Parent, folded.Slot, path);
         if (folded.Promoted)
         {
             _expanded.Remove(path);
             _xml!.PreferFlat(folded.Slot.Name);
-            _offsets[key] = Seed(folded.Slot, folded.ChildStart, folded.ChildEnd);
+            var seededIndex = Seed(folded.Slot, folded.ChildStart, folded.ChildEnd);
+            _offsets[key] = seededIndex;
+            if (ev.Kind == XmlEventKind.Flat)
+                DrainFlat(folded.Slot, seededIndex);
             return;
         }
 

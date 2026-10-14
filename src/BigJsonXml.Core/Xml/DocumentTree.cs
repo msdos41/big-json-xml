@@ -520,8 +520,59 @@ internal sealed class DocumentTree
         var parent = Stack.Peek();
         var key = FieldKey.Elem(ev.Ns, ev.Local);
         var slot = parent.FindKey(key);
-        if (slot is null || slot.Kind != SlotKind.List)
-            return false;
+        if (slot is null)
+        {
+            slot = RentSlot();
+            slot.Key = key;
+            slot.Name = ev.Name;
+            slot.StartByte = ev.ByteStart;
+            slot.EndByte = ev.ByteEnd;
+            slot.ParentScope = parent.Scope;
+            slot.Kind = SlotKind.Record;
+            slot.Count = 1;
+            slot.HasFields = true;
+            slot.Inner = new List<Column>(ev.FlatFields.Count);
+            foreach (var field in ev.FlatFields)
+                AddColumn(slot.Inner, field.Key, field.Name);
+            slot.OutlineCount = slot.Inner.Count;
+            slot.OutlineSoleList = false;
+            NoteElement(parent);
+            AddSlot(parent, slot);
+            parent.StableByte = ev.ByteEnd;
+            folded = new Folded(parent, slot, ev.ByteStart, ev.ByteEnd, false);
+            return true;
+        }
+
+        if (slot.Kind == SlotKind.Record)
+        {
+            slot.Kind = SlotKind.List;
+            slot.Count = 2;
+            slot.HasFields = true;
+            slot.Columns = CopyColumns(slot.Inner);
+            slot.Inner.Clear();
+            slot.EndByte = ev.ByteEnd;
+            parent.StableByte = ev.ByteEnd;
+            foreach (var field in ev.FlatFields)
+                AddColumn(slot.Columns, field.Key, field.Name);
+            folded = new Folded(parent, slot, ev.ByteStart, ev.ByteEnd, true);
+            return true;
+        }
+
+        if (slot.Kind == SlotKind.Scalar)
+        {
+            slot.Kind = SlotKind.List;
+            slot.Count = 2;
+            slot.HasFields = true;
+            slot.Columns = TextColumns(slot);
+            slot.Text.Clear();
+            slot.EndByte = ev.ByteEnd;
+            parent.StableByte = ev.ByteEnd;
+            foreach (var field in ev.FlatFields)
+                AddColumn(slot.Columns, field.Key, field.Name);
+            folded = new Folded(parent, slot, ev.ByteStart, ev.ByteEnd, true);
+            return true;
+        }
+
         slot.Count++;
         slot.EndByte = ev.ByteEnd;
         parent.StableByte = ev.ByteEnd;

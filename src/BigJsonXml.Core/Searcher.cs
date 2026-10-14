@@ -107,6 +107,8 @@ internal sealed class Searcher : IScanSearch
             {
                 var parent = _stack.Peek();
                 parent.SetCount(key, parent.CountOf(key) + missed);
+                parent.Names ??= new Dictionary<FieldKey, string>();
+                parent.Names.TryAdd(key, name);
                 if (Stopwatch.GetTimestamp() >= deadline)
                     return;
             }
@@ -123,6 +125,8 @@ internal sealed class Searcher : IScanSearch
             var parent = _stack.Peek();
             var key = FieldKey.Elem("", name);
             parent.SetCount(key, parent.CountOf(key) + 1);
+            parent.Names ??= new Dictionary<FieldKey, string>();
+            parent.Names.TryAdd(key, name);
             return;
         }
 
@@ -224,7 +228,7 @@ internal sealed class Searcher : IScanSearch
         var count = parent.CountOf(key) + 1;
         parent.SetCount(key, count);
         parent.Names ??= new Dictionary<FieldKey, string>();
-        if (count == 1)
+        if (!parent.Names.ContainsKey(key))
             parent.Names[key] = ev.Name;
         var display = parent.Names[key];
         if (count == 2)

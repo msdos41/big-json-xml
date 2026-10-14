@@ -95,6 +95,10 @@ internal sealed class XmlParser
     private readonly XmlEvent _event = new();
     private readonly Dictionary<int, string[]> _names = new();
     private readonly Dictionary<int, HashSet<string>> _flatAtDepth = new();
+    private readonly Dictionary<(string Parent, string Child), ElementShape> _shapeCache = new();
+    private readonly LinkedList<(string Parent, string Child)> _fifoOrder = new();
+    private readonly Dictionary<string, HashSet<string>> _predictedByParent = new(StringComparer.Ordinal);
+    private readonly HashSet<(string Parent, string Child)> _shapeBlacklist = new();
     private readonly Dictionary<string, string> _atColumns = new(StringComparer.Ordinal);
     private readonly List<FlatField> _flatFields = [];
     private readonly List<string> _flatShape = [];
@@ -121,7 +125,7 @@ internal sealed class XmlParser
 
     internal long FileByte => _byte;
     internal long StartCount { get; private set; }
-    internal int ShapeCacheCount => 0;
+    internal int ShapeCacheCount => _shapeCache.Count;
 
     public static XmlParser Fragment(XmlDocument document, NsScope scope, long offset, long limit)
     {
@@ -382,6 +386,90 @@ internal sealed class XmlParser
         }
 
         names.Add(name);
+
+        var parentName = ParentNameFor(name);
+        if (parentName is not null)
+            RegisterPrediction(parentName, name);
+    }
+
+    private string? ParentNameFor(string name)
+    {
+        var found = false;
+        foreach (var open in _open)
+        {
+            if (found)
+                return open;
+            if (open == name)
+                found = true;
+        }
+
+        if (found)
+            return null;
+
+        return _open.Count > 0 ? _open.Peek() : null;
+    }
+
+    private void RegisterPrediction(string parentName, string childName)
+    {
+        var key = (parentName, childName);
+        if (_shapeBlacklist.Contains(key))
+            return;
+        if (_shapeCache.ContainsKey(key))
+            return;
+
+        if (_fifoOrder.Count >= 512)
+        {
+            var oldest = _fifoOrder.First!.Value;
+            _fifoOrder.RemoveFirst();
+            _shapeCache.Remove(oldest);
+            if (_predictedByParent.TryGetValue(oldest.Parent, out var children))
+            {
+                children.Remove(oldest.Child);
+                if (children.Count == 0)
+                    _predictedByParent.Remove(oldest.Parent);
+            }
+        }
+
+        _fifoOrder.AddLast(key);
+        var shape = new ElementShape { Parent = parentName, Child = childName };
+        if (_haveShape && _flatShape.Count > 0)
+        {
+            shape.FlatShape = _flatShape.ToArray();
+            shape.ShapeKeys = _shapeKeys.ToArray();
+        }
+        _shapeCache[key] = shape;
+
+        if (!_predictedByParent.TryGetValue(parentName, out var list))
+        {
+            list = new HashSet<string>(StringComparer.Ordinal);
+            _predictedByParent[parentName] = list;
+        }
+        list.Add(childName);
+    }
+
+    private void RemovePrediction((string Parent, string Child) key)
+    {
+        _shapeCache.Remove(key);
+        _fifoOrder.Remove(key);
+        if (_predictedByParent.TryGetValue(key.Parent, out var list))
+        {
+            list.Remove(key.Child);
+            if (list.Count == 0)
+                _predictedByParent.Remove(key.Parent);
+        }
+    }
+
+    internal void Dispose()
+    {
+        _shapeCache.Clear();
+        _fifoOrder.Clear();
+        _predictedByParent.Clear();
+        _shapeBlacklist.Clear();
+        _flatAtDepth.Clear();
+        _names.Clear();
+        _intern.Clear();
+        _window = null;
+        _skipWindow = null;
     }
 
     private int OpenDepthForNext(string name)
@@ -2368,10 +2456,14 @@ internal sealed class XmlParser
     private bool TryFlatElement(out XmlEvent ev)
     {
         ev = _event;
-        if (_flatAtDepth.Count == 0 || _inputs.Count > 0 || _hasLow || _document.Encoding.CodePage != 65001 || _open.Count == 0)
+        if (_inputs.Count > 0 || _hasLow || _document.Encoding.CodePage != 65001 || _open.Count == 0)
             return false;
 
-        if (!_flatAtDepth.TryGetValue(_open.Count, out var names) || names.Count == 0)
+        var hasDepth = _flatAtDepth.TryGetValue(_open.Count, out var names) && names.Count > 0;
+        var parentName = _open.Peek();
+        var hasPredicted = _predictedByParent.TryGetValue(parentName, out var predicted) && predicted.Count > 0;
+
+        if (!hasDepth && !hasPredicted)
             return false;
 
         if (!TrySpan(out var span, out _) || span.Length < 3 || span[0] != (byte)'<' || span[1] is (byte)'/' or (byte)'!' or (byte)'?')
@@ -2379,36 +2471,117 @@ internal sealed class XmlParser
         var index = 1;
         if (!ScanName(span, ref index, out var nameAt, out var nameLen))
             return false;
+
         string? matched = null;
-        foreach (var candidate in names)
+        var speculative = false;
+
+        if (hasDepth)
         {
-            if (candidate.Length != nameLen)
-                continue;
-            var same = true;
-            for (var i = 0; i < nameLen; i++)
+            foreach (var candidate in names!)
             {
-                if ((byte)candidate[i] != span[nameAt + i])
+                if (candidate.Length != nameLen)
+                    continue;
+                var same = true;
+                for (var i = 0; i < nameLen; i++)
                 {
-                    same = false;
+                    if ((byte)candidate[i] != span[nameAt + i])
+                    {
+                        same = false;
+                        break;
+                    }
+                }
+
+                if (same)
+                {
+                    matched = candidate;
                     break;
                 }
             }
+        }
 
-            if (same)
+        if (matched is null && hasPredicted)
+        {
+            foreach (var candidate in predicted!)
             {
-                matched = candidate;
-                break;
+                if (candidate.Length != nameLen)
+                    continue;
+                var key = (parentName, candidate);
+                if (_shapeBlacklist.Contains(key))
+                    continue;
+
+                var same = true;
+                for (var i = 0; i < nameLen; i++)
+                {
+                    if ((byte)candidate[i] != span[nameAt + i])
+                    {
+                        same = false;
+                        break;
+                    }
+                }
+
+                if (same)
+                {
+                    matched = candidate;
+                    speculative = true;
+                    break;
+                }
             }
         }
 
         if (matched is null)
             return false;
 
+        ElementShape? cachedShape = null;
+        if (speculative && _shapeCache.TryGetValue((parentName, matched), out cachedShape) && cachedShape.FlatShape is not null)
+        {
+            _flatShape.Clear();
+            _flatShape.AddRange(cachedShape.FlatShape);
+            _shapeKeys.Clear();
+            _shapeKeys.AddRange(cachedShape.ShapeKeys!);
+            _haveShape = true;
+        }
+
         _flatFields.Clear();
         if (!ConsumeFlat(span, index, matched, out var consumed) && !RetryFlat(matched, out consumed))
         {
             _flatFields.Clear();
+            if (speculative)
+            {
+                var key = (parentName, matched);
+                _shapeBlacklist.Add(key);
+                RemovePrediction(key);
+                _haveShape = false;
+            }
             return false;
+        }
+
+        if (speculative)
+        {
+            if (_shapeCache.TryGetValue((parentName, matched), out var cached))
+            {
+                if (cached.FlatShape is null && _flatShape.Count > 0)
+                {
+                    cached.FlatShape = _flatShape.ToArray();
+                    cached.ShapeKeys = _shapeKeys.ToArray();
+                }
+
+                if (cached.Fields is null && _flatFields.Count > 0)
+                {
+                    cached.Fields = _flatFields.ToArray();
+                }
+            }
+
+            if (FlatSameShape && _flatFields.Count == 0 && cachedShape?.Fields is not null)
+            {
+                _flatFields.AddRange(cachedShape.Fields);
+            }
+
+            if (!_flatAtDepth.TryGetValue(_open.Count, out var currentFlat))
+            {
+                currentFlat = new HashSet<string>(StringComparer.Ordinal);
+                _flatAtDepth[_open.Count] = currentFlat;
+            }
+            currentFlat.Add(matched);
         }
 
         var start = _byte;
@@ -2843,7 +3016,7 @@ internal sealed class XmlParser
         if (rel < 0)
             return false;
         var body = rest[..rel];
-        if (body.IndexOf((byte)'<') >= 0 || body.IndexOf((byte)'&') >= 0)
+        if (body.IndexOf((byte)'<') >= 0 || (OmitFlatShape && body.IndexOf((byte)'&') >= 0))
             return false;
         if (OmitFlatShape)
         {
@@ -2872,7 +3045,7 @@ internal sealed class XmlParser
         return true;
     }
 
-    private static bool SkipStartTag(ReadOnlySpan<byte> span, ref int index, out bool empty)
+    private bool SkipStartTag(ReadOnlySpan<byte> span, ref int index, out bool empty)
     {
         empty = false;
         index++;
@@ -2899,7 +3072,7 @@ internal sealed class XmlParser
                 if (rel < 0)
                     return false;
                 var body = span.Slice(index, rel);
-                if (body.IndexOf((byte)'<') >= 0 || body.IndexOf((byte)'&') >= 0)
+                if (body.IndexOf((byte)'<') >= 0 || (OmitFlatShape && body.IndexOf((byte)'&') >= 0))
                     return false;
                 index += rel + 1;
                 continue;
@@ -3434,3 +3607,12 @@ internal sealed class XmlParser
 }
 
 internal readonly record struct FlatField(FieldKey Key, string Name);
+
+internal sealed class ElementShape
+{
+    public required string Parent { get; init; }
+    public required string Child { get; init; }
+    public string[]? FlatShape { get; set; }
+    public FieldKey[]? ShapeKeys { get; set; }
+    public FlatField[]? Fields { get; set; }
+}
