@@ -81,6 +81,9 @@ internal sealed class Frame
     public Dictionary<FieldKey, Slot> ByKey = [];
     public List<TextPiece> Text = [];
     public int TextAt = -1;
+    public Frame? Parent;
+    public bool Announced;
+    public bool ColumnsDirty;
 
     public bool IsSimple => !SawAttribute && !SawElement;
 
@@ -243,6 +246,7 @@ internal sealed class DocumentTree
     {
         var parent = Stack.Count == 0 ? null : Stack.Peek();
         var frame = RentFrame();
+        frame.Parent = parent;
         frame.Name = ev.Name;
         frame.Local = ev.Local;
         frame.Ns = ev.Ns;
@@ -266,7 +270,10 @@ internal sealed class DocumentTree
         }
 
         if (parent is null)
+        {
             Root = frame;
+            frame.Announced = true;
+        }
         else
             NoteElement(parent);
         Stack.Push(frame);
@@ -279,7 +286,7 @@ internal sealed class DocumentTree
     {
         if (!frame.IsSimple)
         {
-            var parent = ParentOf(frame);
+            var parent = frame.Parent;
             if (parent is not null && Ensure(parent, frame, out var folded))
             {
                 _announced = folded;
@@ -287,24 +294,16 @@ internal sealed class DocumentTree
             }
         }
 
-        var ancestor = ParentOf(frame);
+        var ancestor = frame.Parent;
         if (ancestor is not null)
-            Announce(ancestor);
-    }
-
-    private Frame? ParentOf(Frame frame)
-    {
-        var seen = false;
-        foreach (var item in Stack)
         {
-            if (seen)
-                return item;
-            if (ReferenceEquals(item, frame))
-                seen = true;
+            if (ancestor.Announced && !ancestor.ColumnsDirty)
+                return;
+            Announce(ancestor);
         }
-
-        return null;
     }
+
+    private static Frame? ParentOf(Frame frame) => frame.Parent;
 
     private bool Ensure(Frame parent, Frame child, out Folded folded)
     {
@@ -322,6 +321,8 @@ internal sealed class DocumentTree
             slot.Kind = SlotKind.Record;
             slot.HasFields = true;
             slot.Inner = ColumnsOf(child);
+            child.ColumnsDirty = false;
+            child.Announced = true;
             AddSlot(parent, slot);
             folded = new Folded(parent, slot, child.StartByte, child.EndByte, false);
             return true;
@@ -329,8 +330,12 @@ internal sealed class DocumentTree
 
         if (slot.PendingStart == child.StartByte)
         {
-            if (slot.Kind == SlotKind.Record)
+            child.Announced = true;
+            if (slot.Kind == SlotKind.Record && child.ColumnsDirty)
+            {
                 slot.Inner = ColumnsOf(child);
+                child.ColumnsDirty = false;
+            }
             return false;
         }
 
@@ -354,6 +359,7 @@ internal sealed class DocumentTree
             Merge(slot.Columns, child);
         }
 
+        child.Announced = true;
         slot.PendingStart = child.StartByte;
         folded = new Folded(parent, slot, child.StartByte, child.EndByte, promoted);
         return true;
@@ -406,7 +412,11 @@ internal sealed class DocumentTree
             {
                 pending.Kind = SlotKind.Record;
                 pending.HasFields = true;
-                pending.Inner = ColumnsOf(child);
+                if (child.ColumnsDirty || pending.Inner.Count == 0)
+                {
+                    pending.Inner = ColumnsOf(child);
+                    child.ColumnsDirty = false;
+                }
                 NoteOutline(pending, child);
                 if (_retainRecordBody)
                     pending.Detail = child;
@@ -434,6 +444,7 @@ internal sealed class DocumentTree
                 slot.Kind = SlotKind.Record;
                 slot.HasFields = true;
                 slot.Inner = ColumnsOf(child);
+                child.ColumnsDirty = false;
                 NoteOutline(slot, child);
                 if (_retainRecordBody)
                     slot.Detail = child;
@@ -583,6 +594,7 @@ internal sealed class DocumentTree
         }
 
         frame.Slots.Add(slot);
+        frame.ColumnsDirty = true;
         if (frame.AlwaysRecord || frame.Slots.Count > 8)
         {
             if (frame.ByKey.Count == 0)
@@ -700,6 +712,9 @@ internal sealed class DocumentTree
         frame.SawAttribute = false;
         frame.SawElement = false;
         frame.TextAt = -1;
+        frame.Parent = null;
+        frame.Announced = false;
+        frame.ColumnsDirty = false;
         return frame;
     }
 
@@ -768,6 +783,9 @@ internal sealed class DocumentTree
         frame.EndByte = -1;
         frame.ContentEnd = -1;
         frame.Path = DocumentPath.Root;
+        frame.Parent = null;
+        frame.Announced = false;
+        frame.ColumnsDirty = false;
         if (_spareFrames.Count < 32)
             _spareFrames.Push(frame);
     }
