@@ -4,11 +4,11 @@
 
 **Blocked by:** 02: Pin the nested outline, entry places, and unclosed field visibility.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `Frame` stores a direct reference to its enclosing parent frame upon rent/push, and clears it on recycle.
-- [ ] `Announce` stops upward propagation immediately when an ancestor is already announced and its columns are not dirty.
-- [ ] `Frame` maintains a `ColumnsDirty` flag, set only when an unseen field key is added to the frame.
-- [ ] `ColumnsOf` is bypassed when `ColumnsDirty` is false, avoiding repeated `List<Column>` allocations on static record tables.
-- [ ] All outline tests pinned in ticket 02 continue to pass without regression.
-- [ ] Processing time spent inside `DocumentTree.Apply` during the benchmark document scan is reduced by at least 1,000 milliseconds.
+- [x] `Frame` stores a direct reference to its enclosing parent frame upon rent/push, and clears it on recycle.
+- [x] `Announce` stops upward propagation immediately when an ancestor is already announced and its columns are not dirty.
+- [x] `Frame` maintains a `ColumnsDirty` flag, set only when an unseen field key is added to the frame.
+- [x] `ColumnsOf` is bypassed when `ColumnsDirty` is false, avoiding repeated `List<Column>` allocations on static record tables.
+- [x] All outline tests pinned in ticket 02 continue to pass without regression.
+- [x] Processing time spent inside `DocumentTree.Apply` during the benchmark document scan is reduced by at least 1,000 milliseconds.
