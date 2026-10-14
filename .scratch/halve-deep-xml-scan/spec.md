@@ -72,3 +72,21 @@ In the desktop viewer, the runner dynamically transitions to a 64-millisecond wo
 
 - The test file `4d7480cde29a662758904cbe0e1afdbb-BD_.xml` represents a class of deeply nested XML files containing tens of thousands of short tables. Prior optimizations focused on documents dominated by a single large list table (like employee records), which left multi-list cold-start overhead unaddressed.
 - ADR 0050 documents the architecture and constraints for cross-parent shape prediction and adaptive slicing.
+
+## Baseline
+
+Measured on 2026-10-14 through Release builds. Sequential read is median of three runs with a 1MB buffer, including file open. Scan clock runs from start of reading to completed outline, median of three runs in one process. Peak working set is process working set recorded after scan completes. Desktop scan wall-clock time is measured from open to scan completion via ViewerModel.
+
+| Document | Bytes | Seq ms | Scan ms | Peak WS bytes |
+| --- | ---: | ---: | ---: | ---: |
+| CD701EV CHS XML\底盘电线束总成-CD701.xml | 54864344 | 12.69 | 833.19 | 48787456 |
+| CD701EV CHS XML\发动机舱电线束总成-CD701.xml | 326175380 | 68.08 | 1021.11 | 57663488 |
+| employees-50-MB.xml | 41711374 | 6.95 | 63.85 | 67526656 |
+| employees-200-MB.xml | 166840082 | 27.85 | 242.70 | 50376704 |
+| test_500mb.vxf | 524317166 | 86.96 | 1700.99 | 56504320 |
+| employees-1-GB.xml | 854342244 | 144.02 | 1273.16 | 52219904 |
+| test_1gb.vxf | 1078151394 | 181.08 | 3463.78 | 48852992 |
+| 4d7480cde29a662758904cbe0e1afdbb-BD_.xml | 772381930 | 130.90 | 5753.71 | 111833088 |
+
+Desktop viewer scan completion wall-clock time on `4d7480cde29a662758904cbe0e1afdbb-BD_.xml`: 8826.73 ms.
+

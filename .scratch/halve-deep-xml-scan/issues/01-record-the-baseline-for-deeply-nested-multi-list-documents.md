@@ -4,10 +4,11 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Every document in the target benchmark set, including `4d7480cde29a662758904cbe0e1afdbb-BD_.xml` and representative timing set documents, is measured through the viewer session. The documents stay outside the repository.
-- [ ] The scan clock runs from the start of the forward reading to the completed outline. Process start, file dialogs, and painting stay outside the clock.
-- [ ] Sequential read is measured on the same machine with a 1MB buffer, median of three runs, including file open.
-- [ ] Peak working set is recorded after the scan completes and before search.
-- [ ] The baseline numbers are appended to the spec. The viewer code does not change in this ticket.
+- [x] Every document in the target benchmark set, including `4d7480cde29a662758904cbe0e1afdbb-BD_.xml` and representative timing set documents, is measured through the viewer session. The documents stay outside the repository.
+- [x] The scan clock runs from the start of the forward reading to the completed outline. Process start, file dialogs, and painting stay outside the clock.
+- [x] Sequential read is measured on the same machine with a 1MB buffer, median of three runs, including file open.
+- [x] Peak working set is recorded after the scan completes and before search.
+- [x] The baseline numbers are appended to the spec. The viewer code does not change in this ticket.
+
