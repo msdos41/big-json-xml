@@ -2627,7 +2627,8 @@ internal sealed class XmlParser
         _shapeBuild.Clear();
         _shapeIndex = 0;
         _sameShape = _haveShape;
-        _attrSpans.Clear();
+        if (_attrSpans.Count > 0)
+            _attrSpans.Clear();
         if (!SkipFlatAttributes(span, ref index, record: !OmitFlatShape))
             return false;
         if (index >= span.Length)
@@ -2695,7 +2696,8 @@ internal sealed class XmlParser
             index++;
             if (!ScanName(span, ref index, out var childAt, out var childLen))
                 return false;
-            Accept(span.Slice(childAt, childLen), NameKind.Element);
+            if (!Accept(span.Slice(childAt, childLen), NameKind.Element))
+                return false;
 
             if (!SkipFlatAttributes(span, ref index, record: false))
                 return false;
@@ -2733,7 +2735,8 @@ internal sealed class XmlParser
             cursor++;
         if ((uint)(cursor + 1) < (uint)span.Length && span[cursor] == (byte)'/' && span[cursor + 1] == (byte)'>')
         {
-            RecordChild(span.Slice(nameAt, nameLen));
+            if (!RecordChild(span.Slice(nameAt, nameLen)))
+                return false;
             index = cursor + 2;
             return true;
         }
@@ -2754,7 +2757,8 @@ internal sealed class XmlParser
             return false;
         if (!span.Slice(end + 2, nameLen).SequenceEqual(span.Slice(nameAt, nameLen)) || span[end + 2 + nameLen] != (byte)'>')
             return false;
-        RecordChild(span.Slice(nameAt, nameLen));
+        if (!RecordChild(span.Slice(nameAt, nameLen)))
+            return false;
         index = end + 3 + nameLen;
         return true;
     }
@@ -2798,13 +2802,12 @@ internal sealed class XmlParser
         return false;
     }
 
-    private void RecordChild(ReadOnlySpan<byte> bytes)
+    private bool RecordChild(ReadOnlySpan<byte> bytes)
     {
-        if (!OmitFlatShape)
-            Accept(bytes, NameKind.Element);
+        return OmitFlatShape || Accept(bytes, NameKind.Element);
     }
 
-    private void Accept(ReadOnlySpan<byte> bytes, NameKind kind)
+    private bool Accept(ReadOnlySpan<byte> bytes, NameKind kind)
     {
         if (_sameShape
             && _shapeIndex < _flatShape.Count
@@ -2813,7 +2816,7 @@ internal sealed class XmlParser
             && AsciiEqual(bytes, _flatShape[_shapeIndex]))
         {
             _shapeIndex++;
-            return;
+            return true;
         }
 
         if (_sameShape)
@@ -2828,6 +2831,15 @@ internal sealed class XmlParser
         }
 
         var made = InternAscii(bytes);
+        if (kind == NameKind.Attribute)
+        {
+            for (var i = 0; i < _flatFields.Count; i++)
+            {
+                if (_flatFields[i].Key.Kind == NameKind.Attribute && string.Equals(_flatFields[i].Key.Local, made, StringComparison.Ordinal))
+                    return false;
+            }
+        }
+
         var key = kind switch
         {
             NameKind.Attribute => FieldKey.Attr("", made),
@@ -2837,6 +2849,7 @@ internal sealed class XmlParser
         _shapeBuild.Add(made);
         _flatFields.Add(FieldOf(key, made));
         _shapeIndex = int.MaxValue;
+        return true;
     }
 
     private void AcceptText()
@@ -2979,15 +2992,20 @@ internal sealed class XmlParser
                 return false;
             if (record)
             {
-                for (var seen = 0; seen < _attrSpans.Count; seen++)
+                if (!_sameShape)
                 {
-                    var prev = _attrSpans[seen];
-                    if (prev.Len == attrLen && span.Slice(prev.At, prev.Len).SequenceEqual(attr))
-                        return false;
+                    for (var seen = 0; seen < _attrSpans.Count; seen++)
+                    {
+                        var prev = _attrSpans[seen];
+                        if (prev.Len == attrLen && span.Slice(prev.At, prev.Len).SequenceEqual(attr))
+                            return false;
+                    }
+
+                    _attrSpans.Add((attrAt, attrLen));
                 }
 
-                _attrSpans.Add((attrAt, attrLen));
-                Accept(attr, NameKind.Attribute);
+                if (!Accept(attr, NameKind.Attribute))
+                    return false;
             }
 
             while (index < span.Length && IsXmlSpace(span[index]))
