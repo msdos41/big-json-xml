@@ -4,9 +4,9 @@
 
 **Blocked by:** 04: Halve repeated micro-lists with cross-parent shape prediction.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] When `SameShape` is true in `ConsumeFlat`, `_attrSpans` clearing, duplicate span checking, and intermediate attribute allocations are bypassed.
-- [ ] Scanning a repeated list with many attributes per entry finishes in less time than before.
-- [ ] Field columns, order, and attribute values remain identical to today's output.
-- [ ] Existing timing documents (such as `employees-1-GB.xml` and `.vxf` documents) show no performance regression and maintain pinned outlines.
+- [x] When `SameShape` is true in `ConsumeFlat`, `_attrSpans` clearing, duplicate span checking, and intermediate attribute allocations are bypassed.
+- [x] Scanning a repeated list with many attributes per entry finishes in less time than before.
+- [x] Field columns, order, and attribute values remain identical to today's output.
+- [x] Existing timing documents (such as `employees-1-GB.xml` and `.vxf` documents) show no performance regression and maintain pinned outlines.
