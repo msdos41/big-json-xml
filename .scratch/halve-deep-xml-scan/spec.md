@@ -1,6 +1,6 @@
 # Halve the scan on deeply nested and multi-list documents
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -89,4 +89,22 @@ Measured on 2026-10-14 through Release builds. Sequential read is median of thre
 | 4d7480cde29a662758904cbe0e1afdbb-BD_.xml | 772381930 | 130.90 | 5753.71 | 111833088 |
 
 Desktop viewer scan completion wall-clock time on `4d7480cde29a662758904cbe0e1afdbb-BD_.xml`: 8826.73 ms.
+ 
+## Signed timing set
+ 
+Measured on 2026-10-15 through Release builds under the protocol from ticket 01. Sequential read is median of three runs with a 1MB buffer, including file open. Scan clock runs from start of reading to completed outline, median of three runs in one process. Peak working set is process working set recorded after scan completes. Desktop scan wall-clock time is measured from open to scan completion via ViewerModel.
+ 
+| Document | Bytes | Seq ms | Scan ms | Peak WS bytes |
+| --- | ---: | ---: | ---: | ---: |
+| CD701EV CHS XML\底盘电线束总成-CD701.xml | 54864344 | 16.38 | 570.87 | 45858816 |
+| CD701EV CHS XML\发动机舱电线束总成-CD701.xml | 326175380 | 84.03 | 1208.24 | 51490816 |
+| employees-50-MB.xml | 41711374 | 11.87 | 95.31 | 48115712 |
+| employees-200-MB.xml | 166840082 | 39.23 | 431.53 | 45051904 |
+| test_500mb.vxf | 524317166 | 113.79 | 1622.30 | 48283648 |
+| employees-1-GB.xml | 854342244 | 184.07 | 1711.91 | 52482048 |
+| test_1gb.vxf | 1078151394 | 267.56 | 3701.73 | 66596864 |
+| 4d7480cde29a662758904cbe0e1afdbb-BD_.xml | 772381930 | 188.33 | 2699.28 | 52228096 |
+ 
+Desktop viewer scan completion wall-clock time on `4d7480cde29a662758904cbe0e1afdbb-BD_.xml`: 3197.27 ms.
+
 
