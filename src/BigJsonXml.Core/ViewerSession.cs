@@ -396,6 +396,10 @@ public sealed partial class ViewerSession : IDisposable
 
     public void Dispose() => _owned?.Dispose();
 
+    internal long XmlStartCount => _xml?.StartCount ?? 0;
+
+    internal int XmlShapeCacheCount => _xml?.ShapeCacheCount ?? 0;
+
     private bool Detect()
     {
         var look = JsonSniff.Look(_document.Source);

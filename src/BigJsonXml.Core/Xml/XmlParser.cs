@@ -120,6 +120,8 @@ internal sealed class XmlParser
     public static XmlParser Create(XmlDocument document) => new(document, false);
 
     internal long FileByte => _byte;
+    internal long StartCount { get; private set; }
+    internal int ShapeCacheCount => 0;
 
     public static XmlParser Fragment(XmlDocument document, NsScope scope, long offset, long limit)
     {
@@ -688,6 +690,7 @@ internal sealed class XmlParser
             : scope.TryResolve(prefix, out var resolved) ? resolved : "";
         var name = prefix.Length == 0 ? local : prefix + ":" + local;
         var ev = Prepare(XmlEventKind.Start);
+        StartCount++;
         ev.Prefix = Intern(prefix);
         ev.Local = Intern(local);
         ev.Ns = elementNs;
@@ -3201,6 +3204,7 @@ internal sealed class XmlParser
         }
 
         ev = Prepare(XmlEventKind.Start);
+        StartCount++;
         ev.Local = local;
         ev.Name = local;
         ev.Empty = empty;
