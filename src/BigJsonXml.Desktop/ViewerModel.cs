@@ -43,6 +43,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private bool _arrows;
     private bool _canLeft;
     private bool _canRight;
+    private long _lastScanRefreshTime;
     private string _findWhat = "";
     private string _fieldName = "";
     private string _parentElementName = "";
@@ -373,6 +374,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     public void OpenPath(string path)
     {
+        NoteUserInteraction();
         string full;
         try
         {
@@ -423,6 +425,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     public void Open(IByteSource source)
     {
         ArgumentNullException.ThrowIfNull(source);
+        NoteUserInteraction();
         Adopt(ViewerSession.Open(source), "", "");
     }
 
@@ -535,6 +538,18 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     public void Tick()
     {
+        var now = Environment.TickCount64;
+        if (now - LastInteractionTime >= QuiescenceThresholdMilliseconds)
+        {
+            CurrentScanSliceMilliseconds = QuiescentScanSliceMilliseconds;
+            CurrentScanIdleMilliseconds = QuiescentScanIdleMilliseconds;
+        }
+        else
+        {
+            CurrentScanSliceMilliseconds = ScanSliceMilliseconds;
+            CurrentScanIdleMilliseconds = ScanIdleMilliseconds;
+        }
+
         var active = Active;
         if (active is not null)
         {
@@ -546,10 +561,23 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
                     break;
                 worked = true;
             }
-            while (Environment.TickCount64 - start < ScanSliceMilliseconds);
+            while (Environment.TickCount64 - start < CurrentScanSliceMilliseconds);
 
             if (worked)
-                Refresh();
+            {
+                var isScanning = active.Session.Progress == ScanProgress.Scanning;
+                var hasNewHits = active.Session.Hits.Count != active.Results.Count;
+                var elapsed = Environment.TickCount64 - _lastScanRefreshTime;
+                if (!isScanning || hasNewHits || elapsed >= ScanRefreshIntervalMilliseconds)
+                {
+                    _lastScanRefreshTime = Environment.TickCount64;
+                    Refresh();
+                }
+                else
+                {
+                    PublishScan(active);
+                }
+            }
         }
 
         foreach (var tab in _tabs.ToArray())
@@ -601,6 +629,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         var tab = Active;
         if (tab is null)
             return;
+        NoteUserInteraction();
         RememberFindWhat();
         EnsureSearched(tab);
         tab.Session.Search(Criteria());

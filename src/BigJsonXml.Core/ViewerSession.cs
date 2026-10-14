@@ -145,11 +145,28 @@ public sealed partial class ViewerSession : IDisposable
 
             if (_search is { Done: false })
             {
-                var step = _search.Step();
-                if (step == SearchStep.Work)
-                    worked = true;
-                else if (step == SearchStep.NeedMore && !worked)
-                    break;
+                var reached = Progress == ScanProgress.Scanning ? BytesReached : long.MaxValue;
+                var steps = 0;
+                do
+                {
+                    var step = _search.Step();
+                    steps++;
+                    if (step == SearchStep.Work)
+                    {
+                        worked = true;
+                    }
+                    else if (step == SearchStep.NeedMore)
+                    {
+                        if (!worked)
+                            return any;
+                        break;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                while (_search is { Done: false } && _search.FileByte < reached && steps < 512);
             }
 
             if (!worked)

@@ -31,8 +31,30 @@ public partial class MainWindow : Window
         DataContext = _model;
         _model.PropertyChanged += OnModelChanged;
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ViewerModel.ScanIdleMilliseconds) };
-        _timer.Tick += (_, _) => _model.Tick();
+        _timer.Tick += (_, _) => OnTimerTick();
         _timer.Start();
+
+        AddHandler(InputElement.PointerMovedEvent, (_, _) => NoteInteraction(), RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(InputElement.PointerPressedEvent, (_, _) => NoteInteraction(), RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(InputElement.PointerWheelChangedEvent, (_, _) => NoteInteraction(), RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(InputElement.KeyDownEvent, (_, _) => NoteInteraction(), RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(InputElement.KeyUpEvent, (_, _) => NoteInteraction(), RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+    }
+
+    private void OnTimerTick()
+    {
+        _model.Tick();
+        var desired = TimeSpan.FromMilliseconds(_model.CurrentScanIdleMilliseconds);
+        if (_timer.Interval != desired)
+            _timer.Interval = desired;
+    }
+
+    public void NoteInteraction()
+    {
+        _model.NoteUserInteraction();
+        var desired = TimeSpan.FromMilliseconds(_model.CurrentScanIdleMilliseconds);
+        if (_timer.Interval != desired)
+            _timer.Interval = desired;
     }
 
     private void FindClicked(object? sender, RoutedEventArgs e) => ShowFindFromUi();
@@ -74,8 +96,33 @@ public partial class MainWindow : Window
             _model.OpenPath(path);
     }
 
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        NoteInteraction();
+        base.OnPointerMoved(e);
+    }
+
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        NoteInteraction();
+        base.OnPointerPressed(e);
+    }
+
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        NoteInteraction();
+        base.OnPointerWheelChanged(e);
+    }
+
+    protected override void OnKeyUp(KeyEventArgs e)
+    {
+        NoteInteraction();
+        base.OnKeyUp(e);
+    }
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        NoteInteraction();
         base.OnKeyDown(e);
         if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {

@@ -17,6 +17,8 @@ internal interface IScanSearch
 {
     bool Done { get; }
 
+    long FileByte { get; }
+
     SearchStep Step();
 }
 
@@ -51,6 +53,8 @@ internal sealed class Searcher : IScanSearch
     }
 
     public bool Done { get; private set; }
+
+    public long FileByte => _parser.FileByte;
 
     public SearchStep Step()
     {

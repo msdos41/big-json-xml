@@ -35,6 +35,8 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
 
     public bool Done { get; private set; }
 
+    public long FileByte => _parser.FileByte;
+
     public SearchStep Step()
     {
         if (Done)
