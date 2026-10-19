@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        LoadIcon();
         DataContext = _model;
         _model.PropertyChanged += OnModelChanged;
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ViewerModel.ScanIdleMilliseconds) };
@@ -67,6 +68,21 @@ public partial class MainWindow : Window
             ApplyFindWindow(true);
     }
 
+    public static void RequestOpen(Visual visual)
+    {
+        var window = TopLevel.GetTopLevel(visual) as Window;
+        while (window is not null)
+        {
+            if (window is MainWindow main)
+            {
+                _ = main.BeginOpen();
+                return;
+            }
+
+            window = window.Owner as Window;
+        }
+    }
+
     public static void RequestFind(Visual visual)
     {
         var window = TopLevel.GetTopLevel(visual) as Window;
@@ -82,8 +98,13 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void OpenClicked(object? sender, RoutedEventArgs e)
+    private async void OpenClicked(object? sender, RoutedEventArgs e) => await BeginOpen();
+
+    private async Task BeginOpen()
     {
+        if (Application.Current?.ApplicationLifetime is null)
+            return;
+
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Open",
@@ -93,6 +114,14 @@ public partial class MainWindow : Window
         var path = files.Count > 0 ? files[0].TryGetLocalPath() : null;
         if (path is not null)
             _model.OpenPath(path);
+    }
+
+    private void LoadIcon()
+    {
+        var stream = typeof(MainWindow).Assembly.GetManifestResourceStream("BigJsonXml.Desktop.Assets.BigJsonXml.ico");
+        if (stream is null)
+            return;
+        Icon = new WindowIcon(stream);
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
@@ -123,6 +152,13 @@ public partial class MainWindow : Window
     {
         NoteInteraction();
         base.OnKeyDown(e);
+        if (e.Key == Key.O && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            e.Handled = true;
+            _ = BeginOpen();
+            return;
+        }
+
         if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             ShowFindFromUi();

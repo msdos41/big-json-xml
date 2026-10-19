@@ -8,6 +8,7 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\BigJsonXml.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
@@ -31,6 +32,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BigJsonXml.Core\BigJsonXml.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\BigJsonXml.ico">
+      <LogicalName>BigJsonXml.Desktop.Assets.BigJsonXml.ico</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

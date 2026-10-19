@@ -1320,7 +1320,7 @@ public class ShellTests
             var model = Assert.IsType<ViewerModel>(window.DataContext);
             Assert.Equal("BigJsonXml", window.Title);
             var strip = window.GetVisualDescendants().OfType<TabStrip>().Single();
-            var open = window.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Open"));
+            var open = window.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "Open");
             var surface = window.GetVisualDescendants().OfType<DocumentSurface>().Single();
             Arrange(window);
             var openY = open.TranslatePoint(default, window)!.Value.Y;
@@ -1689,7 +1689,8 @@ public class ShellTests
 
     private static void Click(Control root, string content)
     {
-        var button = root.GetVisualDescendants().OfType<Button>().Single(candidate => Equals(candidate.Content, content));
+        var button = root.GetVisualDescendants().OfType<Button>().Single(candidate =>
+            Equals(candidate.Content, content) || candidate.Name == content);
         button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
     }
 

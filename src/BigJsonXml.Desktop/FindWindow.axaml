@@ -8,27 +8,36 @@
         SizeToContent="Height"
         CanResize="False"
         ShowInTaskbar="False"
-        WindowStartupLocation="Manual">
-  <StackPanel Margin="12" Spacing="8">
-    <TextBlock Text="Find what"/>
-    <ComboBox IsEditable="True" ItemsSource="{Binding FindHistory}" Text="{Binding FindWhat}" PlaceholderText="Find what" HorizontalAlignment="Stretch"/>
-    <TextBlock Text="Field name"/>
-    <TextBox Text="{Binding FieldName}" PlaceholderText="Field name"/>
-    <TextBlock Text="Parent element name"/>
-    <TextBox Text="{Binding ParentElementName}" PlaceholderText="Parent element name"/>
-    <TextBlock Text="Grandfather element name"/>
-    <TextBox Text="{Binding GrandfatherElementName}" PlaceholderText="Grandfather element name"/>
-    <TextBlock Text="Parent attribute name"/>
-    <TextBox Text="{Binding ParentAttributeName}" PlaceholderText="Parent attribute name"/>
-    <CheckBox Content="Match case" IsChecked="{Binding MatchCase}"/>
-    <CheckBox Content="Element name" IsChecked="{Binding ElementName}"/>
-    <CheckBox Content="Attribute name" IsChecked="{Binding AttributeName}"/>
-    <CheckBox Content="Value" IsChecked="{Binding Value}"/>
-    <CheckBox Content="Start with" IsChecked="{Binding StartsWith}"/>
-    <CheckBox Content="Entire cell" IsChecked="{Binding EntireCell}"/>
+        WindowStartupLocation="Manual"
+        FontFamily="Segoe UI">
+  <StackPanel Margin="12" Spacing="10">
+    <StackPanel Spacing="6">
+      <TextBlock Text="Find what"/>
+      <ComboBox IsEditable="True" ItemsSource="{Binding FindHistory}" Text="{Binding FindWhat}" PlaceholderText="Find what" HorizontalAlignment="Stretch"/>
+      <CheckBox Content="Match case" IsChecked="{Binding MatchCase}"/>
+      <CheckBox Content="Start with" IsChecked="{Binding StartsWith}"/>
+      <CheckBox Content="Entire cell" IsChecked="{Binding EntireCell}"/>
+    </StackPanel>
+    <StackPanel Spacing="6">
+      <TextBlock Text="In"/>
+      <CheckBox Content="Element name" IsChecked="{Binding ElementName}"/>
+      <CheckBox Content="Attribute name" IsChecked="{Binding AttributeName}"/>
+      <CheckBox Content="Value" IsChecked="{Binding Value}"/>
+    </StackPanel>
+    <StackPanel Spacing="6">
+      <TextBlock Text="Limits"/>
+      <TextBlock Text="Field name"/>
+      <TextBox Text="{Binding FieldName}" PlaceholderText="Field name"/>
+      <TextBlock Text="Parent element name"/>
+      <TextBox Text="{Binding ParentElementName}" PlaceholderText="Parent element name"/>
+      <TextBlock Text="Grandfather element name"/>
+      <TextBox Text="{Binding GrandfatherElementName}" PlaceholderText="Grandfather element name"/>
+      <TextBlock Text="Parent attribute name"/>
+      <TextBox Text="{Binding ParentAttributeName}" PlaceholderText="Parent attribute name"/>
+    </StackPanel>
     <StackPanel Orientation="Horizontal" Spacing="8">
       <Button Content="Find All" Click="FindAllClicked"/>
-      <Button Content="Find Next" Click="FindNextClicked"/>
+      <Button Content="Find Next" Classes="accent" IsDefault="True" Click="FindNextClicked"/>
     </StackPanel>
   </StackPanel>
 </Window>

@@ -58,6 +58,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private int _resultWidth = 40;
     private string _status = "No document";
     private string _error = "";
+    private bool _showEmpty = true;
     private bool _scanFractionShown;
     private double _scanFraction;
     private string _remainingTime = "";
@@ -265,6 +266,12 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         get => _status;
         private set => Set(ref _status, value);
+    }
+
+    public bool ShowEmpty
+    {
+        get => _showEmpty;
+        private set => Set(ref _showEmpty, value);
     }
 
     public string Error
@@ -876,6 +883,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         var tab = Active;
         if (tab is null)
             return;
+        ShowEmpty = false;
         foreach (var item in _tabs)
             item.SetActive(ReferenceEquals(item, tab));
         _scrollX = tab.ScrollX;
@@ -931,6 +939,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         RemainingTime = "";
         Error = "";
         Status = "No document";
+        ShowEmpty = true;
         OnPropertyChanged(nameof(ScrollX));
         OnPropertyChanged(nameof(ScrollY));
         OnPropertyChanged(nameof(Selection));

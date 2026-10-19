@@ -26,6 +26,13 @@ public partial class FindWindow : Window
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
+        if (e.Key == Key.O && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            MainWindow.RequestOpen(this);
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key != Key.F || !e.KeyModifiers.HasFlag(KeyModifiers.Control))
             return;
         MainWindow.RequestFind(this);
