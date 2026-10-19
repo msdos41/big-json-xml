@@ -890,6 +890,14 @@ public class ShellTests
         Assert.Contains("<SelfContained>true</SelfContained>", project, StringComparison.Ordinal);
         Assert.Contains("win-x64", project, StringComparison.Ordinal);
         Assert.DoesNotContain("PublishAot", project, StringComparison.Ordinal);
+        var releaseAt = project.IndexOf("Condition=\"'$(Configuration)' == 'Release'\"", StringComparison.Ordinal);
+        Assert.True(releaseAt >= 0);
+        var releaseGroup = project[releaseAt..];
+        var groupEnd = releaseGroup.IndexOf("</PropertyGroup>", StringComparison.Ordinal);
+        Assert.Contains(
+            "<AssemblyName>BigJsonXml</AssemblyName>",
+            releaseGroup[..groupEnd],
+            StringComparison.Ordinal);
         var core = Directory.GetFiles(Path.Combine(root, "src", "BigJsonXml.Core"), "*.cs", SearchOption.AllDirectories);
         foreach (var file in core)
         {
