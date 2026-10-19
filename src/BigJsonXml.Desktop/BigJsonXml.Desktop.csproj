@@ -18,6 +18,7 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
+    <AssemblyName>BigJsonXml</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
