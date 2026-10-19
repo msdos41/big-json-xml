@@ -3,9 +3,9 @@ namespace BigJsonXml.Desktop.Tests;
 public class JsonDocumentTests
 {
     [Fact]
-    public void The_open_dialog_offers_json()
+    public void The_open_dialog_shows_json_and_xml_together()
     {
-        var patterns = MainWindow.OpenFileTypes.SelectMany(type => type.Patterns ?? []).ToArray();
+        var patterns = MainWindow.OpenFileTypes[0].Patterns ?? [];
         Assert.Contains("*.json", patterns);
         Assert.Contains("*.xml", patterns);
     }
