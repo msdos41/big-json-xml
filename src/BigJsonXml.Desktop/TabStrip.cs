@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
@@ -165,6 +166,10 @@ public sealed class TabStrip : Grid
         _right.IsEnabled = _model.CanMoveTabsRight;
     }
 
+    [DynamicDependency(nameof(DocumentTab.CircleBrush), typeof(DocumentTab))]
+    [DynamicDependency(nameof(DocumentTab.Background), typeof(DocumentTab))]
+    [DynamicDependency(nameof(DocumentTab.BottomEdge), typeof(DocumentTab))]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The three DocumentTab brushes above stay available to these reflection bindings.")]
     private Chip Build(DocumentTab tab)
     {
         var label = new TextBlock
