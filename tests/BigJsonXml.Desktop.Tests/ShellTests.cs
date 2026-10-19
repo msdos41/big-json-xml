@@ -273,6 +273,95 @@ public class ShellTests
     }
 
     [Fact]
+    public void The_shell_bands_an_empty_open_and_a_grouped_find_window()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var window = new MainWindow { Width = 1100, Height = 720 };
+        window.Show();
+        try
+        {
+            Assert.Contains("Segoe UI", window.FontFamily.ToString(), StringComparison.OrdinalIgnoreCase);
+            Assert.NotNull(window.Icon);
+            Assert.DoesNotContain(window.GetVisualDescendants(), visual => visual is Menu);
+
+            var toolbar = window.FindControl<Border>("Toolbar");
+            var tabs = window.FindControl<Border>("TabBand");
+            var status = window.FindControl<Border>("StatusBar");
+            Assert.NotNull(toolbar);
+            Assert.NotNull(tabs);
+            Assert.NotNull(status);
+            Assert.Equal(new Thickness(0, 0, 0, 1), toolbar.BorderThickness);
+            Assert.Equal(new Thickness(0, 0, 0, 1), tabs.BorderThickness);
+            Assert.Equal(new Thickness(0, 1, 0, 0), status.BorderThickness);
+
+            var open = NamedButton(window, "Open");
+            var find = NamedButton(window, "Find");
+            var empty = NamedButton(window, "EmptyOpen");
+            Assert.Equal("Open", Label(open));
+            Assert.Equal("Find", Label(find));
+            Assert.Equal("Open (Ctrl+O)", ToolTip.GetTip(open));
+            Assert.Equal("Find (Ctrl+F)", ToolTip.GetTip(find));
+            Assert.Empty(empty.GetVisualDescendants().OfType<TextBlock>());
+            Assert.Equal(96, empty.Width);
+            Assert.Equal(96, empty.Height);
+            Assert.True(empty.IsVisible);
+            Assert.Equal("Open (Ctrl+O)", ToolTip.GetTip(empty));
+            var ring = Assert.IsType<Border>(empty.Content);
+            Assert.Equal(new Thickness(1), ring.BorderThickness);
+            Assert.Equal(new CornerRadius(48), ring.CornerRadius);
+            Assert.Equal(default(BoxShadows), ring.BoxShadow);
+
+            var progress = window.FindControl<ProgressBar>("ScanProgress");
+            Assert.NotNull(progress);
+            Assert.True(Inside(progress, status));
+            Assert.False(Inside(progress, toolbar));
+            var scan = window.FindControl<Control>("ScanStatus");
+            Assert.NotNull(scan);
+            Assert.False(scan.IsVisible);
+
+            var model = Assert.IsType<ViewerModel>(window.DataContext);
+            Assert.Equal("No document", model.Status);
+            var statusText = window.FindControl<TextBlock>("StatusText");
+            Assert.NotNull(statusText);
+            Assert.Equal("No document", statusText.Text);
+
+            var openKey = PressCtrl(window, Key.O);
+            Assert.True(openKey.Handled);
+
+            var path = Write("<root><item>beta</item></root>");
+            model.OpenPath(path);
+            Assert.False(empty.IsVisible);
+
+            model.Close(Assert.Single(model.Tabs.ToArray()));
+            Assert.True(empty.IsVisible);
+            Assert.Equal("No document", model.Status);
+
+            Click(window, "Find");
+            var findWindow = Assert.Single(window.OwnedWindows.OfType<FindWindow>(), candidate => candidate.IsVisible);
+            Assert.Contains("Segoe UI", findWindow.FontFamily.ToString(), StringComparison.OrdinalIgnoreCase);
+            var labels = findWindow.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text).ToList();
+            Assert.Contains("Find what", labels);
+            Assert.Contains("In", labels);
+            Assert.Contains("Limits", labels);
+            var next = findWindow.GetVisualDescendants().OfType<Button>().Single(candidate => Equals(candidate.Content, "Find Next"));
+            var all = findWindow.GetVisualDescendants().OfType<Button>().Single(candidate => Equals(candidate.Content, "Find All"));
+            Assert.True(next.IsDefault);
+            Assert.False(all.IsDefault);
+            Assert.Contains("accent", next.Classes);
+            Assert.DoesNotContain("accent", all.Classes);
+
+            var findKey = PressCtrl(findWindow, Key.O);
+            Assert.True(findKey.Handled);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [Fact]
     public void Closing_results_while_many_hits_are_still_arriving_keeps_the_window_open()
     {
         if (Application.Current is null)
@@ -1532,14 +1621,35 @@ public class ShellTests
         strip.Arrange(strip.Bounds);
     }
 
-    private static void PressCtrlF(Control control)
+    private static void PressCtrlF(Control control) => PressCtrl(control, Key.F);
+
+    private static KeyEventArgs PressCtrl(Control control, Key key)
     {
-        control.RaiseEvent(new KeyEventArgs
+        var args = new KeyEventArgs
         {
             RoutedEvent = InputElement.KeyDownEvent,
-            Key = Key.F,
+            Key = key,
             KeyModifiers = KeyModifiers.Control,
-        });
+        };
+        control.RaiseEvent(args);
+        return args;
+    }
+
+    private static Button NamedButton(Control root, string name) =>
+        Assert.Single(root.GetVisualDescendants().OfType<Button>(), candidate => candidate.Name == name);
+
+    private static string? Label(Button button) =>
+        button.GetVisualDescendants().OfType<TextBlock>().Single().Text;
+
+    private static bool Inside(Visual child, Visual ancestor)
+    {
+        for (Visual? node = child; node is not null; node = node.GetVisualParent())
+        {
+            if (ReferenceEquals(node, ancestor))
+                return true;
+        }
+
+        return false;
     }
 
     private static void AssertColor(IBrush? brush, string hex)
