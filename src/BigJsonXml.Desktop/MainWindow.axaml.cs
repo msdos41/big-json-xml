@@ -13,8 +13,7 @@ public partial class MainWindow : Window
 {
     public static FilePickerFileType[] OpenFileTypes { get; } =
     [
-        new("XML") { Patterns = ["*.xml"] },
-        new("JSON") { Patterns = ["*.json"] },
+        new("JSON and XML") { Patterns = ["*.json", "*.xml"] },
         new("All files") { Patterns = ["*"] },
     ];
 
