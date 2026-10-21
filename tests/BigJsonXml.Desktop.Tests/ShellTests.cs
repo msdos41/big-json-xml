@@ -292,9 +292,13 @@ public class ShellTests
             Assert.NotNull(toolbar);
             Assert.NotNull(tabs);
             Assert.NotNull(status);
-            Assert.Equal(new Thickness(0, 0, 0, 1), toolbar.BorderThickness);
+            Assert.Equal(new Thickness(0), toolbar.BorderThickness);
             Assert.Equal(new Thickness(0, 0, 0, 1), tabs.BorderThickness);
             Assert.Equal(new Thickness(0, 1, 0, 0), status.BorderThickness);
+            AssertColor(toolbar.Background, "#F3F4F6");
+            AssertColor(tabs.Background, "#F3F4F6");
+            Arrange(window);
+            AssertIconsShareTheTextLine(window);
 
             var open = NamedButton(window, "Open");
             var find = NamedButton(window, "Find");
@@ -1375,10 +1379,15 @@ public class ShellTests
 
             var chromes = window.GetVisualDescendants().OfType<Border>().Where(border => border.Name == "TabChrome").ToList();
             Assert.Equal(2, chromes.Count);
-            AssertColor(chromes[0].Background, "#E6E6E6");
+            AssertColor(chromes[0].Background, "#F3F4F6");
             AssertColor(chromes[0].BorderBrush, "#00FFFFFF");
+            Assert.Equal(new Thickness(0, 3, 0, 0), chromes[0].BorderThickness);
             AssertColor(chromes[1].Background, "#FFFFFF");
             AssertColor(chromes[1].BorderBrush, "#1A56C4");
+            Assert.Equal(new Thickness(0, 3, 0, 0), chromes[1].BorderThickness);
+            var activeLabel = window.GetVisualDescendants().OfType<TextBlock>().Single(block => block.Name == "TabLabel" && block.Text == "b.xml");
+            var activeMid = activeLabel.TranslatePoint(new Point(0, activeLabel.Bounds.Height / 2), chromes[1])!.Value.Y;
+            Assert.InRange(activeMid, (chromes[1].Bounds.Height / 2) - 2, (chromes[1].Bounds.Height / 2) + 2);
             var labels = window.GetVisualDescendants().OfType<TextBlock>().Where(block => block.Name == "TabLabel").ToList();
             Assert.Equal(["nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.xml", "b.xml"], labels.Select(block => block.Text));
             Assert.All(labels, block => Assert.Equal(TextTrimming.None, block.TextTrimming));
@@ -1413,6 +1422,8 @@ public class ShellTests
             Assert.Equal(0, offset);
             Assert.False(left.IsEnabled);
             Assert.True(right.IsEnabled);
+            AssertArrowCentered(left);
+            AssertArrowCentered(right);
             left.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Equal(offset, model.TabStripOffset);
             right.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -1702,6 +1713,101 @@ public class ShellTests
         var path = Path.Combine(directory, name);
         File.WriteAllText(path, xml);
         return path;
+    }
+
+    private static void AssertIconsShareTheTextLine(Window window)
+    {
+        var open = NamedButton(window, "Open");
+        var find = NamedButton(window, "Find");
+        var openIconY = InkY(Named(open, "OpenIcon"), open);
+        var findIconY = InkY(Named(find, "FindIcon"), find);
+        Assert.InRange(Math.Abs(openIconY - InkY(open.GetVisualDescendants().OfType<TextBlock>().Single(), open)), 0, 1.25);
+        Assert.InRange(Math.Abs(findIconY - InkY(find.GetVisualDescendants().OfType<TextBlock>().Single(), find)), 0, 1.25);
+        var openOnWindow = Named(open, "OpenIcon").TranslatePoint(new Point(0, InkCentroid(Named(open, "OpenIcon")).Y), window)!.Value.Y;
+        var findOnWindow = Named(find, "FindIcon").TranslatePoint(new Point(0, InkCentroid(Named(find, "FindIcon")).Y), window)!.Value.Y;
+        Assert.InRange(Math.Abs(openOnWindow - findOnWindow), 0, 1.25);
+    }
+
+    private static void AssertArrowCentered(Button button)
+    {
+        var ink = InkCentroid(button);
+        Assert.InRange(ink.X, (button.Bounds.Width / 2) - 1.5, (button.Bounds.Width / 2) + 1.5);
+        Assert.InRange(ink.Y, (button.Bounds.Height / 2) - 1.5, (button.Bounds.Height / 2) + 1.5);
+        Assert.True(InkFraction(button) < 0.2);
+    }
+
+    private static double InkY(Control part, Control host) =>
+        part.TranslatePoint(new Point(0, InkCentroid(part).Y), host)!.Value.Y;
+
+    private static Control Named(Control root, string name) =>
+        (Control)root.GetVisualDescendants().Single(visual => visual.Name == name);
+
+    private static Point InkCentroid(Control control)
+    {
+        var pixels = Pixels(control, out var width, out var height);
+        double sx = 0;
+        double sy = 0;
+        var count = 0;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                if (!Ink(pixels, width, x, y))
+                    continue;
+                sx += x;
+                sy += y;
+                count++;
+            }
+        }
+
+        Assert.True(count > 0);
+        return new Point(sx / count, sy / count);
+    }
+
+    private static double InkFraction(Control control)
+    {
+        var pixels = Pixels(control, out var width, out var height);
+        var count = 0;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                if (Ink(pixels, width, x, y))
+                    count++;
+            }
+        }
+
+        return count / (double)(width * height);
+    }
+
+    private static byte[] Pixels(Control control, out int width, out int height)
+    {
+        width = Math.Max(1, (int)Math.Ceiling(control.Bounds.Width));
+        height = Math.Max(1, (int)Math.Ceiling(control.Bounds.Height));
+        var bitmap = new RenderTargetBitmap(new PixelSize(width, height), new Vector(96, 96));
+        bitmap.Render(control);
+        var pixels = new byte[width * height * 4];
+        var handle = GCHandle.Alloc(pixels, GCHandleType.Pinned);
+        try
+        {
+            bitmap.CopyPixels(new PixelRect(0, 0, width, height), handle.AddrOfPinnedObject(), pixels.Length, width * 4);
+        }
+        finally
+        {
+            handle.Free();
+        }
+
+        return pixels;
+    }
+
+    private static bool Ink(byte[] pixels, int width, int x, int y)
+    {
+        var i = (y * width + x) * 4;
+        var alpha = pixels[i + 3];
+        var red = pixels[i + 2];
+        var green = pixels[i + 1];
+        var blue = pixels[i];
+        return alpha > 40 && (red < 220 || green < 220 || blue < 220);
     }
 
     private static bool Dark(RenderTargetBitmap bitmap, int x, int y)
