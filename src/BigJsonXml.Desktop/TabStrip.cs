@@ -156,6 +156,9 @@ public sealed class TabStrip : Grid
             _row.Children.Add(chip.Root);
         }
 
+        for (var i = 0; i < _chips.Count; i++)
+            _chips[i].Separator.IsVisible = i < _chips.Count - 1;
+
         if (reveal)
             _reveal = true;
         InvalidateMeasure();
@@ -227,6 +230,19 @@ public sealed class TabStrip : Grid
         stack.Children.Add(circle);
         stack.Children.Add(label);
         stack.Children.Add(close);
+        var separator = new Border
+        {
+            Name = "TabSeparator",
+            Width = 1,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Margin = new Thickness(0, 4, 0, 4),
+            Background = TabSeparatorBrush,
+            IsHitTestVisible = false,
+        };
+        var face = new Grid();
+        face.Children.Add(stack);
+        face.Children.Add(separator);
         var border = new Border
         {
             Name = "TabChrome",
@@ -234,7 +250,7 @@ public sealed class TabStrip : Grid
             Height = RowHeight,
             BorderThickness = new Thickness(0, 3, 0, 0),
             Padding = new Thickness(0, 0, 0, 3),
-            Child = stack,
+            Child = face,
         };
         border.Bind(Border.BackgroundProperty, new Binding(nameof(DocumentTab.Background)));
         border.Bind(Border.BorderBrushProperty, new Binding(nameof(DocumentTab.TopEdge)));
@@ -246,7 +262,7 @@ public sealed class TabStrip : Grid
                 _model.Activate(current);
             e.Handled = true;
         };
-        return new Chip(tab, border);
+        return new Chip(tab, border, separator);
     }
 
     private static Panel CloseGlyph()
@@ -286,6 +302,7 @@ public sealed class TabStrip : Grid
         return false;
     }
 
+    private static readonly IBrush TabSeparatorBrush = new SolidColorBrush(Color.Parse("#C4C9D1"));
     private static readonly IBrush ArrowInk = new SolidColorBrush(Color.Parse("#1F2933"));
     private static readonly IBrush ArrowMuted = new SolidColorBrush(Color.Parse("#A0A7B2"));
     private static readonly IBrush ArrowHover = new SolidColorBrush(Color.Parse("#E7E9ED"));
@@ -393,5 +410,5 @@ public sealed class TabStrip : Grid
         };
     }
 
-    private sealed record Chip(DocumentTab Tab, Border Root);
+    private sealed record Chip(DocumentTab Tab, Border Root, Border Separator);
 }
