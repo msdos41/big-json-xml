@@ -303,11 +303,14 @@ public class ShellTests
             Assert.Equal("Open (Ctrl+O)", ToolTip.GetTip(open));
             Assert.Equal("Find (Ctrl+F)", ToolTip.GetTip(find));
             Assert.Null(window.FindControl<Button>("EmptyOpen"));
-            var notes = window.FindControl<ScrollViewer>("EmptyNotes");
+            var notes = window.FindControl<Control>("EmptyNotes");
             var changelog = window.FindControl<TextBlock>("Changelog");
             Assert.NotNull(notes);
             Assert.NotNull(changelog);
             Assert.True(notes.IsVisible);
+            Arrange(window);
+            Assert.True(changelog.Bounds.Height > 0);
+            Assert.True(changelog.Bounds.Bottom <= notes.Bounds.Height + 0.5);
             Assert.Contains("Cascadia Mono", changelog.FontFamily.ToString(), StringComparison.OrdinalIgnoreCase);
             Assert.Contains("CHANGELOG", changelog.Text, StringComparison.Ordinal);
             Assert.Contains("v1", changelog.Text, StringComparison.Ordinal);
