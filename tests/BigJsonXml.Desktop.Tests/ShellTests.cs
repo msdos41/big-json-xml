@@ -273,7 +273,7 @@ public class ShellTests
     }
 
     [Fact]
-    public void The_shell_bands_an_empty_open_and_a_flat_find_window()
+    public void The_shell_bands_a_changelog_and_a_flat_find_window()
     {
         if (Application.Current is null)
             AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
@@ -298,20 +298,23 @@ public class ShellTests
 
             var open = NamedButton(window, "Open");
             var find = NamedButton(window, "Find");
-            var empty = NamedButton(window, "EmptyOpen");
             Assert.Equal("Open", Label(open));
             Assert.Equal("Find", Label(find));
             Assert.Equal("Open (Ctrl+O)", ToolTip.GetTip(open));
             Assert.Equal("Find (Ctrl+F)", ToolTip.GetTip(find));
-            Assert.Empty(empty.GetVisualDescendants().OfType<TextBlock>());
-            Assert.Equal(96, empty.Width);
-            Assert.Equal(96, empty.Height);
-            Assert.True(empty.IsVisible);
-            Assert.Equal("Open (Ctrl+O)", ToolTip.GetTip(empty));
-            var ring = Assert.IsType<Border>(empty.Content);
-            Assert.Equal(new Thickness(1), ring.BorderThickness);
-            Assert.Equal(new CornerRadius(48), ring.CornerRadius);
-            Assert.Equal(default(BoxShadows), ring.BoxShadow);
+            Assert.Null(window.FindControl<Button>("EmptyOpen"));
+            var notes = window.FindControl<ScrollViewer>("EmptyNotes");
+            var changelog = window.FindControl<TextBlock>("Changelog");
+            Assert.NotNull(notes);
+            Assert.NotNull(changelog);
+            Assert.True(notes.IsVisible);
+            Assert.Contains("Cascadia Mono", changelog.FontFamily.ToString(), StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("CHANGELOG", changelog.Text, StringComparison.Ordinal);
+            Assert.Contains("v1", changelog.Text, StringComparison.Ordinal);
+            Assert.Contains("list table", changelog.Text, StringComparison.Ordinal);
+            Assert.Contains("record table", changelog.Text, StringComparison.Ordinal);
+            Assert.Contains("ctrl+o", changelog.Text, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("no edit, no save", changelog.Text, StringComparison.Ordinal);
 
             var progress = window.FindControl<ProgressBar>("ScanProgress");
             Assert.NotNull(progress);
@@ -332,10 +335,10 @@ public class ShellTests
 
             var path = Write("<root><item>beta</item></root>");
             model.OpenPath(path);
-            Assert.False(empty.IsVisible);
+            Assert.False(notes.IsVisible);
 
             model.Close(Assert.Single(model.Tabs.ToArray()));
-            Assert.True(empty.IsVisible);
+            Assert.True(notes.IsVisible);
             Assert.Equal("No document", model.Status);
 
             Click(window, "Find");
