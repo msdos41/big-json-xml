@@ -374,6 +374,24 @@ public class ShellTests
     }
 
     [Fact]
+    public void The_icon_reads_on_a_dark_ground_and_a_light_ground()
+    {
+        using var stream = typeof(MainWindow).Assembly.GetManifestResourceStream("BigJsonXml.Desktop.Assets.BigJsonXml.ico");
+        Assert.NotNull(stream);
+        using var memory = new MemoryStream();
+        stream.CopyTo(memory);
+        var images = ReadIconImages(memory.ToArray());
+        Assert.Contains(images, image => image.Width == 16 && image.Height == 16);
+        Assert.Contains(images, image => image.Width == 32 && image.Height == 32);
+        Assert.Contains(images, image => image.Width >= 256 && image.Height >= 256);
+        foreach (var image in images)
+        {
+            AssertStandsOff(image, 0x1E, 0x1E, 0x1E);
+            AssertStandsOff(image, 0xFF, 0xFF, 0xFF);
+        }
+    }
+
+    [Fact]
     public void Closing_results_while_many_hits_are_still_arriving_keeps_the_window_open()
     {
         if (Application.Current is null)
@@ -1733,6 +1751,57 @@ public class ShellTests
 
         writer.Write("</root>");
         return path;
+    }
+
+    private readonly record struct IconImage(int Width, int Height, byte[] Bgra);
+
+    private static List<IconImage> ReadIconImages(byte[] bytes)
+    {
+        Assert.Equal(0, BitConverter.ToUInt16(bytes, 0));
+        Assert.Equal(1, BitConverter.ToUInt16(bytes, 2));
+        var count = BitConverter.ToUInt16(bytes, 4);
+        var images = new List<IconImage>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var entry = 6 + i * 16;
+            var width = bytes[entry] == 0 ? 256 : bytes[entry];
+            var height = bytes[entry + 1] == 0 ? 256 : bytes[entry + 1];
+            var offset = BitConverter.ToInt32(bytes, entry + 12);
+            Assert.Equal(40, BitConverter.ToInt32(bytes, offset));
+            Assert.Equal(32, BitConverter.ToInt16(bytes, offset + 14));
+            var pixels = new byte[width * height * 4];
+            var xor = offset + 40;
+            for (var y = 0; y < height; y++)
+                Buffer.BlockCopy(bytes, xor + (height - 1 - y) * width * 4, pixels, y * width * 4, width * 4);
+            images.Add(new IconImage(width, height, pixels));
+        }
+
+        return images;
+    }
+
+    private static void AssertStandsOff(IconImage image, int groundR, int groundG, int groundB)
+    {
+        long sum = 0;
+        var strong = 0;
+        var count = image.Width * image.Height;
+        var pixels = image.Bgra;
+        for (var i = 0; i < count; i++)
+        {
+            var b = pixels[i * 4];
+            var g = pixels[i * 4 + 1];
+            var r = pixels[i * 4 + 2];
+            var a = pixels[i * 4 + 3];
+            var red = (r * a + groundR * (255 - a)) / 255;
+            var green = (g * a + groundG * (255 - a)) / 255;
+            var blue = (b * a + groundB * (255 - a)) / 255;
+            var delta = Math.Abs(red - groundR) + Math.Abs(green - groundG) + Math.Abs(blue - groundB);
+            sum += delta;
+            if (delta >= 72)
+                strong++;
+        }
+
+        Assert.True(sum / (double)count >= 80, $"{image.Width} mean {sum / (double)count:F1}");
+        Assert.True(strong / (double)count >= 0.40, $"{image.Width} share {strong / (double)count:F3}");
     }
 
     private static string RepoRoot()
