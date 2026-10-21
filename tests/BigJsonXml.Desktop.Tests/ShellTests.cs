@@ -273,7 +273,7 @@ public class ShellTests
     }
 
     [Fact]
-    public void The_shell_bands_an_empty_open_and_a_grouped_find_window()
+    public void The_shell_bands_an_empty_open_and_a_flat_find_window()
     {
         if (Application.Current is null)
             AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
@@ -340,16 +340,25 @@ public class ShellTests
 
             Click(window, "Find");
             var findWindow = Assert.Single(window.OwnedWindows.OfType<FindWindow>(), candidate => candidate.IsVisible);
-            Assert.Contains("Segoe UI", findWindow.FontFamily.ToString(), StringComparison.OrdinalIgnoreCase);
-            var labels = findWindow.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text).ToList();
-            Assert.Contains("Find what", labels);
-            Assert.Contains("In", labels);
-            Assert.Contains("Limits", labels);
+            var labels = findWindow.GetVisualDescendants().OfType<TextBlock>()
+                .Select(block => block.Text)
+                .Where(text => text is "Find what" or "Field name" or "Parent element name"
+                    or "Grandfather element name" or "Parent attribute name" or "In" or "Limits")
+                .Distinct()
+                .ToList();
+            Assert.Equal(
+            [
+                "Find what",
+                "Field name",
+                "Parent element name",
+                "Grandfather element name",
+                "Parent attribute name",
+            ], labels);
             var next = findWindow.GetVisualDescendants().OfType<Button>().Single(candidate => Equals(candidate.Content, "Find Next"));
             var all = findWindow.GetVisualDescendants().OfType<Button>().Single(candidate => Equals(candidate.Content, "Find All"));
-            Assert.True(next.IsDefault);
+            Assert.False(next.IsDefault);
             Assert.False(all.IsDefault);
-            Assert.Contains("accent", next.Classes);
+            Assert.DoesNotContain("accent", next.Classes);
             Assert.DoesNotContain("accent", all.Classes);
 
             var findKey = PressCtrl(findWindow, Key.O);
