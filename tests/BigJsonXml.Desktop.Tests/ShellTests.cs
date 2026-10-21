@@ -1388,6 +1388,7 @@ public class ShellTests
             var activeLabel = window.GetVisualDescendants().OfType<TextBlock>().Single(block => block.Name == "TabLabel" && block.Text == "b.xml");
             var activeMid = activeLabel.TranslatePoint(new Point(0, activeLabel.Bounds.Height / 2), chromes[1])!.Value.Y;
             Assert.InRange(activeMid, (chromes[1].Bounds.Height / 2) - 2, (chromes[1].Bounds.Height / 2) + 2);
+            AssertSeparatorsBetween(window, 2);
             var labels = window.GetVisualDescendants().OfType<TextBlock>().Where(block => block.Name == "TabLabel").ToList();
             Assert.Equal(["nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.xml", "b.xml"], labels.Select(block => block.Text));
             Assert.All(labels, block => Assert.Equal(TextTrimming.None, block.TextTrimming));
@@ -1456,6 +1457,7 @@ public class ShellTests
 
             closes[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Single(model.Tabs);
+            AssertSeparatorsBetween(window, 1);
             Assert.Equal(0, model.ActiveIndex);
             Assert.Contains(model.Rows, row => row.Value == "2");
 
@@ -1713,6 +1715,26 @@ public class ShellTests
         var path = Path.Combine(directory, name);
         File.WriteAllText(path, xml);
         return path;
+    }
+
+    private static void AssertSeparatorsBetween(Window window, int tabCount)
+    {
+        var chromes = window.GetVisualDescendants().OfType<Border>().Where(border => border.Name == "TabChrome").ToList();
+        var lines = window.GetVisualDescendants().OfType<Border>().Where(border => border.Name == "TabSeparator" && border.IsVisible).ToList();
+        Assert.Equal(tabCount, chromes.Count);
+        Assert.Equal(Math.Max(0, tabCount - 1), lines.Count);
+        for (var i = 0; i < lines.Count; i++)
+        {
+            Assert.InRange(lines[i].Bounds.Width, 0.5, 1.5);
+            AssertColor(lines[i].Background, "#C4C9D1");
+            var seam = chromes[i + 1].TranslatePoint(default, chromes[i])!.Value.X;
+            var right = lines[i].TranslatePoint(new Point(lines[i].Bounds.Width, 0), chromes[i])!.Value.X;
+            Assert.InRange(right, seam - 1, seam + 1);
+            var top = lines[i].TranslatePoint(default, chromes[i])!.Value.Y;
+            var bottom = top + lines[i].Bounds.Height;
+            Assert.InRange(top, 4, 10);
+            Assert.InRange(bottom, chromes[i].Bounds.Height - 10, chromes[i].Bounds.Height - 4);
+        }
     }
 
     private static void AssertIconsShareTheTextLine(Window window)
