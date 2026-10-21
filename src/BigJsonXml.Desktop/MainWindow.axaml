@@ -61,19 +61,20 @@
     </Border>
     <Grid ColumnDefinitions="*,Auto" RowDefinitions="*,Auto">
       <local:DocumentSurface Grid.Row="0" Grid.Column="0"/>
-      <Panel Grid.Row="0" Grid.Column="0" IsVisible="{Binding ShowEmpty}">
-        <Button x:Name="EmptyOpen" Click="OpenClicked" ToolTip.Tip="Open (Ctrl+O)"
-                IsVisible="{Binding ShowEmpty}"
-                Width="96" Height="96" MinWidth="96" MinHeight="96" Padding="0"
-                Background="Transparent" BorderThickness="0"
-                HorizontalAlignment="Center" VerticalAlignment="Center"
-                HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
-          <Border Width="96" Height="96" CornerRadius="48" BorderBrush="#4B5563" BorderThickness="1" Background="Transparent">
-            <Path Data="{StaticResource FolderIcon}" Width="36" Height="36" Stretch="Uniform" Fill="#1F2933"
-                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
-          </Border>
-        </Button>
-      </Panel>
+      <ScrollViewer x:Name="EmptyNotes" Grid.Row="0" Grid.Column="0"
+                    IsVisible="{Binding ShowEmpty}"
+                    Background="Transparent"
+                    HorizontalScrollBarVisibility="Disabled"
+                    Padding="32,28,32,28">
+        <TextBlock x:Name="Changelog"
+                   Text="{x:Static local:EmptyChangelog.Text}"
+                   FontFamily="Cascadia Mono, Consolas"
+                   FontSize="13"
+                   LineHeight="20"
+                   Foreground="#1F2933"
+                   HorizontalAlignment="Left"
+                   VerticalAlignment="Top"/>
+      </ScrollViewer>
       <ScrollBar Grid.Row="0" Grid.Column="1" Orientation="Vertical"
                  AllowAutoHide="False"
                  Minimum="0" Maximum="{Binding ScrollMaxY}"
