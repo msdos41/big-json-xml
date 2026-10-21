@@ -3,11 +3,15 @@ using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
+using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.VisualTree;
 
 namespace BigJsonXml.Desktop;
@@ -39,8 +43,8 @@ public sealed class TabStrip : Grid
             Height = RowHeight,
             Child = _row,
         };
-        _left = Arrow("TabLeft", "\u25C0");
-        _right = Arrow("TabRight", "\u25B6");
+        _left = Arrow("TabLeft", left: true);
+        _right = Arrow("TabRight", left: false);
         _arrows = new StackPanel
         {
             Name = "TabArrows",
@@ -168,7 +172,7 @@ public sealed class TabStrip : Grid
 
     [DynamicDependency(nameof(DocumentTab.CircleBrush), typeof(DocumentTab))]
     [DynamicDependency(nameof(DocumentTab.Background), typeof(DocumentTab))]
-    [DynamicDependency(nameof(DocumentTab.BottomEdge), typeof(DocumentTab))]
+    [DynamicDependency(nameof(DocumentTab.TopEdge), typeof(DocumentTab))]
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The three DocumentTab brushes above stay available to these reflection bindings.")]
     private Chip Build(DocumentTab tab)
     {
@@ -228,11 +232,12 @@ public sealed class TabStrip : Grid
             Name = "TabChrome",
             DataContext = tab,
             Height = RowHeight,
-            BorderThickness = new Thickness(0, 0, 0, 3),
+            BorderThickness = new Thickness(0, 3, 0, 0),
+            Padding = new Thickness(0, 0, 0, 3),
             Child = stack,
         };
         border.Bind(Border.BackgroundProperty, new Binding(nameof(DocumentTab.Background)));
-        border.Bind(Border.BorderBrushProperty, new Binding(nameof(DocumentTab.BottomEdge)));
+        border.Bind(Border.BorderBrushProperty, new Binding(nameof(DocumentTab.TopEdge)));
         border.PointerPressed += (_, e) =>
         {
             if (InsideClose(e.Source))
@@ -281,19 +286,112 @@ public sealed class TabStrip : Grid
         return false;
     }
 
-    private static Button Arrow(string name, string glyph) => new()
+    private static readonly IBrush ArrowInk = new SolidColorBrush(Color.Parse("#1F2933"));
+    private static readonly IBrush ArrowMuted = new SolidColorBrush(Color.Parse("#A0A7B2"));
+    private static readonly IBrush ArrowHover = new SolidColorBrush(Color.Parse("#E7E9ED"));
+    private static readonly IBrush ArrowPressed = new SolidColorBrush(Color.Parse("#D9DDE3"));
+    private static readonly ControlTheme ArrowButtonTheme = CreateArrowTheme();
+
+    private static ControlTheme CreateArrowTheme()
     {
-        Name = name,
-        Content = glyph,
-        Width = DocumentTab.ArrowButtonWidth,
-        Height = RowHeight,
-        MinWidth = DocumentTab.ArrowButtonWidth,
-        Padding = new Thickness(0),
-        FontSize = 14,
-        Background = Brushes.Transparent,
-        BorderThickness = new Thickness(0),
-        Foreground = Brushes.Black,
-    };
+        var theme = new ControlTheme(typeof(Button));
+        theme.Setters.Add(new Setter(TemplatedControl.BackgroundProperty, Brushes.Transparent));
+        theme.Setters.Add(new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(0)));
+        theme.Setters.Add(new Setter(TemplatedControl.PaddingProperty, new Thickness(0)));
+        theme.Setters.Add(new Setter(ContentControl.HorizontalContentAlignmentProperty, HorizontalAlignment.Center));
+        theme.Setters.Add(new Setter(ContentControl.VerticalContentAlignmentProperty, VerticalAlignment.Center));
+        theme.Setters.Add(new Setter(TemplatedControl.TemplateProperty, new FuncControlTemplate<Button>((button, _) =>
+        {
+            var presenter = new ContentPresenter
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                [!ContentPresenter.BackgroundProperty] = button[!TemplatedControl.BackgroundProperty],
+                [!ContentPresenter.ContentProperty] = button[!ContentControl.ContentProperty],
+                [!ContentPresenter.PaddingProperty] = button[!TemplatedControl.PaddingProperty],
+            };
+            return presenter;
+        })));
+        return theme;
+    }
+
+    private static Button Arrow(string name, bool left)
+    {
+        var arms = new[] { ChevronArm(left, tip: true), ChevronArm(left, tip: false) };
+        var glyph = new Canvas
+        {
+            Width = 16,
+            Height = 16,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+        };
+        foreach (var arm in arms)
+            glyph.Children.Add(arm);
+        var button = new Button
+        {
+            Name = name,
+            Theme = ArrowButtonTheme,
+            Content = glyph,
+            Width = DocumentTab.ArrowButtonWidth,
+            Height = RowHeight,
+            MinWidth = DocumentTab.ArrowButtonWidth,
+            MinHeight = RowHeight,
+            Padding = new Thickness(0),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+        };
+        void Paint()
+        {
+            var stroke = button.IsEnabled ? ArrowInk : ArrowMuted;
+            foreach (var arm in arms)
+                arm.Stroke = stroke;
+            if (!button.IsEnabled)
+                button.Background = Brushes.Transparent;
+        }
+
+        Paint();
+        button.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == InputElement.IsEnabledProperty)
+                Paint();
+        };
+        button.PointerEntered += (_, _) =>
+        {
+            if (button.IsEnabled)
+                button.Background = ArrowHover;
+        };
+        button.PointerExited += (_, _) => button.Background = Brushes.Transparent;
+        button.PointerPressed += (_, e) =>
+        {
+            if (button.IsEnabled && e.GetCurrentPoint(button).Properties.IsLeftButtonPressed)
+                button.Background = ArrowPressed;
+        };
+        button.PointerReleased += (_, _) =>
+            button.Background = button.IsPointerOver && button.IsEnabled ? ArrowHover : Brushes.Transparent;
+        return button;
+    }
+
+    private static Line ChevronArm(bool left, bool tip)
+    {
+        var joint = new Point(left ? 6 : 10, 8);
+        var end = tip
+            ? new Point(left ? 10.5 : 5.5, 3.5)
+            : new Point(left ? 10.5 : 5.5, 12.5);
+        return new Line
+        {
+            StartPoint = joint,
+            EndPoint = end,
+            Stroke = ArrowInk,
+            StrokeThickness = 1.5,
+            StrokeLineCap = PenLineCap.Round,
+            StrokeJoin = PenLineJoin.Round,
+        };
+    }
 
     private sealed record Chip(DocumentTab Tab, Border Root);
 }

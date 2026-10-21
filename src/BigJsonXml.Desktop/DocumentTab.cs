@@ -60,7 +60,7 @@ public sealed class DocumentTab : INotifyPropertyChanged, IDisposable
 
     public static IBrush StoppedBrush => _stopped ??= new SolidColorBrush(Color.Parse("#C42B2B"));
 
-    public static IBrush InactiveBackground => _inactive ??= new SolidColorBrush(Color.Parse("#E6E6E6"));
+    public static IBrush InactiveBackground => _inactive ??= new SolidColorBrush(Color.Parse("#F3F4F6"));
 
     public static IBrush ActiveEdgeBrush => _edge ??= new SolidColorBrush(Color.Parse("#1A56C4"));
 
@@ -73,7 +73,7 @@ public sealed class DocumentTab : INotifyPropertyChanged, IDisposable
 
     public IBrush Background => _active ? Brushes.White : InactiveBackground;
 
-    public IBrush BottomEdge => _active ? ActiveEdgeBrush : Brushes.Transparent;
+    public IBrush TopEdge => _active ? ActiveEdgeBrush : Brushes.Transparent;
 
     internal readonly ObservableCollection<FindResult> Results = [];
 
@@ -119,7 +119,7 @@ public sealed class DocumentTab : INotifyPropertyChanged, IDisposable
         _active = value;
         OnPropertyChanged(nameof(IsActive));
         OnPropertyChanged(nameof(Background));
-        OnPropertyChanged(nameof(BottomEdge));
+        OnPropertyChanged(nameof(TopEdge));
     }
 
     internal void SetFullyVisible(bool value)

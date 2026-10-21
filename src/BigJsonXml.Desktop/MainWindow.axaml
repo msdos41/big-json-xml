@@ -9,30 +9,30 @@
         Height="720"
         FontFamily="Segoe UI"
         Background="White">
-  <Window.Resources>
-    <StreamGeometry x:Key="FolderIcon">M1,4 H6 L8,6 H15 V14 H1 Z</StreamGeometry>
-  </Window.Resources>
   <DockPanel>
-    <Border x:Name="Toolbar" DockPanel.Dock="Top" Background="#F3F4F6" BorderBrush="#E1E4E8" BorderThickness="0,0,0,1" Padding="4,2">
+    <Border x:Name="Toolbar" DockPanel.Dock="Top" Background="#F3F4F6" Padding="4,2">
       <StackPanel Orientation="Horizontal" Spacing="4">
-        <Button x:Name="Open" Click="OpenClicked" ToolTip.Tip="Open (Ctrl+O)" Height="28" Padding="8,0" Background="Transparent" BorderThickness="0">
+        <Button x:Name="Open" Click="OpenClicked" ToolTip.Tip="Open (Ctrl+O)" Height="28" Padding="8,0" VerticalContentAlignment="Center" Background="Transparent" BorderThickness="0">
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <Path Data="{StaticResource FolderIcon}" Width="16" Height="16" Stretch="Uniform" Fill="#1F2933" VerticalAlignment="Center"/>
+            <Canvas x:Name="OpenIcon" Width="16" Height="16" VerticalAlignment="Center">
+              <Rectangle Canvas.Left="1" Canvas.Top="4" Width="6" Height="2.5" Fill="#1F2933"/>
+              <Rectangle Canvas.Left="1" Canvas.Top="6" Width="14" Height="7" Fill="#1F2933"/>
+            </Canvas>
             <TextBlock Text="Open" VerticalAlignment="Center"/>
           </StackPanel>
         </Button>
-        <Button x:Name="Find" Click="FindClicked" ToolTip.Tip="Find (Ctrl+F)" Height="28" Padding="8,0" Background="Transparent" BorderThickness="0">
+        <Button x:Name="Find" Click="FindClicked" ToolTip.Tip="Find (Ctrl+F)" Height="28" Padding="8,0" VerticalContentAlignment="Center" Background="Transparent" BorderThickness="0">
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <Canvas Width="16" Height="16" VerticalAlignment="Center">
-              <Ellipse Canvas.Left="1" Canvas.Top="1" Width="9" Height="9" Stroke="#1F2933" StrokeThickness="1.5"/>
-              <Line StartPoint="8,8" EndPoint="14,14" Stroke="#1F2933" StrokeThickness="1.5"/>
+            <Canvas x:Name="FindIcon" Width="16" Height="16" VerticalAlignment="Center">
+              <Ellipse Canvas.Left="2.5" Canvas.Top="4.25" Width="8" Height="8" Stroke="#1F2933" StrokeThickness="1.5"/>
+              <Line StartPoint="9,10.75" EndPoint="13.5,15.2" Stroke="#1F2933" StrokeThickness="1.5" StrokeLineCap="Round"/>
             </Canvas>
             <TextBlock Text="Find" VerticalAlignment="Center"/>
           </StackPanel>
         </Button>
       </StackPanel>
     </Border>
-    <Border x:Name="TabBand" DockPanel.Dock="Top" BorderBrush="#E1E4E8" BorderThickness="0,0,0,1">
+    <Border x:Name="TabBand" DockPanel.Dock="Top" Background="#F3F4F6" BorderBrush="#E1E4E8" BorderThickness="0,0,0,1">
       <local:TabStrip/>
     </Border>
     <Border x:Name="StatusBar" DockPanel.Dock="Bottom" Height="24" Background="#F3F4F6" BorderBrush="#E1E4E8" BorderThickness="0,1,0,0">
