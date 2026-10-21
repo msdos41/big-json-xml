@@ -61,20 +61,20 @@
     </Border>
     <Grid ColumnDefinitions="*,Auto" RowDefinitions="*,Auto">
       <local:DocumentSurface Grid.Row="0" Grid.Column="0"/>
-      <ScrollViewer x:Name="EmptyNotes" Grid.Row="0" Grid.Column="0"
-                    IsVisible="{Binding ShowEmpty}"
-                    Background="Transparent"
-                    HorizontalScrollBarVisibility="Disabled"
-                    Padding="32,28,32,28">
+      <Border x:Name="EmptyNotes" Grid.Row="0" Grid.Column="0"
+              IsVisible="{Binding ShowEmpty}"
+              Background="Transparent"
+              ClipToBounds="True"
+              Padding="28,24">
         <TextBlock x:Name="Changelog"
                    Text="{x:Static local:EmptyChangelog.Text}"
                    FontFamily="Cascadia Mono, Consolas"
                    FontSize="13"
-                   LineHeight="20"
+                   LineHeight="16"
                    Foreground="#1F2933"
                    HorizontalAlignment="Left"
                    VerticalAlignment="Top"/>
-      </ScrollViewer>
+      </Border>
       <ScrollBar Grid.Row="0" Grid.Column="1" Orientation="Vertical"
                  AllowAutoHide="False"
                  Minimum="0" Maximum="{Binding ScrollMaxY}"

@@ -23,28 +23,20 @@ public static class EmptyChangelog
 
         search
           names and values, including a table not expanded
-          find next steps through the hits
-          find all lists them
-          esc clears the mark
+          find next steps. find all lists. esc clears the mark
 
         scan
-          one forward read
-          the bar is bytes reached over the length
+          one forward read. the bar is bytes reached over the length
           remaining time follows the pace so far
           the first byte after the bom and whitespace chooses
-          "<" is xml
-          a json start byte is json
+          "<" is xml. a json start byte is json
 
         left out
-          no edit, no save
-          no external dtd, no external entity
-          one json value, utf-8
-          no comment, no trailing comma
+          no edit, no save. no external dtd, no external entity
+          one json value, utf-8. no comment, no trailing comma
 
         keys
-          ctrl+o          open
-          ctrl+f          find
-          esc             clear the mark
-          double-click    fit a column to its text
+          ctrl+o  open    ctrl+f  find    esc  clear the mark
+          double-click a column edge to fit it
         """;
 }
