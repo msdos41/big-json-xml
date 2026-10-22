@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        run: dotnet test BigJsonXml.slnx
+
+      - name: Release notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+([-.].+)?$') {
+            throw "Tag '$env:RELEASE_TAG' is not a version like v1.2.3."
+          }
+          $lines = @(Get-Content CHANGELOG.md)
+          $heading = '^##\s+\[?' + [regex]::Escape($version) + '\]?(\s|$)'
+          $start = 0..($lines.Count - 1) | Where-Object { $lines[$_] -match $heading } | Select-Object -First 1
+          if ($null -eq $start) {
+            throw "CHANGELOG.md has no section for $version."
+          }
+          $end = $lines.Count
+          for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^##\s+') {
+              $end = $i
+              break
+            }
+          }
+          $notes = ($lines[$start..($end - 1)] -join "`n").Trim()
+          if ([string]::IsNullOrWhiteSpace($notes)) {
+            throw "CHANGELOG.md section $version is empty."
+          }
+          Set-Content release-notes.md -Value $notes -Encoding utf8NoBOM
+
+      - name: Publish
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          dotnet publish src/BigJsonXml.Desktop/BigJsonXml.Desktop.csproj -c Release "-p:Version=$version"
+          Copy-Item src/BigJsonXml.Desktop/bin/Release/net10.0/win-x64/publish/BigJsonXml.exe BigJsonXml-win-x64.exe
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$env:RELEASE_TAG" BigJsonXml-win-x64.exe --title "$env:RELEASE_TAG" --notes-file release-notes.md
