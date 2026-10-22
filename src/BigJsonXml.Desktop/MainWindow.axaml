@@ -72,7 +72,8 @@
                    FontSize="13"
                    LineHeight="16"
                    Foreground="#1F2933"
-                   HorizontalAlignment="Left"
+                   TextWrapping="Wrap"
+                   HorizontalAlignment="Stretch"
                    VerticalAlignment="Top"/>
       </Border>
       <ScrollBar Grid.Row="0" Grid.Column="1" Orientation="Vertical"
