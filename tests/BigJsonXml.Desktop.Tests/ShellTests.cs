@@ -273,6 +273,65 @@ public class ShellTests
     }
 
     [Fact]
+    public void The_changelog_rules_follow_the_text_and_it_scrolls_when_taller_than_the_window()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var window = new MainWindow { Width = 1100, Height = 900 };
+        window.Show();
+        try
+        {
+            Arrange(window);
+            var notes = window.FindControl<ScrollViewer>("EmptyNotes");
+            var stack = window.FindControl<StackPanel>("Changelog");
+            Assert.NotNull(notes);
+            Assert.NotNull(stack);
+            Assert.Equal(ScrollBarVisibility.Auto, notes.VerticalScrollBarVisibility);
+            Assert.Equal(ScrollBarVisibility.Disabled, notes.HorizontalScrollBarVisibility);
+            var blocks = stack.Children.OfType<TextBlock>().ToList();
+            var rules = stack.Children.OfType<Border>().ToList();
+            Assert.True(blocks.Count >= 2);
+            Assert.Equal(blocks.Count - 1, rules.Count);
+            Assert.Equal(EmptyChangelog.History, blocks.Select(block => block.Text));
+            for (var i = 0; i < stack.Children.Count; i++)
+            {
+                if (i % 2 == 0)
+                    Assert.IsType<TextBlock>(stack.Children[i]);
+                else
+                    Assert.IsType<Border>(stack.Children[i]);
+            }
+
+            Assert.All(rules, rule =>
+            {
+                Assert.Equal(1, rule.Height);
+                AssertColor(rule.Background, "#D0D7DE");
+                Assert.Equal(blocks[0].Bounds.Width, rule.Bounds.Width, 1);
+            });
+            var wide = rules[0].Bounds.Width;
+            window.Width = 520;
+            Arrange(window);
+            Assert.Equal(blocks[0].Bounds.Width, rules[0].Bounds.Width, 1);
+            Assert.True(rules[0].Bounds.Width < wide - 20);
+
+            window.Width = 1100;
+            window.Height = 280;
+            Arrange(window);
+            Assert.True(stack.Bounds.Height > notes.Viewport.Height + 1);
+            Assert.True(NotesBar(notes).IsVisible);
+
+            window.Height = 1600;
+            Arrange(window);
+            Assert.True(stack.Bounds.Height <= notes.Viewport.Height + 0.5);
+            Assert.False(NotesBar(notes).IsVisible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [Fact]
     public void The_changelog_wraps_inside_a_narrow_window()
     {
         if (Application.Current is null)
@@ -283,17 +342,15 @@ public class ShellTests
         try
         {
             Arrange(window);
-            var notes = window.FindControl<Control>("EmptyNotes");
-            var changelog = window.FindControl<TextBlock>("Changelog");
+            var notes = window.FindControl<ScrollViewer>("EmptyNotes");
+            var blocks = ChangelogBlocks(window);
             Assert.NotNull(notes);
-            Assert.NotNull(changelog);
+            Assert.Equal(EmptyChangelog.History, blocks.Select(block => block.Text));
             Assert.True(notes.IsVisible);
-            Assert.Equal(TextWrapping.Wrap, changelog.TextWrapping);
-            Assert.Equal(EmptyChangelog.Text, changelog.Text);
-            Assert.True(changelog.Bounds.Width > 0);
-            Assert.True(changelog.Bounds.Right <= notes.Bounds.Width + 0.5);
-            Assert.True(changelog.Bounds.Bottom <= notes.Bounds.Height + 0.5);
-            Assert.Contains("list table", changelog.Text, StringComparison.Ordinal);
+            Assert.All(blocks, block => Assert.Equal(TextWrapping.Wrap, block.TextWrapping));
+            Assert.All(blocks, block => Assert.True(block.Bounds.Width > 0));
+            Assert.All(blocks, block => Assert.True(RightIn(block, notes) <= notes.Bounds.Width + 0.5));
+            Assert.Contains("list table", blocks[0].Text, StringComparison.Ordinal);
         }
         finally
         {
@@ -336,22 +393,20 @@ public class ShellTests
             Assert.Equal("Open (Ctrl+O)", ToolTip.GetTip(open));
             Assert.Equal("Find (Ctrl+F)", ToolTip.GetTip(find));
             Assert.Null(window.FindControl<Button>("EmptyOpen"));
-            var notes = window.FindControl<Control>("EmptyNotes");
-            var changelog = window.FindControl<TextBlock>("Changelog");
+            var notes = window.FindControl<ScrollViewer>("EmptyNotes");
             Assert.NotNull(notes);
-            Assert.NotNull(changelog);
             Assert.True(notes.IsVisible);
             Arrange(window);
-            Assert.True(changelog.Bounds.Height > 0);
-            Assert.True(changelog.Bounds.Right <= notes.Bounds.Width + 0.5);
-            Assert.True(changelog.Bounds.Bottom <= notes.Bounds.Height + 0.5);
-            Assert.Equal(TextWrapping.Wrap, changelog.TextWrapping);
-            Assert.Contains("Cascadia Mono", changelog.FontFamily.ToString(), StringComparison.OrdinalIgnoreCase);
-            Assert.StartsWith("## ", changelog.Text);
-            Assert.Equal(EmptyChangelog.Text, changelog.Text);
-            Assert.Contains("list table", changelog.Text, StringComparison.Ordinal);
-            Assert.Contains("record table", changelog.Text, StringComparison.Ordinal);
-            Assert.Contains("ctrl+o", changelog.Text, StringComparison.OrdinalIgnoreCase);
+            var blocks = ChangelogBlocks(window);
+            Assert.Equal(EmptyChangelog.History, blocks.Select(block => block.Text));
+            Assert.All(blocks, block => Assert.True(block.Bounds.Height > 0));
+            Assert.All(blocks, block => Assert.True(RightIn(block, notes) <= notes.Bounds.Width + 0.5));
+            Assert.All(blocks, block => Assert.Equal(TextWrapping.Wrap, block.TextWrapping));
+            Assert.All(blocks, block => Assert.Contains("Cascadia Mono", block.FontFamily.ToString(), StringComparison.OrdinalIgnoreCase));
+            Assert.StartsWith("## ", blocks[0].Text);
+            Assert.Contains("list table", blocks[^1].Text, StringComparison.Ordinal);
+            Assert.Contains("record table", blocks[^1].Text, StringComparison.Ordinal);
+            Assert.Contains("ctrl+o", blocks[^1].Text, StringComparison.OrdinalIgnoreCase);
 
             var progress = window.FindControl<ProgressBar>("ScanProgress");
             Assert.NotNull(progress);
@@ -1396,7 +1451,9 @@ public class ShellTests
             Assert.True(stripY >= openY);
             Assert.True(surfaceY >= stripY);
             Assert.DoesNotContain(strip.GetVisualDescendants(), visual => visual is ScrollViewer || visual is ScrollBar);
-            var bars = window.GetVisualDescendants().OfType<ScrollBar>().ToList();
+            var notes = window.FindControl<Control>("EmptyNotes");
+            Assert.NotNull(notes);
+            var bars = window.GetVisualDescendants().OfType<ScrollBar>().Where(bar => !Inside(bar, notes)).ToList();
             Assert.Equal(1, bars.Count(bar => bar.Orientation == Avalonia.Layout.Orientation.Vertical));
             Assert.Equal(1, bars.Count(bar => bar.Orientation == Avalonia.Layout.Orientation.Horizontal));
 
@@ -1710,6 +1767,23 @@ public class ShellTests
         control.RaiseEvent(args);
         return args;
     }
+
+    private static List<TextBlock> ChangelogBlocks(Window window)
+    {
+        var stack = window.FindControl<StackPanel>("Changelog");
+        Assert.NotNull(stack);
+        return stack.Children.OfType<TextBlock>().ToList();
+    }
+
+    private static double RightIn(Visual child, Visual ancestor)
+    {
+        var point = child.TranslatePoint(new Point(child.Bounds.Width, 0), ancestor);
+        Assert.NotNull(point);
+        return point.Value.X;
+    }
+
+    private static ScrollBar NotesBar(ScrollViewer notes) =>
+        notes.GetVisualDescendants().OfType<ScrollBar>().Single(bar => bar.Orientation == Avalonia.Layout.Orientation.Vertical);
 
     private static Button NamedButton(Control root, string name) =>
         Assert.Single(root.GetVisualDescendants().OfType<Button>(), candidate => candidate.Name == name);

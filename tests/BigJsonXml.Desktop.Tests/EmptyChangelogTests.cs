@@ -3,7 +3,7 @@ namespace BigJsonXml.Desktop.Tests;
 public class EmptyChangelogTests
 {
     [Fact]
-    public void The_latest_version_is_the_top_section()
+    public void Every_version_is_kept_and_the_title_is_not()
     {
         var changelog = string.Join("\r\n",
         [
@@ -21,22 +21,20 @@ public class EmptyChangelogTests
             "",
         ]);
 
-        Assert.Equal(string.Join('\n',
+        Assert.Equal(
         [
-            "## 0.2.0",
-            "",
-            "### Features",
-            "",
-            "- newest note",
-        ]), EmptyChangelog.Latest(changelog));
+            "## 0.2.0\n\n### Features\n\n- newest note",
+            "## [0.1.0] - 2026-01-01\n\n- older note",
+        ], EmptyChangelog.Sections(changelog));
     }
 
     [Fact]
-    public void The_shipped_notes_are_the_top_section_of_the_changelog_file()
+    public void The_shipped_notes_are_every_version_in_the_changelog_file()
     {
-        var notes = EmptyChangelog.Latest(ReadChangelog());
-        Assert.Equal(notes, EmptyChangelog.Text);
-        Assert.StartsWith("## ", notes);
+        var notes = EmptyChangelog.Sections(ReadChangelog());
+        Assert.Equal(notes, EmptyChangelog.History);
+        Assert.NotEmpty(notes);
+        Assert.All(notes, section => Assert.StartsWith("## ", section));
     }
 
     static string ReadChangelog()
