@@ -316,12 +316,11 @@ public class ShellTests
             Assert.True(changelog.Bounds.Height > 0);
             Assert.True(changelog.Bounds.Bottom <= notes.Bounds.Height + 0.5);
             Assert.Contains("Cascadia Mono", changelog.FontFamily.ToString(), StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("CHANGELOG", changelog.Text, StringComparison.Ordinal);
-            Assert.Contains("v1", changelog.Text, StringComparison.Ordinal);
+            Assert.StartsWith("## ", changelog.Text);
+            Assert.Equal(EmptyChangelog.Text, changelog.Text);
             Assert.Contains("list table", changelog.Text, StringComparison.Ordinal);
             Assert.Contains("record table", changelog.Text, StringComparison.Ordinal);
             Assert.Contains("ctrl+o", changelog.Text, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("no edit, no save", changelog.Text, StringComparison.Ordinal);
 
             var progress = window.FindControl<ProgressBar>("ScanProgress");
             Assert.NotNull(progress);

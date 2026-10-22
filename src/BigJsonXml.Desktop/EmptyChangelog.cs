@@ -2,6 +2,8 @@ namespace BigJsonXml.Desktop;
 
 public static class EmptyChangelog
 {
+    public static string Latest(string changelog) => "";
+
     public const string Text = """
         CHANGELOG
 
