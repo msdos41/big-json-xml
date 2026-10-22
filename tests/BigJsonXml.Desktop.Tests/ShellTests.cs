@@ -273,6 +273,35 @@ public class ShellTests
     }
 
     [Fact]
+    public void The_changelog_wraps_inside_a_narrow_window()
+    {
+        if (Application.Current is null)
+            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+
+        var window = new MainWindow { Width = 480, Height = 640 };
+        window.Show();
+        try
+        {
+            Arrange(window);
+            var notes = window.FindControl<Control>("EmptyNotes");
+            var changelog = window.FindControl<TextBlock>("Changelog");
+            Assert.NotNull(notes);
+            Assert.NotNull(changelog);
+            Assert.True(notes.IsVisible);
+            Assert.Equal(TextWrapping.Wrap, changelog.TextWrapping);
+            Assert.Equal(EmptyChangelog.Text, changelog.Text);
+            Assert.True(changelog.Bounds.Width > 0);
+            Assert.True(changelog.Bounds.Right <= notes.Bounds.Width + 0.5);
+            Assert.True(changelog.Bounds.Bottom <= notes.Bounds.Height + 0.5);
+            Assert.Contains("list table", changelog.Text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [Fact]
     public void The_shell_bands_a_changelog_and_a_flat_find_window()
     {
         if (Application.Current is null)
@@ -314,7 +343,9 @@ public class ShellTests
             Assert.True(notes.IsVisible);
             Arrange(window);
             Assert.True(changelog.Bounds.Height > 0);
+            Assert.True(changelog.Bounds.Right <= notes.Bounds.Width + 0.5);
             Assert.True(changelog.Bounds.Bottom <= notes.Bounds.Height + 0.5);
+            Assert.Equal(TextWrapping.Wrap, changelog.TextWrapping);
             Assert.Contains("Cascadia Mono", changelog.FontFamily.ToString(), StringComparison.OrdinalIgnoreCase);
             Assert.StartsWith("## ", changelog.Text);
             Assert.Equal(EmptyChangelog.Text, changelog.Text);
