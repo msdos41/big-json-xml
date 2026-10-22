@@ -2,43 +2,42 @@ namespace BigJsonXml.Desktop;
 
 public static class EmptyChangelog
 {
-    public static string Latest(string changelog) => "";
+    public static readonly string Text = Load();
 
-    public const string Text = """
-        CHANGELOG
+    public static string Latest(string changelog)
+    {
+        var lines = new List<string>();
+        var found = false;
+        using var reader = new StringReader(changelog);
+        while (reader.ReadLine() is { } line)
+        {
+            if (IsVersion(line))
+            {
+                if (found)
+                    break;
+                found = true;
+            }
 
-        v1
-        --
-        viewer. one xml or json document.
-        the file on disk stays as it is.
+            if (found)
+                lines.Add(line);
+        }
 
-        tables
-          two or more same-named siblings are a list table
-          a json array is a list table, of one value or of none
-          one element, or one object, is a record table
-          an attribute keeps the @ written in the file
+        while (lines.Count > 0 && lines[^1].Length == 0)
+            lines.RemoveAt(lines.Count - 1);
+        return found ? string.Join('\n', lines) : "";
+    }
 
-        cell
-          the next table is drawn inside the cell
-          a long value wraps there when the cell is opened
-          one vertical scrollbar, one horizontal scrollbar
+    static string Load()
+    {
+        using var stream = typeof(EmptyChangelog).Assembly.GetManifestResourceStream("BigJsonXml.Desktop.CHANGELOG.md");
+        if (stream is null)
+            return "";
+        using var reader = new StreamReader(stream);
+        return Latest(reader.ReadToEnd());
+    }
 
-        search
-          names and values, including a table not expanded
-          find next steps. find all lists. esc clears the mark
-
-        scan
-          one forward read. the bar is bytes reached over the length
-          remaining time follows the pace so far
-          the first byte after the bom and whitespace chooses
-          "<" is xml. a json start byte is json
-
-        left out
-          no edit, no save. no external dtd, no external entity
-          one json value, utf-8. no comment, no trailing comma
-
-        keys
-          ctrl+o  open    ctrl+f  find    esc  clear the mark
-          double-click a column edge to fit it
-        """;
+    static bool IsVersion(string line) =>
+        line.StartsWith("##", StringComparison.Ordinal)
+        && line.Length > 2
+        && char.IsWhiteSpace(line[2]);
 }

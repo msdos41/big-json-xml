@@ -40,6 +40,9 @@
     <EmbeddedResource Include="Assets\BigJsonXml.ico">
       <LogicalName>BigJsonXml.Desktop.Assets.BigJsonXml.ico</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="..\..\CHANGELOG.md">
+      <LogicalName>BigJsonXml.Desktop.CHANGELOG.md</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>
