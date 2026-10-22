@@ -2,10 +2,11 @@ namespace BigJsonXml.Desktop;
 
 public static class EmptyChangelog
 {
-    public static readonly string Text = Load();
+    public static IReadOnlyList<string> History { get; } = Sections(ReadEmbedded());
 
-    public static string Latest(string changelog)
+    public static IReadOnlyList<string> Sections(string changelog)
     {
+        var sections = new List<string>();
         var lines = new List<string>();
         var found = false;
         using var reader = new StringReader(changelog);
@@ -14,7 +15,8 @@ public static class EmptyChangelog
             if (IsVersion(line))
             {
                 if (found)
-                    break;
+                    sections.Add(Join(lines));
+                lines.Clear();
                 found = true;
             }
 
@@ -22,18 +24,26 @@ public static class EmptyChangelog
                 lines.Add(line);
         }
 
-        while (lines.Count > 0 && lines[^1].Length == 0)
-            lines.RemoveAt(lines.Count - 1);
-        return found ? string.Join('\n', lines) : "";
+        if (found)
+            sections.Add(Join(lines));
+        return sections;
     }
 
-    static string Load()
+    static string ReadEmbedded()
     {
         using var stream = typeof(EmptyChangelog).Assembly.GetManifestResourceStream("BigJsonXml.Desktop.CHANGELOG.md");
         if (stream is null)
             return "";
         using var reader = new StreamReader(stream);
-        return Latest(reader.ReadToEnd());
+        return reader.ReadToEnd();
+    }
+
+    static string Join(List<string> lines)
+    {
+        var end = lines.Count;
+        while (end > 0 && lines[end - 1].Length == 0)
+            end--;
+        return string.Join('\n', lines.Take(end));
     }
 
     static bool IsVersion(string line) =>

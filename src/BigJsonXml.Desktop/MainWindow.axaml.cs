@@ -3,6 +3,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -27,6 +29,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        LoadChangelog();
         LoadIcon();
         DataContext = _model;
         _model.PropertyChanged += OnModelChanged;
@@ -114,6 +117,38 @@ public partial class MainWindow : Window
         var path = files.Count > 0 ? files[0].TryGetLocalPath() : null;
         if (path is not null)
             _model.OpenPath(path);
+    }
+
+    private void LoadChangelog()
+    {
+        var rule = new SolidColorBrush(Color.Parse("#D0D7DE"));
+        var ink = new SolidColorBrush(Color.Parse("#1F2933"));
+        var face = new FontFamily("Cascadia Mono, Consolas");
+        var history = EmptyChangelog.History;
+        for (var i = 0; i < history.Count; i++)
+        {
+            if (i > 0)
+            {
+                Changelog.Children.Add(new Border
+                {
+                    Height = 1,
+                    Margin = new Thickness(0, 12, 0, 12),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    Background = rule,
+                });
+            }
+
+            Changelog.Children.Add(new TextBlock
+            {
+                Text = history[i],
+                FontFamily = face,
+                FontSize = 13,
+                LineHeight = 16,
+                Foreground = ink,
+                TextWrapping = TextWrapping.Wrap,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            });
+        }
     }
 
     private void LoadIcon()

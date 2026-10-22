@@ -61,27 +61,22 @@
     </Border>
     <Grid ColumnDefinitions="*,Auto" RowDefinitions="*,Auto">
       <local:DocumentSurface Grid.Row="0" Grid.Column="0"/>
-      <Border x:Name="EmptyNotes" Grid.Row="0" Grid.Column="0"
-              IsVisible="{Binding ShowEmpty}"
-              Background="Transparent"
-              ClipToBounds="True"
-              Padding="28,24">
-        <TextBlock x:Name="Changelog"
-                   Text="{x:Static local:EmptyChangelog.Text}"
-                   FontFamily="Cascadia Mono, Consolas"
-                   FontSize="13"
-                   LineHeight="16"
-                   Foreground="#1F2933"
-                   TextWrapping="Wrap"
-                   HorizontalAlignment="Stretch"
-                   VerticalAlignment="Top"/>
-      </Border>
+      <ScrollViewer x:Name="EmptyNotes" Grid.Row="0" Grid.Column="0"
+                    IsVisible="{Binding ShowEmpty}"
+                    Background="Transparent"
+                    HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Auto"
+                    Padding="28,24">
+        <StackPanel x:Name="Changelog" Orientation="Vertical"/>
+      </ScrollViewer>
       <ScrollBar Grid.Row="0" Grid.Column="1" Orientation="Vertical"
+                 IsVisible="{Binding !ShowEmpty}"
                  AllowAutoHide="False"
                  Minimum="0" Maximum="{Binding ScrollMaxY}"
                  ViewportSize="{Binding ViewportHeight}"
                  Value="{Binding ScrollY, Mode=TwoWay}"/>
       <ScrollBar Grid.Row="1" Grid.Column="0" Orientation="Horizontal"
+                 IsVisible="{Binding !ShowEmpty}"
                  AllowAutoHide="False"
                  Minimum="0" Maximum="{Binding ScrollMaxX}"
                  ViewportSize="{Binding ViewportWidth}"
