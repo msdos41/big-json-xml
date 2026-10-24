@@ -37,6 +37,21 @@ public class EmptyChangelogTests
         Assert.All(notes, section => Assert.StartsWith("## ", section));
     }
 
+    [Fact]
+    public void The_newest_section_heading_is_a_dated_version()
+    {
+        var heading = EmptyChangelog.Sections(ReadChangelog())[0].Split('\n')[0];
+        Assert.Matches(
+            @"^## \[(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?\] - \d{4}-\d{2}-\d{2}$",
+            heading);
+        Assert.True(DateOnly.TryParseExact(
+            heading[^10..],
+            "yyyy-MM-dd",
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out _));
+    }
+
     static string ReadChangelog()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
