@@ -17,6 +17,50 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Check tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          $semver = '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if ($version -notmatch $semver) {
+            throw "Tag '$env:RELEASE_TAG' must look like v1.2.3 or v1.2.3-beta.1."
+          }
+          $lines = @(Get-Content CHANGELOG.md)
+          $heading = '^## \[' + [regex]::Escape($version) + '\] - (\d{4}-\d{2}-\d{2})$'
+          $start = 0..($lines.Count - 1) | Where-Object { $lines[$_] -match $heading } | Select-Object -First 1
+          if ($null -eq $start) {
+            throw "CHANGELOG.md must start its versions with: ## [$version] - YYYY-MM-DD"
+          }
+          $date = $Matches[1]
+          $parsed = [datetime]::MinValue
+          $validDate = [datetime]::TryParseExact(
+            $date,
+            'yyyy-MM-dd',
+            [cultureinfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::None,
+            [ref]$parsed)
+          if (-not $validDate) {
+            throw "CHANGELOG.md date '$date' is not a calendar day."
+          }
+          $first = 0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^##\s+' } | Select-Object -First 1
+          if ($first -ne $start) {
+            throw "The $version section must be the first version in CHANGELOG.md."
+          }
+          $csproj = Get-Content src/BigJsonXml.Desktop/BigJsonXml.Desktop.csproj -Raw
+          if ($csproj -notmatch ('<Version>' + [regex]::Escape($version) + '</Version>')) {
+            throw "Set <Version>$version</Version> in src/BigJsonXml.Desktop/BigJsonXml.Desktop.csproj."
+          }
+          git fetch origin "refs/tags/${env:RELEASE_TAG}:refs/tags/${env:RELEASE_TAG}" --force
+          $tagObject = (git rev-parse "refs/tags/$env:RELEASE_TAG").Trim()
+          $commit = (git rev-parse "refs/tags/$env:RELEASE_TAG^{}").Trim()
+          if ($tagObject -eq $commit) {
+            throw "Tag '$env:RELEASE_TAG' is lightweight. Create it with: git tag -a $env:RELEASE_TAG -m 'Release $version'"
+          }
+          Add-Content -Path $env:GITHUB_ENV -Value "RELEASE_VERSION=$version" -Encoding utf8NoBOM
+          $prerelease = $version.Contains('-').ToString().ToLowerInvariant()
+          Add-Content -Path $env:GITHUB_ENV -Value "RELEASE_PRERELEASE=$prerelease" -Encoding utf8NoBOM
+
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
@@ -25,15 +69,10 @@ jobs:
         run: dotnet test BigJsonXml.slnx
 
       - name: Release notes
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $version = $env:RELEASE_TAG -replace '^v', ''
-          if ($version -notmatch '^\d+\.\d+\.\d+([-.].+)?$') {
-            throw "Tag '$env:RELEASE_TAG' is not a version like v1.2.3."
-          }
+          $version = $env:RELEASE_VERSION
           $lines = @(Get-Content CHANGELOG.md)
-          $heading = '^##\s+\[?' + [regex]::Escape($version) + '\]?(\s|$)'
+          $heading = '^## \[' + [regex]::Escape($version) + '\] - \d{4}-\d{2}-\d{2}$'
           $start = 0..($lines.Count - 1) | Where-Object { $lines[$_] -match $heading } | Select-Object -First 1
           if ($null -eq $start) {
             throw "CHANGELOG.md has no section for $version."
@@ -52,15 +91,30 @@ jobs:
           Set-Content release-notes.md -Value $notes -Encoding utf8NoBOM
 
       - name: Publish
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $version = $env:RELEASE_TAG -replace '^v', ''
+          $version = $env:RELEASE_VERSION
+          $asset = "BigJsonXml-$version-windows-amd64.exe"
+          $checksums = "BigJsonXml-$version-checksums.sha256"
           dotnet publish src/BigJsonXml.Desktop/BigJsonXml.Desktop.csproj -c Release "-p:Version=$version"
-          Copy-Item src/BigJsonXml.Desktop/bin/Release/net10.0/win-x64/publish/BigJsonXml.exe BigJsonXml-win-x64.exe
+          Copy-Item src/BigJsonXml.Desktop/bin/Release/net10.0/win-x64/publish/BigJsonXml.exe $asset
+          $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+          $utf8 = [System.Text.UTF8Encoding]::new($false)
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) $checksums), "$hash  $asset`n", $utf8)
 
       - name: GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$env:RELEASE_TAG" BigJsonXml-win-x64.exe --title "$env:RELEASE_TAG" --notes-file release-notes.md
+        run: |
+          $version = $env:RELEASE_VERSION
+          $asset = "BigJsonXml-$version-windows-amd64.exe"
+          $checksums = "BigJsonXml-$version-checksums.sha256"
+          $arguments = @(
+            'release', 'create', $env:RELEASE_TAG,
+            $asset, $checksums,
+            '--title', $env:RELEASE_TAG,
+            '--notes-file', 'release-notes.md')
+          if ($env:RELEASE_PRERELEASE -eq 'true') {
+            $arguments += '--prerelease'
+          }
+          gh @arguments
