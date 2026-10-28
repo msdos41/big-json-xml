@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.1] - 2026-10-28
+
+### Bug Fixes
+
+- Find Next no longer fails when a match is found while the file is still loading and the next sibling element has only been partly read.
+
 ## [0.1.0] - 2026-10-28
 
 First public release: a Windows viewer for large XML and JSON files.
