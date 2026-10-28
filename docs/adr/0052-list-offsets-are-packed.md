@@ -1,0 +1,7 @@
+# List entry offsets are packed per block
+
+A list keeps every entry's file offset (ADR 0024), but not as one eight-byte number per entry. Offsets are stored in blocks of 256. A block keeps its first offset, a straight line through its offsets, and each entry's distance from that line in as few bits as the block needs. Evenly spaced entries cost no bits, and records of similar length cost one or two bytes each. Any entry still opens without reading the others, in constant time. The block being filled stays as plain numbers, so an entry found while the scan is running opens at once. A JSON list's slot and its opened table share one store; expanding a list no longer copies it.
+
+Later items of a JSON array that are plain scalars are read in a tight run that stores each start straight into that store. An object, an array, an escaped or non-ASCII string, an item cut by the end of the bytes read so far, or a byte that is not valid JSON ends the run, and the item reader takes that item as before, so errors keep their line and column. The run is part of the general walk: it keys off the grammar, not a sample's names (ADR 0044).
+
+A sparse index that keeps every Nth offset and re-reads from the nearest one was rejected: a list of large records would read up to N records for one row, and XML siblings need their parent's namespace scope to re-read. A resident search index stays rejected. Memory-mapped reads are not part of this decision; reads are not what the scan waits on today.
