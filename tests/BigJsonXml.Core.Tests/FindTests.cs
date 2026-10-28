@@ -624,6 +624,63 @@ public class FindTests
     }
 
     [Fact]
+    public void Hit_text_stays_readable_when_the_scan_drains_one_sibling_at_a_time()
+    {
+        var xml = new System.Text.StringBuilder();
+        xml.Append("<root>");
+        for (var item = 0; item < 3; item++)
+        {
+            xml.Append("<item>");
+            for (var row = 0; row < 80; row++)
+            {
+                var mark = (item == 0 && row == 60) || (item == 1 && row == 3) || (item == 2 && row == 79) ? "123" : "0";
+                xml.Append("<row><cell v=\"").Append(mark).Append("\">x</cell></row>");
+            }
+
+            xml.Append("</item>");
+        }
+
+        xml.Append("</root>");
+        var bytes = System.Text.Encoding.UTF8.GetBytes(xml.ToString());
+        var source = new MemoryByteSource();
+        source.Append(bytes);
+        source.Complete();
+        var session = ViewerSession.Open(source);
+        // A slow machine: each drain of repeated siblings stops after one entry.
+        session.FlatDrainTicks = 0;
+        session.Search(new TextSearch { FindWhat = "123" });
+        var seen = 0;
+        for (var step = 0; step < 100_000; step++)
+        {
+            var more = session.Pump(24);
+            for (; seen < session.Hits.Count; seen++)
+            {
+                var text = session.ReadHitText(session.Hits[seen], 20);
+                Assert.Contains("123", text.Text, StringComparison.Ordinal);
+            }
+
+            if (!more && session.Progress != ScanProgress.Scanning)
+                break;
+        }
+
+        var whole = new MemoryByteSource();
+        whole.Append(bytes);
+        whole.Complete();
+        var reference = ViewerSession.Open(whole);
+        reference.Search(new TextSearch { FindWhat = "123" });
+        reference.PumpAll();
+
+        string[] expected = ["/root/item[1]/row[61]/cell/@v", "/root/item[2]/row[4]/cell/@v", "/root/item[3]/row[80]/cell/@v"];
+        Assert.Equal(expected, reference.Hits.Select(hit => reference.FormatPath(hit.Path)).ToArray());
+        Assert.Equal(expected, session.Hits.Select(hit => session.FormatPath(hit.Path)).ToArray());
+        foreach (var hit in session.Hits)
+        {
+            session.Reveal(hit);
+            Assert.Contains("123", session.ReadHitText(hit, 20).Text, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void Hit_text_stays_readable_when_a_simple_field_becomes_a_list()
     {
         var xml = new System.Text.StringBuilder();
