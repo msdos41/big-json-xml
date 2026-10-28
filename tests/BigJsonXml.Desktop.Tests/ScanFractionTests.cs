@@ -290,17 +290,30 @@ public class ScanFractionTests
     [Fact]
     public void An_internal_entity_holds_the_fraction_until_the_scan_finishes()
     {
-        var source = EntityDocument(60_000);
-        var length = source.Length;
+        // A background tab gets one bounded pump per tick, so the entity scan moves in fixed
+        // steps instead of wall-clock slices that a fast machine can finish in one tick.
+        var source = new MemoryByteSource();
+        source.Append("<!DOCTYPE root [<!ENTITY e \"");
         using var model = new ViewerModel();
         model.Open(source);
+        var entity = model.ActiveTab!;
+        var other = new MemoryByteSource();
+        other.Append("<root/>");
+        other.Complete();
+        model.Open(other);
+        var front = model.ActiveTab!;
+        AppendCopies(source, "<a>x</a>"u8, 60_000);
+        source.Append("\">]><root>&e;</root>");
+        source.Complete();
+        var length = source.Length;
+        model.Activate(entity);
 
         Assert.Equal("Scanning", model.Status);
         var previous = model.ScanFraction;
         var stalled = false;
         for (var i = 0; i < 80 && model.Status == "Scanning"; i++)
         {
-            model.Tick();
+            Step(model, entity, front);
             if (model.Status != "Scanning")
                 break;
             if (previous > 0 && previous < 1 && model.ScanFraction == previous)
@@ -314,7 +327,7 @@ public class ScanFractionTests
 
         Assert.True(stalled, $"status={model.Status} fraction={model.ScanFraction} error={model.Error}");
         var held = model.ScanFraction;
-        model.Tick();
+        Step(model, entity, front);
         Assert.Equal("Scanning", model.Status);
         Assert.Equal(held, model.ScanFraction);
 
@@ -339,6 +352,13 @@ public class ScanFractionTests
         Assert.Equal("Complete", model.Status);
         Assert.False(model.ScanFractionShown);
         Assert.Equal("", model.RemainingTime);
+    }
+
+    private static void Step(ViewerModel model, DocumentTab entity, DocumentTab front)
+    {
+        model.Activate(front);
+        model.Tick();
+        model.Activate(entity);
     }
 
     [Fact]
@@ -403,16 +423,6 @@ public class ScanFractionTests
         source.Append("<a>findme</a>");
         AppendCopies(source, "<a>1</a>"u8, 1_000_000);
         source.Append("</root>");
-        source.Complete();
-        return source;
-    }
-
-    private static MemoryByteSource EntityDocument(int elements)
-    {
-        var source = new MemoryByteSource();
-        source.Append("<!DOCTYPE root [<!ENTITY e \"");
-        AppendCopies(source, "<a>x</a>"u8, elements);
-        source.Append("\">]><root>&e;</root>");
         source.Complete();
         return source;
     }
