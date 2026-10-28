@@ -9,13 +9,13 @@ The product asset is one Windows executable. The local publish file stays `BigJs
 1. The version is SemVer: `MAJOR.MINOR.PATCH`. A pre-release adds a hyphen and dot-separated identifiers, for example `0.2.0-beta.1`. The tag is the version with a leading `v`: `v0.2.0` or `v0.2.0-beta.1`.
 2. The tag is annotated. Its message is `Release X.Y.Z`. A lightweight tag fails the workflow.
 3. The tagged commit contains the workflow, and its `src/BigJsonXml.Desktop/BigJsonXml.Desktop.csproj` has `<Version>X.Y.Z</Version>` for that same version, including any pre-release suffix.
-4. `CHANGELOG.md` has this as its first version section. `YYYY-MM-DD` is the calendar day of the tag:
+4. `CHANGELOG.md` has this as its first version section. `YYYY-MM-DD` is the calendar day of the tag. The workflow checks only that it is a real date, not that it matches the tag, so keeping them equal is up to the releaser:
 
 ```markdown
 ## [X.Y.Z] - YYYY-MM-DD
 ```
 
-5. A tag is pushed once and stays on that commit.
+5. A tag is pushed once and stays on that commit. If the workflow fails for a flaky test, re-run the failed job in Actions; do not delete and re-push the tag.
 6. The workflow uploads two assets. `X.Y.Z` includes a pre-release suffix when the tag has one:
 
 ```text
@@ -27,9 +27,9 @@ The checksum file is one line: the lowercase SHA-256, two spaces, and the exe na
 
 ## Steps
 
-Run these from the repository root on `main`, in order. Replace `X.Y.Z` with the version.
+Release changes go through a pull request like any other change. Only the tag is pushed directly. Replace `X.Y.Z` with the version.
 
-1. Edit `CHANGELOG.md`. Put the new section above the older ones:
+1. On a branch from `main`, edit `CHANGELOG.md`. Put the new section above the older ones:
 
 ```markdown
 ## [X.Y.Z] - YYYY-MM-DD
@@ -49,22 +49,28 @@ Use the calendar day you will create the tag.
 dotnet test BigJsonXml.slnx
 ```
 
-4. Commit the changelog, the project version, and any other files that belong in this release. The commit message follows the repository commit rules.
+4. Commit the changelog, the project version, and any other files that belong in this release, following the repository commit rules. Push the branch and open a pull request.
 
-5. Confirm the worktree is clean, then create the annotated tag on that commit:
+5. After CI passes and the pull request is merged, update your local `main` and confirm the worktree is clean:
 
 ```powershell
+git switch main
+git pull --ff-only
 git status --porcelain
+```
+
+6. Create the annotated tag on the merge commit at the tip of `main`:
+
+```powershell
 git tag -a vX.Y.Z -m "Release X.Y.Z"
 git show vX.Y.Z
 ```
 
 `git show` prints a tagger, a date, and the message `Release X.Y.Z`. That is an annotated tag.
 
-6. Push the branch, then push that one tag:
+7. Push that one tag:
 
 ```powershell
-git push origin main
 git push origin vX.Y.Z
 ```
 
@@ -84,13 +90,13 @@ After the tag push, `.github/workflows/release.yml` does this in order:
 
 ## First tag
 
-`0.1.0` is the version in the desktop project and in `CHANGELOG.md` (`## [0.1.0] - 2026-10-28`). Tag it with these commands when that date is still the tag day. If the tag day is later, change the date in `CHANGELOG.md` and commit that change before tagging.
+`0.1.0` is the version in the desktop project and in `CHANGELOG.md` (`## [0.1.0] - 2026-10-28`). If the tag day is later, change that date in a pull request before tagging. After the merge:
 
 ```powershell
-git status --porcelain
+git switch main
+git pull --ff-only
 git tag -a v0.1.0 -m "Release 0.1.0"
 git show v0.1.0
-git push origin main
 git push origin v0.1.0
 ```
 
