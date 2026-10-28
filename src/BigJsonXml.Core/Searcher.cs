@@ -19,7 +19,7 @@ internal interface IScanSearch
 
     long FileByte { get; }
 
-    // The scan has not built the tree past this byte, so a hit there cannot be read yet.
+    // The tree has not counted an element that starts at or after this byte, so search must not read it yet.
     long Front { get; set; }
 
     SearchStep Step();
@@ -38,6 +38,7 @@ internal sealed class Searcher : IScanSearch
     private readonly bool _flat;
     private readonly byte[] _needle;
     private XmlParser _active;
+    private XmlEvent? _held;
 
     public Searcher(XmlDocument document, TextSearch search, List<Hit> hits)
     {
@@ -68,7 +69,16 @@ internal sealed class Searcher : IScanSearch
     {
         if (Done)
             return SearchStep.Idle;
-        return Apply(_parser.Read());
+        var ev = _held ?? _parser.Read();
+        _held = null;
+        // An element the tree has not counted yet would give earlier hits a list path the outline cannot open.
+        if (ev.Kind is XmlEventKind.Start or XmlEventKind.Flat && ev.ByteStart >= Front)
+        {
+            _held = ev;
+            return SearchStep.NeedMore;
+        }
+
+        return Apply(ev);
     }
 
     private SearchStep Apply(XmlEvent ev)

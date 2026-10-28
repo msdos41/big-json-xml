@@ -649,6 +649,39 @@ public class FindTests
             session.Hits.Select(hit => session.FormatPath(hit.Path)).ToArray());
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("\n  ")]
+    public void A_published_hit_stays_revealable_while_the_scan_is_inside_its_next_sibling(string gap)
+    {
+        var source = new MemoryByteSource();
+        source.Append($"<root>{gap}<item>alpha</item>{gap}");
+        var session = ViewerSession.Open(source);
+        session.Search(new TextSearch { FindWhat = "alpha", StartsWith = true });
+        while (session.Pump(2048))
+        {
+        }
+
+        var hit = Assert.Single(session.Hits);
+        // The scan has read the second start tag but not its end, so the tree still holds one item.
+        source.Append("<item>be");
+        while (session.Pump(2048))
+        {
+        }
+
+        Assert.Same(hit, Assert.Single(session.Hits));
+        session.Reveal(hit);
+        Assert.Equal("alpha", session.ReadHitText(hit, 20).Text);
+
+        source.Append("ta</item></root>");
+        source.Complete();
+        session.PumpAll();
+        Assert.Same(hit, Assert.Single(session.Hits));
+        Assert.Equal("/root/item[1]/#text", session.FormatPath(hit.Path));
+        session.Reveal(hit);
+        Assert.Equal("alpha", session.ReadHitText(hit, 20).Text);
+    }
+
     [Fact]
     public void Hit_text_stays_readable_when_the_scan_drains_one_sibling_at_a_time()
     {

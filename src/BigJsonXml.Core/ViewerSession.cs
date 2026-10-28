@@ -161,7 +161,7 @@ public sealed partial class ViewerSession : IDisposable
             if (_search is { Done: false })
             {
                 var reached = Progress == ScanProgress.Scanning ? BytesReached : long.MaxValue;
-                _search.Front = reached;
+                _search.Front = CountedFront(reached);
                 var steps = 0;
                 do
                 {
@@ -191,6 +191,15 @@ public sealed partial class ViewerSession : IDisposable
         }
 
         return any;
+    }
+
+    // The tree counts a simple element at its end tag. Until then search stops at its start tag,
+    // so it cannot turn a published hit's field into a list the outline does not hold yet.
+    private long CountedFront(long reached)
+    {
+        if (_grammar == Grammar.Xml && _tree.Stack.TryPeek(out var open) && !open.Announced)
+            return Math.Min(reached, open.StartByte);
+        return reached;
     }
 
     public RecordView ReadRecord(DocumentPath path)
