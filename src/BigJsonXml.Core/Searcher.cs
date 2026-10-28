@@ -19,6 +19,9 @@ internal interface IScanSearch
 
     long FileByte { get; }
 
+    // The scan has not built the tree past this byte, so a hit there cannot be read yet.
+    long Front { get; set; }
+
     SearchStep Step();
 }
 
@@ -55,6 +58,11 @@ internal sealed class Searcher : IScanSearch
     public bool Done { get; private set; }
 
     public long FileByte => _parser.FileByte;
+
+    public long Front { get; set; } = long.MaxValue;
+
+    // A promoted simple field drops the hit it held. The session may have published it already.
+    public Action<int>? Removed { get; init; }
 
     public SearchStep Step()
     {
@@ -117,6 +125,8 @@ internal sealed class Searcher : IScanSearch
                     return;
             }
 
+            if (parser.FileByte >= Front)
+                return;
             if (!parser.TryNextFlat(name, out start, out end))
                 return;
         }
@@ -450,6 +460,7 @@ internal sealed class Searcher : IScanSearch
             if ((hit.FieldOnSimple || hit.SimpleText) && hit.Steps.Count == depth + 1)
             {
                 _hits.RemoveAt(i);
+                Removed?.Invoke(i);
                 continue;
             }
 
