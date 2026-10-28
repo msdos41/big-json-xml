@@ -58,7 +58,7 @@ internal sealed class Slot
     public bool OutlineSoleList;
 
     // JSON list entry offsets. XML leaves this empty and scans children when the list opens.
-    public List<long>? EntryStarts;
+    public EntryOffsets? EntryStarts;
 }
 
 internal sealed class Frame
@@ -126,9 +126,14 @@ internal readonly struct Folded(Frame parent, Slot slot, long childStart, long c
     public bool Promoted { get; } = promoted;
 }
 
-internal sealed class OffsetIndex
+internal sealed class OffsetIndex(EntryOffsets offsets)
 {
-    public List<long> Offsets { get; } = [];
+    public OffsetIndex()
+        : this(new EntryOffsets())
+    {
+    }
+
+    public EntryOffsets Offsets { get; } = offsets;
     public long Watermark { get; set; }
 }
 

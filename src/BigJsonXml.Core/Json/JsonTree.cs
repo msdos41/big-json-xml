@@ -302,7 +302,7 @@ internal sealed class JsonTree
             Count = 0,
             StartByte = start,
             EndByte = -1,
-            EntryStarts = [],
+            EntryStarts = new EntryOffsets(),
             HasFields = true,
         };
         Add(frame, slot);
