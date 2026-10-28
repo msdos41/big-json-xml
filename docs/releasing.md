@@ -29,7 +29,7 @@ The checksum file is one line: the lowercase SHA-256, two spaces, and the exe na
 
 Release changes go through a pull request like any other change. Only the tag is pushed directly. Replace `X.Y.Z` with the version.
 
-1. On a branch from `main`, edit `CHANGELOG.md`. Put the new section above the older ones:
+1. On a branch from `staging`, edit `CHANGELOG.md`. Put the new section above the older ones:
 
 ```markdown
 ## [X.Y.Z] - YYYY-MM-DD
@@ -49,9 +49,9 @@ Use the calendar day you will create the tag.
 dotnet test BigJsonXml.slnx
 ```
 
-4. Commit the changelog, the project version, and any other files that belong in this release, following the repository commit rules. Push the branch and open a pull request.
+4. Commit the changelog, the project version, and any other files that belong in this release, following the repository commit rules. Push the branch and open a pull request into `staging`.
 
-5. After CI passes and the pull request is merged, update your local `main` and confirm the worktree is clean:
+5. After CI passes, the pull request is merged into `staging`, and a pull request from `staging` into `main` is merged, update your local `main` and confirm the worktree is clean:
 
 ```powershell
 git switch main

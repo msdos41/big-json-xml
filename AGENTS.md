@@ -20,8 +20,9 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 
 ### Branching & merging
 
-- Commit on a feature branch, open a pull request, and wait for CI to pass.
-- Never push directly to `main`.
+- Branch from `staging`, commit on the feature branch, open a pull request into `staging`, and wait for CI to pass.
+- After the changes are tested on `staging`, a pull request from `staging` into `main` brings them to `main`.
+- Never push directly to `main` or `staging`.
 - Merging, tagging, and releasing are decided only by the repository owner.
 - Pull requests are merged with a merge commit (no rebase or squash), so each PR stays visible as one unit in the history.
 
