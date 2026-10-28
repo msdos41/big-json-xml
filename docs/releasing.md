@@ -84,7 +84,7 @@ After the tag push, `.github/workflows/release.yml` does this in order:
 
 ## First tag
 
-`0.1.0` is the version in the desktop project and in `CHANGELOG.md` (`## [0.1.0] - 2026-10-22`). Tag it with these commands when that date is still the tag day. If the tag day is later, change the date in `CHANGELOG.md` and commit that change before tagging.
+`0.1.0` is the version in the desktop project and in `CHANGELOG.md` (`## [0.1.0] - 2026-10-28`). Tag it with these commands when that date is still the tag day. If the tag day is later, change the date in `CHANGELOG.md` and commit that change before tagging.
 
 ```powershell
 git status --porcelain
