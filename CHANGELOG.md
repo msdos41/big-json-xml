@@ -2,7 +2,7 @@
 
 ## [0.1.1] - 2026-10-28
 
-### Fixes
+### Bug Fixes
 
 - Find Next no longer fails when a match is found while the file is still loading and the next sibling element has only been partly read.
 
