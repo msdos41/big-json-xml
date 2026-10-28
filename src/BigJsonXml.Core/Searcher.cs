@@ -448,6 +448,7 @@ internal sealed class Searcher : IScanSearch
     private void Promote(SFrame parent, FieldKey key, string name)
     {
         var depth = parent.Path.Steps.Count;
+        List<(int Index, Hit Hit)>? dropped = null;
         // A hit recorded before this parent opened belongs to an earlier entry.
         for (var i = _hits.Count - 1; i >= parent.HitOrigin; i--)
         {
@@ -459,29 +460,64 @@ internal sealed class Searcher : IScanSearch
                 continue;
             if ((hit.FieldOnSimple || hit.SimpleText) && hit.Steps.Count == depth + 1)
             {
+                (dropped ??= []).Add((i, hit));
                 _hits.RemoveAt(i);
-                Removed?.Invoke(i);
                 continue;
             }
 
             hit.Steps[depth] = step with { OneBasedIndex = 1 };
         }
 
-        if (parent.Pending is null || !parent.Pending.Remove(key, out var pending))
-            return;
-        var textPath = parent.Path.Field(name, 1).Field("#text");
-        var entry = Rent();
-        entry.Name = name;
-        entry.Parent = parent;
-        if (pending.More is { Count: > 0 } more)
-            SearchValue(textPath, "#text", attribute: false, "", "#text", pending.Scope, CollectionsMarshal.AsSpan(more), simple: false, container: entry);
-        else if (pending.HasOne)
+        var before = _hits.Count;
+        if (parent.Pending is not null && parent.Pending.Remove(key, out var pending))
         {
-            var one = pending.One;
-            SearchValue(textPath, "#text", attribute: false, "", "#text", pending.Scope, MemoryMarshal.CreateReadOnlySpan(ref one, 1), simple: false, container: entry);
+            var textPath = parent.Path.Field(name, 1).Field("#text");
+            var entry = Rent();
+            entry.Name = name;
+            entry.Parent = parent;
+            if (pending.More is { Count: > 0 } more)
+                SearchValue(textPath, "#text", attribute: false, "", "#text", pending.Scope, CollectionsMarshal.AsSpan(more), simple: false, container: entry);
+            else if (pending.HasOne)
+            {
+                var one = pending.One;
+                SearchValue(textPath, "#text", attribute: false, "", "#text", pending.Scope, MemoryMarshal.CreateReadOnlySpan(ref one, 1), simple: false, container: entry);
+            }
+
+            Recycle(entry);
         }
 
-        Recycle(entry);
+        if (dropped is not null)
+            Restore(dropped, before);
+    }
+
+    // A simple-field hit that the first entry's text matches again keeps its object and its place,
+    // so a hit already shown is not replaced. Only a hit the entry text no longer matches is removed.
+    private void Restore(List<(int Index, Hit Hit)> dropped, int before)
+    {
+        var found = _hits.GetRange(before, _hits.Count - before);
+        _hits.RemoveRange(before, found.Count);
+        dropped.Reverse();
+        var removed = 0;
+        foreach (var (index, hit) in dropped)
+        {
+            var match = found.FindIndex(candidate => candidate.CharacterOffset == hit.CharacterOffset && candidate.MatchLength == hit.MatchLength);
+            if (match < 0)
+            {
+                Removed?.Invoke(index - removed);
+                removed++;
+                continue;
+            }
+
+            var again = found[match];
+            found.RemoveAt(match);
+            hit.Steps.Clear();
+            hit.Steps.AddRange(again.Steps);
+            hit.SimpleText = again.SimpleText;
+            hit.FieldOnSimple = again.FieldOnSimple;
+            _hits.Insert(index - removed, hit);
+        }
+
+        _hits.AddRange(found);
     }
 
     private bool Passes(SFrame? container)
