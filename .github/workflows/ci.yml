@@ -29,9 +29,3 @@ jobs:
           $exe = 'src/BigJsonXml.Desktop/bin/Release/net10.0/win-x64/publish/BigJsonXml.exe'
           if (-not (Test-Path $exe)) { throw "Publish did not produce $exe." }
           "{0:N1} MB" -f ((Get-Item $exe).Length / 1MB)
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: BigJsonXml-windows-amd64
-          path: src/BigJsonXml.Desktop/bin/Release/net10.0/win-x64/publish/BigJsonXml.exe
-          retention-days: 14
