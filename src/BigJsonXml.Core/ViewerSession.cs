@@ -42,6 +42,9 @@ public sealed partial class ViewerSession : IDisposable
     private Grammar _grammar;
     private IScanSearch? _search;
 
+    // How long one drain of repeated siblings may run. Tests shorten it to pin a slow machine.
+    internal long FlatDrainTicks = System.Diagnostics.Stopwatch.Frequency / 80;
+
     private ViewerSession(IByteSource source, IDisposable? owned)
     {
         _document = new XmlDocument(source);
@@ -591,7 +594,7 @@ public sealed partial class ViewerSession : IDisposable
     private void DrainFlat(Slot slot, OffsetIndex index)
     {
         var stamp = System.Diagnostics.Stopwatch.GetTimestamp();
-        var limit = System.Diagnostics.Stopwatch.Frequency / 80;
+        var limit = FlatDrainTicks;
         while (_xml!.TryNextFlat(slot.Name, out var start, out var end))
         {
             if (!_xml.FlatSameShape && !_tree.SameFlat(slot, _xml.FlatFields))
