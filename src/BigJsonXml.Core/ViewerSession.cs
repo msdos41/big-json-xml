@@ -35,7 +35,11 @@ public sealed partial class ViewerSession : IDisposable
     private readonly Dictionary<DocumentPath, Chrome> _chrome = [];
     private readonly Dictionary<long, LinkedListNode<LoadedFrame>> _loaded = [];
     private readonly LinkedList<LoadedFrame> _loadedOrder = [];
-    private readonly List<Hit> _hits = [];
+    // The search can name an entry the tree has not counted yet. Such a hit waits here.
+    private readonly List<Hit> _found = [];
+    private readonly HitView _hits;
+    private long _retryAt;
+    private long _blockedFrom = -1;
     private XmlParser? _xml;
     private JsonParser? _json;
     private JsonTree? _jsonTree;
@@ -50,6 +54,7 @@ public sealed partial class ViewerSession : IDisposable
         _document = new XmlDocument(source);
         _tree = new DocumentTree(_document, documentElement: true);
         _owned = owned;
+        _hits = new HitView(_found);
     }
 
     public ScanProgress Progress { get; private set; } = ScanProgress.Scanning;
@@ -114,6 +119,13 @@ public sealed partial class ViewerSession : IDisposable
 
     public bool Pump(int budget)
     {
+        var any = PumpSlice(budget);
+        Publish();
+        return any;
+    }
+
+    private bool PumpSlice(int budget)
+    {
         var start = Environment.TickCount64;
         var any = false;
         for (var i = 0; i < budget; i++)
@@ -149,6 +161,7 @@ public sealed partial class ViewerSession : IDisposable
             if (_search is { Done: false })
             {
                 var reached = Progress == ScanProgress.Scanning ? BytesReached : long.MaxValue;
+                _search.Front = reached;
                 var steps = 0;
                 do
                 {
@@ -281,7 +294,9 @@ public sealed partial class ViewerSession : IDisposable
     {
         ArgumentNullException.ThrowIfNull(search);
         ClearMark();
-        _hits.Clear();
+        _found.Clear();
+        _hits.Count = 0;
+        _blockedFrom = -1;
         if (search.FindWhat.Length == 0)
         {
             _search = null;
@@ -292,13 +307,65 @@ public sealed partial class ViewerSession : IDisposable
             Detect();
         _search = _grammar switch
         {
-            Grammar.Json => new JsonSearcher(_document, search, _hits),
-            Grammar.Xml => new Searcher(_document, search, _hits),
+            Grammar.Json => new JsonSearcher(_document, search, _found),
+            Grammar.Xml => new Searcher(_document, search, _found) { Removed = Unpublish },
             _ => null,
         };
     }
 
     public void CancelSearch() => _search = null;
+
+    // Hits are published in document order. One that cannot be read yet holds back the hits after it.
+    private void Publish()
+    {
+        if (Progress != ScanProgress.Scanning)
+        {
+            _hits.Count = _found.Count;
+            _blockedFrom = -1;
+            return;
+        }
+
+        while (_hits.Count < _found.Count)
+        {
+            var reached = BytesReached;
+            if (_blockedFrom >= 0 && reached < _retryAt)
+                return;
+            if (!Readable(_found[_hits.Count]))
+            {
+                // Reading an open entry again costs its length, so the wait doubles.
+                if (_blockedFrom < 0)
+                    _blockedFrom = reached;
+                _retryAt = reached + Math.Max(4096, reached - _blockedFrom);
+                return;
+            }
+
+            _blockedFrom = -1;
+            _hits.Count++;
+        }
+    }
+
+    private void Unpublish(int index)
+    {
+        if (index < _hits.Count)
+            _hits.Count--;
+    }
+
+    private bool Readable(Hit hit)
+    {
+        if (!hit.OnName)
+            return TryHitPieces(hit, out _);
+        if (hit.Path.Steps.Count == 0)
+            return true;
+        try
+        {
+            Locate(hit.Path);
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
 
     public string FormatPath(DocumentPath path)
     {
@@ -777,12 +844,13 @@ public sealed partial class ViewerSession : IDisposable
     // tree has already promoted that field to a list.
     private bool TryHitPieces(Hit hit, out List<TextPiece> pieces)
     {
-        if (TryScalar(hit.Path, out pieces))
-            return true;
-        if (!hit.SimpleText || hit.Path.Steps.Count == 0 || hit.Path.Steps[^1].OneBasedIndex is not null)
-            return false;
+        pieces = [];
         try
         {
+            if (TryScalar(hit.Path, out pieces))
+                return true;
+            if (!hit.SimpleText || hit.Path.Steps.Count == 0 || hit.Path.Steps[^1].OneBasedIndex is not null)
+                return false;
             var (_, slot) = Locate(hit.Path);
             if (slot.Kind != SlotKind.List)
                 return false;
