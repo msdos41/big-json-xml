@@ -23,7 +23,7 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 - Commit on a feature branch, open a pull request, and wait for CI to pass.
 - Never push directly to `main`.
 - Merging, tagging, and releasing are decided only by the repository owner.
-- Pull requests are merged with rebase merge to keep the history linear.
+- Pull requests are merged with a merge commit (no rebase or squash), so each PR stays visible as one unit in the history.
 
 ### Build & test
 
