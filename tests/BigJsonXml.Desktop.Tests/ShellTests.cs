@@ -278,7 +278,9 @@ public class ShellTests
         if (Application.Current is null)
             AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
 
-        var window = new MainWindow { Width = 1100, Height = 900 };
+        // The shipped changelog can hold one version, so the rules are pinned on two.
+        string[] history = ["## [0.2.0] - 2026-11-01\n\n### Features\n\n- newer note", EmptyChangelog.History[0]];
+        var window = new MainWindow(history) { Width = 1100, Height = 900 };
         window.Show();
         try
         {
@@ -293,7 +295,7 @@ public class ShellTests
             var rules = stack.Children.OfType<Border>().ToList();
             Assert.True(blocks.Count >= 2);
             Assert.Equal(blocks.Count - 1, rules.Count);
-            Assert.Equal(EmptyChangelog.History, blocks.Select(block => block.Text));
+            Assert.Equal(history, blocks.Select(block => block.Text));
             for (var i = 0; i < stack.Children.Count; i++)
             {
                 if (i % 2 == 0)
