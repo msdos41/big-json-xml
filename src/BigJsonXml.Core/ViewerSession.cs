@@ -557,29 +557,25 @@ public sealed partial class ViewerSession : IDisposable
             return;
         }
 
-        if (note.HasEntry && note.Path is DocumentPath path && note.Slot is Slot slot)
-        {
-            RememberEntry(path, note.EntryStart);
-            DrainJson(slot, path);
-        }
+        if (note.HasEntry && note.Slot is Slot slot)
+            DrainJson(slot);
     }
 
-    private void RememberEntry(DocumentPath path, long start)
-    {
-        if (_offsets.TryGetValue(new OffsetKey(0, path), out var index) && start >= index.Watermark)
-        {
-            index.Offsets.Add(start);
-            index.Watermark = start + 1;
-        }
-    }
-
-    private void DrainJson(Slot slot, DocumentPath path)
+    // A JSON list's offset index is the slot's own entry starts, so a drained entry is stored once.
+    private void DrainJson(Slot slot)
     {
         var stamp = System.Diagnostics.Stopwatch.GetTimestamp();
         var limit = System.Diagnostics.Stopwatch.Frequency / 80;
         var deadline = stamp + limit;
         while (System.Diagnostics.Stopwatch.GetTimestamp() - stamp < limit)
         {
+            var run = _json!.TakeScalarRun(slot.EntryStarts!, deadline);
+            if (run > 0)
+            {
+                JsonTree.AddValues(slot, run);
+                continue;
+            }
+
             var take = _json!.TryTakeArrayItem(deadline, out var start, out var stopByte, out var stopLine, out var stopColumn);
             if (take is JsonParser.ItemTake.None or JsonParser.ItemTake.Defer)
                 return;
@@ -594,7 +590,6 @@ public sealed partial class ViewerSession : IDisposable
                 _jsonTree!.AddSame(slot, start);
             else
                 _jsonTree!.AddDrained(slot, start, _json.DirectKeys, take == JsonParser.ItemTake.Value);
-            RememberEntry(path, start);
         }
     }
 
@@ -797,12 +792,9 @@ public sealed partial class ViewerSession : IDisposable
             return existing;
         if (slot.EntryStarts is not null)
         {
-            var copied = new OffsetIndex();
-            foreach (var start in slot.EntryStarts)
-                copied.Offsets.Add(start);
-            copied.Watermark = copied.Offsets.Count == 0 ? 0 : copied.Offsets[^1] + 1;
-            _offsets[key] = copied;
-            return copied;
+            var shared = new OffsetIndex(slot.EntryStarts);
+            _offsets[key] = shared;
+            return shared;
         }
         var index = new OffsetIndex();
         var limit = parent.ContentEnd >= 0 ? parent.ContentEnd : parent.StableByte;

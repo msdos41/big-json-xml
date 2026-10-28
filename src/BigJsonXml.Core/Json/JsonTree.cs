@@ -259,6 +259,13 @@ internal sealed class JsonTree
         list.EntryStarts!.Add(start);
     }
 
+    // Scalar entries whose starts the parser already stored in the list's offsets.
+    public static void AddValues(Slot list, int count)
+    {
+        AddColumn(list, ValueKey, "#value");
+        list.Count += count;
+    }
+
     public void AddSame(Slot list, long start)
     {
         list.Count++;
@@ -302,7 +309,7 @@ internal sealed class JsonTree
             Count = 0,
             StartByte = start,
             EndByte = -1,
-            EntryStarts = [],
+            EntryStarts = new EntryOffsets(),
             HasFields = true,
         };
         Add(frame, slot);
