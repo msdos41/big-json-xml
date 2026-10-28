@@ -569,6 +569,13 @@ public sealed partial class ViewerSession : IDisposable
         var deadline = stamp + limit;
         while (System.Diagnostics.Stopwatch.GetTimestamp() - stamp < limit)
         {
+            var run = _json!.TakeScalarRun(slot.EntryStarts!, deadline);
+            if (run > 0)
+            {
+                JsonTree.AddValues(slot, run);
+                continue;
+            }
+
             var take = _json!.TryTakeArrayItem(deadline, out var start, out var stopByte, out var stopLine, out var stopColumn);
             if (take is JsonParser.ItemTake.None or JsonParser.ItemTake.Defer)
                 return;
