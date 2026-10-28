@@ -36,7 +36,8 @@ public class JsonDocumentTests
     {
         var source = new MemoryByteSource();
         source.Append("["u8);
-        AppendCopies(source, "{\"a\":1},"u8, 80_000);
+        // Large enough that one quiescent slice on a fast machine cannot finish the scan.
+        AppendCopies(source, "{\"a\":1},"u8, 4_000_000);
         source.Append("{\"a\":1}]"u8);
         source.Complete();
         using var model = new ViewerModel();
