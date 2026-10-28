@@ -624,6 +624,32 @@ public class FindTests
     }
 
     [Fact]
+    public void A_published_hit_stays_when_a_later_sibling_makes_a_list()
+    {
+        var source = new MemoryByteSource();
+        source.Append("<root><item>alpha</item><item>beta</item><note>alpha</note></root>");
+        source.Complete();
+        var session = ViewerSession.Open(source);
+        session.Search(new TextSearch { FindWhat = "alpha", StartsWith = true });
+        var seen = new List<Hit>();
+        for (var step = 0; step < 10_000; step++)
+        {
+            var more = session.Pump(1);
+            // Every hit already shown keeps its place and its identity.
+            for (var i = 0; i < seen.Count; i++)
+                Assert.Same(seen[i], session.Hits[i]);
+            for (var i = seen.Count; i < session.Hits.Count; i++)
+                seen.Add(session.Hits[i]);
+            if (!more && session.Progress != ScanProgress.Scanning)
+                break;
+        }
+
+        Assert.Equal(
+            ["/root/item[1]/#text", "/root/note"],
+            session.Hits.Select(hit => session.FormatPath(hit.Path)).ToArray());
+    }
+
+    [Fact]
     public void Hit_text_stays_readable_when_the_scan_drains_one_sibling_at_a_time()
     {
         var xml = new System.Text.StringBuilder();
