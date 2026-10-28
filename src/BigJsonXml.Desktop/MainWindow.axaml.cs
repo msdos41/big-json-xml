@@ -27,9 +27,14 @@ public partial class MainWindow : Window
     private bool _resultsAlive;
 
     public MainWindow()
+        : this(EmptyChangelog.History)
+    {
+    }
+
+    public MainWindow(IReadOnlyList<string> history)
     {
         InitializeComponent();
-        LoadChangelog();
+        LoadChangelog(history);
         LoadIcon();
         DataContext = _model;
         _model.PropertyChanged += OnModelChanged;
@@ -119,12 +124,11 @@ public partial class MainWindow : Window
             _model.OpenPath(path);
     }
 
-    private void LoadChangelog()
+    private void LoadChangelog(IReadOnlyList<string> history)
     {
         var rule = new SolidColorBrush(Color.Parse("#D0D7DE"));
         var ink = new SolidColorBrush(Color.Parse("#1F2933"));
         var face = new FontFamily("Cascadia Mono, Consolas");
-        var history = EmptyChangelog.History;
         for (var i = 0; i < history.Count; i++)
         {
             if (i > 0)
