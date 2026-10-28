@@ -1,14 +1,15 @@
 # Changelog
 
-## [0.1.0] - 2026-10-22
+## [0.1.0] - 2026-10-28
+
+First public release: a Windows viewer for large XML and JSON files.
 
 ### Features
 
-- Open one XML or JSON document and read it as tables. The file on disk stays as it is.
-- Same-named siblings, and a JSON array, open as a list table. One element or one object opens as a record table. An attribute keeps the `@` written in the file.
-- Expand a cell to draw the next table inside it. A long value wraps when the cell is opened. The document has one vertical scrollbar and one horizontal scrollbar.
-- Search names and values, including inside a table that is not expanded. Find Next steps through hits, Find All lists them, and Esc clears the mark.
-- Scroll and search while a large file is still being read. The bar is bytes reached over the length, and the remaining time follows the pace so far.
-- The first byte after a leading BOM and whitespace chooses the format: `<` is XML, and a JSON start byte is JSON.
-- A large file stays small in memory.
-- Ctrl+O opens a file, Ctrl+F opens Find, and double-clicking a column edge fits that column.
+- Open an XML or JSON file read-only and view it as nested tables. The format is detected from the first byte after an optional BOM and whitespace.
+- Repeated sibling elements and JSON arrays open as list tables. A single element or object opens as a record table. Attributes keep their `@` prefix.
+- Expand a cell to show its nested table in place. Long values wrap when the cell is expanded. The whole document shares one vertical and one horizontal scrollbar.
+- Search names and values, including inside collapsed tables. Find Next steps through hits, Find All lists them, and Esc clears the highlight.
+- Browse and search while a large file is still loading. Progress shows bytes read, with an estimated time remaining.
+- Large files are read from disk on demand instead of being loaded whole, so memory use stays low.
+- Ctrl+O opens a file and Ctrl+F opens Find. Double-click a column border to fit the column.
