@@ -54,7 +54,7 @@ Format:
 
 - `<type>`: `feat` (new feature) | `fix` (bug fix) | `refactor` (refactoring) | `test` (tests) | `docs` (documentation) | `chore` (maintenance/tooling) | `perf` (performance)
 - `<scope>`: Affected subsystem: `core` (`src/BigJsonXml.Core`), `parsers` (the XML and JSON parsers in core), `desktop` (`src/BigJsonXml.Desktop`), `tests` (shared test infrastructure). Omit the scope for repository-wide `docs` and `chore` commits.
-- `<subject>`: Imperative mood, lowercase start, max 50 characters, no trailing period.
+- `<subject>`: Imperative mood, lowercase start, aim for 50 characters, hard limit 72, no trailing period.
 - **Language**: The whole commit message, subject and body, is in English only. Do NOT use Chinese in commit messages.
 - **No Trailers**: Prohibit automated tool attribution trailers (such as `Co-Authored-By: ...`).
 - Examples:
