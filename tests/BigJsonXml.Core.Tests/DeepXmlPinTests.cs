@@ -128,8 +128,10 @@ public class DeepXmlPinTests
         source.Append("<root><catalog><section id=\"s1\"><deep><leaf>value"u8);
         using var session = ViewerSession.Open(source);
 
-        // Pump what's available so far
-        session.Pump(256);
+        // Pump what's available so far; one pump can stop after a single clock tick
+        while (session.Pump(256))
+        {
+        }
         Assert.Equal(ScanProgress.Scanning, session.Progress);
 
         // Under ADR 0021, an unclosed element must be visible as a field in its parent
