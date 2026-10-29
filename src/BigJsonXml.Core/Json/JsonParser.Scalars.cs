@@ -108,6 +108,19 @@ internal sealed partial class JsonParser
         return taken;
     }
 
+    // Moves forward to a later item start the finished scan recorded. Search does not report lines.
+    internal bool SeekArrayItem(long offset)
+    {
+        if (_failed || _done || _inString || _top < 0 || _phase[_top] != PhArrNext || offset < _pos)
+            return false;
+        _pos = offset;
+        _phase[_top] = PhArrRequired;
+        _holdLine = false;
+        _lineDirty = false;
+        _lineAt = _pos;
+        return true;
+    }
+
     // Skips spaces and breaks, counting lines. False when the span ends first.
     private static bool SkipRunGap(ReadOnlySpan<byte> span, ref int at, ref int line, ref int column, ref bool cr)
     {

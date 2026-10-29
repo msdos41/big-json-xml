@@ -39,6 +39,12 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
 
     public long Front { get; set; } = long.MaxValue;
 
+    // The finished scan's lists, which a background search jumps through between candidates.
+    internal SearchSkip? Skip { get; init; }
+
+    // A finished document does not drop hits, so every hit found so far keeps its place.
+    internal int StableCount(int from) => _hits.Count;
+
     public SearchStep Step()
     {
         if (Done)
@@ -72,7 +78,7 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
                     VisitBulk();
                 return Done ? SearchStep.Idle : SearchStep.Work;
             case JsonEventKind.ArrayStart:
-                OnArray();
+                OnArray(ev.ByteStart);
                 return SearchStep.Work;
             case JsonEventKind.Key:
                 OnKey(ev);
@@ -114,7 +120,7 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
         _stack.Push(child);
     }
 
-    private void OnArray()
+    private void OnArray(long start)
     {
         if (_stack.Count == 0)
         {
@@ -124,6 +130,7 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
             root.Name = "#value";
             root.Array = true;
             root.Path = path;
+            root.Offsets = Indexed(start);
             _stack.Push(root);
             return;
         }
@@ -148,7 +155,34 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
         child.Array = true;
         child.Parent = parent;
         child.Path = field;
+        child.Offsets = _stack.Count == 1 ? Indexed(start) : null;
         _stack.Push(child);
+    }
+
+    private EntryOffsets? Indexed(long start)
+    {
+        if (Skip is null)
+            return null;
+        foreach (var list in Skip.Lists)
+        {
+            if (list.ListStart == start)
+                return list.Offsets;
+        }
+
+        return null;
+    }
+
+    // Items before the next candidate byte hold no hit. Their count comes from the scan's offsets.
+    private bool TrySkip(Node array)
+    {
+        if (Skip is not { } skip || array.Offsets is not { } offsets)
+            return false;
+        var target = skip.Target(offsets, array.Count, _parser.FileByte, _document.Source.Length);
+        if (target < 0 || !_parser.SeekArrayItem(offsets[target]))
+            return false;
+        skip.Skipped += target - array.Count;
+        array.Count = target;
+        return true;
     }
 
     private void OnKey(JsonEvent ev)
@@ -314,6 +348,7 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
         node.Names?.Clear();
         node.Provisional = false;
         node.HitOrigin = 0;
+        node.Offsets = null;
         return node;
     }
 
@@ -342,6 +377,8 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
         _visitArray = parent;
         while (Stopwatch.GetTimestamp() < deadline)
         {
+            if (TrySkip(parent))
+                return;
             var origin = _hits.Count;
             var take = _parser.TryVisitItem(deadline, this, _search.FindWhat, _needleBytes);
             if (take is JsonParser.ItemTake.Defer or JsonParser.ItemTake.Repeated)
@@ -403,5 +440,6 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
         public HashSet<string>? Names;
         public bool Provisional;
         public int HitOrigin;
+        public EntryOffsets? Offsets;
     }
 }

@@ -45,6 +45,14 @@ public sealed partial class ViewerSession : IDisposable
     private JsonTree? _jsonTree;
     private Grammar _grammar;
     private IScanSearch? _search;
+    private BackgroundSearch? _background;
+    private SearchSkip? _lastSkip;
+    private SkipList? _rootEntries;
+
+    // A short document is searched at once, so it needs no thread. One step of a large one can take
+    // a whole drain slice, so a large document goes straight to the thread.
+    internal long InlineSearchTicks = System.Diagnostics.Stopwatch.Frequency / 500;
+    internal long InlineSearchBytes = 4L << 20;
 
     // How long one drain of repeated siblings may run. Tests shorten it to pin a slow machine.
     internal long FlatDrainTicks = System.Diagnostics.Stopwatch.Frequency / 80;
@@ -112,6 +120,12 @@ public sealed partial class ViewerSession : IDisposable
         {
             if (!Pump(2048))
                 return;
+            // Only the search thread is left. Waiting for it does not count towards the limit.
+            while (Progress != ScanProgress.Scanning && SearchInBackground)
+            {
+                WaitForSearch(10);
+                Publish();
+            }
         }
 
         throw new InvalidOperationException("The scan did not finish.");
@@ -120,9 +134,22 @@ public sealed partial class ViewerSession : IDisposable
     public bool Pump(int budget)
     {
         var any = PumpSlice(budget);
-        Publish();
-        return any;
+        var published = Publish();
+        return any || published || SearchInBackground;
     }
+
+    /// <summary>True while a search after the scan still runs on its own thread or has hits to hand over.</summary>
+    public bool SearchInBackground => _background is { } background && (!background.Finished || background.HasWaiting);
+
+    /// <summary>Blocks up to <paramref name="milliseconds"/> until the search thread finds more or ends.</summary>
+    public void WaitForSearch(int milliseconds)
+    {
+        if (_background is { Finished: false } background && !background.HasWaiting)
+            background.Wait(milliseconds);
+    }
+
+    // Entries the last search jumped over, for tests and measurements.
+    internal long SearchSkipped => _lastSkip?.Skipped ?? 0;
 
     private bool PumpSlice(int budget)
     {
@@ -302,10 +329,12 @@ public sealed partial class ViewerSession : IDisposable
     public void Search(TextSearch search)
     {
         ArgumentNullException.ThrowIfNull(search);
+        StopBackground(join: false);
         ClearMark();
         _found.Clear();
         _hits.Count = 0;
         _blockedFrom = -1;
+        _lastSkip = null;
         if (search.FindWhat.Length == 0)
         {
             _search = null;
@@ -314,6 +343,12 @@ public sealed partial class ViewerSession : IDisposable
 
         if (_grammar == Grammar.Unknown)
             Detect();
+        if (StartBackground(search))
+        {
+            _search = null;
+            return;
+        }
+
         _search = _grammar switch
         {
             Grammar.Json => new JsonSearcher(_document, search, _found),
@@ -322,35 +357,168 @@ public sealed partial class ViewerSession : IDisposable
         };
     }
 
-    public void CancelSearch() => _search = null;
+    public void CancelSearch()
+    {
+        _search = null;
+        StopBackground(join: false);
+    }
+
+    private void StopBackground(bool join)
+    {
+        _background?.Cancel(join);
+        _background = null;
+    }
+
+    // A search after a finished scan reads its own copy of the file on another thread. Hits reach the
+    // list only once their paths are final, so Find Next and Find All see the same hits in the same order.
+    private bool StartBackground(TextSearch search)
+    {
+        if (Progress != ScanProgress.Completed || _grammar is not (Grammar.Xml or Grammar.Json))
+            return false;
+        if (_document.Source is not IReaderSource readers || readers.OpenReader() is not { } reader)
+            return false;
+        var owned = ReferenceEquals(reader, _document.Source) ? null : reader as IDisposable;
+        var document = new XmlDocument(reader);
+        var hits = new List<Hit>();
+        var skip = PlanSkip(search, reader);
+        IScanSearch searcher;
+        Func<int, int> stable;
+        if (_grammar == Grammar.Json)
+        {
+            var json = new JsonSearcher(document, search, hits) { Skip = skip };
+            searcher = json;
+            stable = json.StableCount;
+        }
+        else
+        {
+            var xml = new Searcher(document, search, hits) { Skip = skip, RootLists = RootListNames() };
+            searcher = xml;
+            stable = xml.StableCount;
+        }
+
+        Action<Func<bool>>? prepare = null;
+        if (skip is not null && _grammar == Grammar.Xml && skip.Lists[0] is { Offsets: null } entries)
+            prepare = cancelled => entries.Offsets ??= EntryTagScan.Build(reader, entries, cancelled);
+        _lastSkip = skip;
+        var background = new BackgroundSearch(searcher, hits, stable, owned, skip, prepare);
+        _background = background;
+        if (_document.Source.Length <= InlineSearchBytes)
+            background.RunInline(InlineSearchTicks);
+        background.Start();
+        Publish();
+        return true;
+    }
+
+    private HashSet<string> RootListNames()
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        if (_tree.Root is { } root)
+        {
+            foreach (var slot in root.Slots)
+            {
+                if (slot.Kind == SlotKind.List)
+                    names.Add(slot.Name);
+            }
+        }
+
+        return names;
+    }
+
+    // Jumping is safe only when every hit's text appears in the raw bytes as the needle itself,
+    // or near a byte the finder also stops at (an escape, an entity, a tag that splits text).
+    private SearchSkip? PlanSkip(TextSearch search, IByteSource reader)
+    {
+        var needle = search.FindWhat;
+        if (!search.MatchCase || needle.Length == 0)
+            return null;
+        foreach (var unit in needle)
+        {
+            if (unit < 0x21 || unit > 0x7e)
+                return null;
+        }
+
+        if (_tree.Root is not { } root)
+            return null;
+        var bytes = System.Text.Encoding.ASCII.GetBytes(needle);
+        var patterns = new List<(byte[] Bytes, int RefuseAfter)> { (bytes, -1) };
+        var lists = new List<SkipList>();
+        if (_grammar == Grammar.Json)
+        {
+            if (search.ElementName && "#value".Contains(needle, StringComparison.Ordinal))
+                return null;
+            foreach (var slot in root.Slots)
+            {
+                if (slot.Kind == SlotKind.List && slot.EntryStarts is { Count: > 1 } starts)
+                    lists.Add(new SkipList(slot.StartByte, slot.Name, starts));
+            }
+
+            patterns.Add(("\\"u8.ToArray(), -1));
+        }
+        else
+        {
+            if (needle.Contains('@') || needle.Contains('#') || _document.Encoding.CodePage != 65001)
+                return null;
+            if (!ReferenceEquals(root.Scope, NsScope.Empty) || root.ContentEnd < 0 || root.Slots.Count != 1)
+                return null;
+            var slot = root.Slots[0];
+            if (slot.Kind != SlotKind.List || slot.Key.Ns.Length != 0 || slot.Count < 3)
+                return null;
+            _rootEntries = _rootEntries is { } known && known.Name == slot.Key.Local && known.Expected == slot.Count
+                ? known
+                : new SkipList(-1, slot.Key.Local, null) { ContentStart = root.ContentByte, ContentEnd = root.ContentEnd, Expected = slot.Count };
+            lists.Add(_rootEntries);
+            patterns.Add(("&"u8.ToArray(), -1));
+            patterns.Add(("xmlns"u8.ToArray(), -1));
+            patterns.Add(("<![CDATA["u8.ToArray(), -1));
+            for (var cut = 1; cut < bytes.Length; cut++)
+            {
+                var split = new byte[cut + 1];
+                bytes.AsSpan(0, cut).CopyTo(split);
+                split[cut] = (byte)'<';
+                patterns.Add((split, '/'));
+            }
+        }
+
+        return lists.Count == 0 ? null : new SearchSkip(new CandidateFinder(reader, patterns), lists);
+    }
 
     // Hits are published in document order. One that cannot be read yet holds back the hits after it.
-    private void Publish()
+    private bool Publish()
     {
+        var before = _hits.Count;
+        if (_background is { } background)
+        {
+            background.Drain(_found);
+            if (background.Finished && !background.HasWaiting)
+                _background = null;
+        }
+
         if (Progress != ScanProgress.Scanning)
         {
             _hits.Count = _found.Count;
             _blockedFrom = -1;
-            return;
+            return _hits.Count != before;
         }
 
         while (_hits.Count < _found.Count)
         {
             var reached = BytesReached;
             if (_blockedFrom >= 0 && reached < _retryAt)
-                return;
+                return _hits.Count != before;
             if (!Readable(_found[_hits.Count]))
             {
                 // Reading an open entry again costs its length, so the wait doubles.
                 if (_blockedFrom < 0)
                     _blockedFrom = reached;
                 _retryAt = reached + Math.Max(4096, reached - _blockedFrom);
-                return;
+                return _hits.Count != before;
             }
 
             _blockedFrom = -1;
             _hits.Count++;
         }
+
+        return _hits.Count != before;
     }
 
     private void Unpublish(int index)
@@ -492,6 +660,7 @@ public sealed partial class ViewerSession : IDisposable
 
     public void Dispose()
     {
+        StopBackground(join: true);
         _xml?.Dispose();
         _owned?.Dispose();
     }

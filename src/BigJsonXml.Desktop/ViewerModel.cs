@@ -231,6 +231,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     public int ResultCount => _results.Count;
 
+    // A search after the scan still runs on its own thread in the active document.
+    public bool SearchRunning => Active?.Session.SearchInBackground ?? false;
+
     public bool IsAdjustingResults => _adjustingResults;
 
     public double FoundColumnWidth => _foundColumnWidth;
@@ -567,6 +570,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
                 if (!active.Session.Pump(512))
                     break;
                 worked = true;
+                // A search after the scan runs on its own thread. One pump hands over its hits.
+                if (active.Session.Progress != ScanProgress.Scanning && active.Session.SearchInBackground)
+                    break;
             }
             while (Environment.TickCount64 - start < CurrentScanSliceMilliseconds);
 
@@ -574,8 +580,10 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             {
                 var isScanning = active.Session.Progress == ScanProgress.Scanning;
                 var hasNewHits = active.Session.Hits.Count != active.Results.Count;
+                // While only the search thread works, the rows change only when hits arrive.
+                var searching = !isScanning && active.Session.SearchInBackground;
                 var elapsed = Environment.TickCount64 - _lastScanRefreshTime;
-                if (!isScanning || hasNewHits || elapsed >= ScanRefreshIntervalMilliseconds)
+                if (hasNewHits || (!isScanning && !searching) || (isScanning && elapsed >= ScanRefreshIntervalMilliseconds))
                 {
                     _lastScanRefreshTime = Environment.TickCount64;
                     Refresh();
@@ -653,8 +661,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             return;
         var index = CurrentIndex();
         while (tab.Session.Hits.Count <= index + 1 && tab.Session.Pump(512))
-        {
-        }
+            tab.Session.WaitForSearch(10);
 
         Refresh();
         if (index + 1 >= _results.Count)

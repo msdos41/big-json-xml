@@ -13,9 +13,18 @@ public interface IByteSource
 }
 
 /// <summary>
+/// A source that can hand a second, independent reader to another thread once it is complete.
+/// </summary>
+internal interface IReaderSource
+{
+    // Null when the source cannot be read from another thread.
+    IByteSource? OpenReader();
+}
+
+/// <summary>
 /// In-memory source tests use to feed a document in chunks.
 /// </summary>
-public sealed class MemoryByteSource : IByteSource
+public sealed class MemoryByteSource : IByteSource, IReaderSource
 {
     private byte[] _data = new byte[256];
     private long _length;
@@ -49,6 +58,9 @@ public sealed class MemoryByteSource : IByteSource
 
     public void Complete() => IsComplete = true;
 
+    // A complete buffer is never written again, so another thread may read it directly.
+    IByteSource? IReaderSource.OpenReader() => IsComplete ? this : null;
+
     public int Read(long offset, Span<byte> buffer)
     {
         if ((ulong)offset > (ulong)_length || buffer.IsEmpty)
@@ -62,7 +74,7 @@ public sealed class MemoryByteSource : IByteSource
 /// <summary>
 /// Seekable stream, typically a file opened read-only. The session does not write it.
 /// </summary>
-public sealed class StreamByteSource : IByteSource, IDisposable
+public sealed class StreamByteSource : IByteSource, IDisposable, IReaderSource
 {
     private readonly Stream _stream;
     private readonly bool _leaveOpen;
@@ -111,6 +123,28 @@ public sealed class StreamByteSource : IByteSource, IDisposable
         }
 
         return copied;
+    }
+
+    // A file is opened again, so the second reader has its own position and window.
+    IByteSource? IReaderSource.OpenReader()
+    {
+        if (_stream is not FileStream file)
+            return null;
+        try
+        {
+            var again = new FileStream(file.Name, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.SequentialScan);
+            if (again.Length != Length)
+            {
+                again.Dispose();
+                return null;
+            }
+
+            return new StreamByteSource(again);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return null;
+        }
     }
 
     private void Fill(long offset)
