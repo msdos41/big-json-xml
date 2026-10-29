@@ -6,7 +6,15 @@ public sealed partial class ViewerSession
 {
     private const int FitSliceMilliseconds = 32;
     private static readonly IReadOnlyList<Nest> NoNests = [];
+    // The longest twentieth of the sampled cells does not widen a column (ADR 0056).
+    private const int FitOutlierShare = 20;
+    private const long SparseSampleGap = 64 * 1024;
     private FitRun? _fit;
+
+    // Entries the last list-column fit read, and how many of those took the frame reader.
+    internal int LastFitReads { get; private set; }
+
+    internal int LastFitSlowReads { get; private set; }
 
     public void Fit(WidthAxis axis, DocumentPath table, string? column = null)
     {
@@ -93,19 +101,43 @@ public sealed partial class ViewerSession
         if (!run.Ready)
         {
             run.Ready = true;
-            if (!PrepareList(run) || run.Count == 0 || run.Width >= FitCeiling)
+            if (!PrepareList(run))
+            {
                 run.Finished = true;
+                return;
+            }
+
+            if (run.Count == 0)
+            {
+                run.Next = 0;
+                run.EntriesDone = true;
+                run.Width = ListWidth(run);
+                if (run.Column is not null)
+                    run.Nests = NestsUnderColumn(run.Table, run.Column);
+                if (run.Nests is not { Count: > 0 })
+                    run.Finished = true;
+            }
+
             return;
         }
 
         if (!run.EntriesDone)
         {
-            if (!TryMeasureFast(run, run.Offsets.Offsets[run.Next], run.ColumnSlot.Key))
-                MeasureEntry(run, run.Next);
+            var index = SampleIndex(run.Next, run.Count);
+            run.Reads++;
+            if (!TryMeasureFast(run, run.Offsets.Offsets[index], run.ColumnSlot.Key))
+            {
+                run.SlowReads++;
+                MeasureEntry(run, index);
+            }
+
             run.Next++;
-            if (run.Next < run.Count && run.Width < FitCeiling)
+            if (run.Next < Math.Min(run.Count, FitSampleEntries))
                 return;
             run.EntriesDone = true;
+            run.Width = ListWidth(run);
+            LastFitReads = run.Reads;
+            LastFitSlowReads = run.SlowReads;
             if (run.Column is not null)
                 run.Nests = NestsUnderColumn(run.Table, run.Column);
             if (run.Nests is not { Count: > 0 })
@@ -253,8 +285,34 @@ public sealed partial class ViewerSession
         run.ColumnSlot = column;
         run.Offsets = EnsureOffsets(run.Table, parent, slot);
         run.Count = run.Offsets.Offsets.Count;
-        run.Width = CharsWidth(column.Name.Length, gutter: false);
+        run.Header = Math.Min(FitColumnWidth, CharsWidth(column.Name.Length, gutter: false));
+        // Samples far apart skip the read-ahead window. Close samples share it.
+        run.Sparse = run.Count > FitSampleEntries
+            && (run.Offsets.Offsets[run.Count - 1] - run.Offsets.Offsets[0]) / FitSampleEntries > SparseSampleGap;
+        run.Cells.Clear();
         return true;
+    }
+
+    // A list longer than the sample is read at evenly spaced entries, first and last included.
+    private static int SampleIndex(int step, int count)
+    {
+        if (count <= FitSampleEntries)
+            return step;
+        return (int)((long)step * (count - 1) / (FitSampleEntries - 1));
+    }
+
+    // The header, or the sampled cells without their longest twentieth, whichever is
+    // wider, and never wider than the column cap.
+    private static double ListWidth(FitRun run) => ListWidth(run.Header, run.Cells);
+
+    private static double ListWidth(double header, List<double> cells)
+    {
+        var width = Math.Max(MinWidth, header);
+        if (cells.Count == 0)
+            return width;
+        cells.Sort();
+        var common = cells[cells.Count - 1 - (cells.Count / FitOutlierShare)];
+        return Math.Max(width, Math.Min(FitColumnWidth, common));
     }
 
     private void MeasureEntry(FitRun run, int index)
@@ -273,11 +331,21 @@ public sealed partial class ViewerSession
         var cell = frame.FindKey(run.ColumnSlot.Key);
         if (cell is null)
             return;
-        var path = entryPath.Field(run.ColumnSlot.Name);
+        MeasureCell(run.Cells, cell, entryPath.Field(run.ColumnSlot.Name));
+    }
+
+    private void MeasureCell(List<double> cells, Slot cell, DocumentPath path)
+    {
         if (cell.Kind == SlotKind.Scalar)
-            run.Width = Math.Max(run.Width, CharsWidth(TextChars(cell.Text), gutter: false));
+        {
+            var chars = TextChars(cell.Text);
+            if (chars > 0)
+                cells.Add(CharsWidth(chars, gutter: false));
+        }
         else
-            run.Width = Math.Max(run.Width, CharsWidth(LabelChars(cell, path), gutter: true));
+        {
+            cells.Add(CharsWidth(LabelChars(cell, path), gutter: true));
+        }
     }
 
     private int LabelChars(Slot cell, DocumentPath path)
@@ -352,7 +420,7 @@ public sealed partial class ViewerSession
         }
     }
 
-    private static double FitCeiling => FitCharacterCap * Advance + ExpandGutter;
+    private static double FitColumnWidth => FitColumnCharacters * Advance;
 
     private sealed class FitRun(WidthAxis axis, DocumentPath table, string? column)
     {
@@ -360,6 +428,11 @@ public sealed partial class ViewerSession
         public DocumentPath Table { get; } = table;
         public string? Column { get; } = column;
         public double Width { get; set; }
+        public double Header { get; set; }
+        public List<double> Cells { get; } = [];
+        public int Reads { get; set; }
+        public bool Sparse { get; set; }
+        public int SlowReads { get; set; }
         public int Next { get; set; }
         public int Count { get; set; }
         public bool Ready { get; set; }

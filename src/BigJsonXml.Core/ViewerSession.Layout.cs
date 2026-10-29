@@ -177,6 +177,7 @@ public sealed partial class ViewerSession
 
         if (emit is not null)
         {
+            NoteDrawnList(listPath);
             Emit(emit, null, x, y, indexWidth, RowHeight, clipRight, "", null, false, false, false, listPath, SurfaceKind.EntryIndex, false, false, WidthAxis.None, null, null);
             for (var i = 0; i < count; i++)
             {
