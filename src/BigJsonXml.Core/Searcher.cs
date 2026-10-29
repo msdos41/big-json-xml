@@ -65,6 +65,56 @@ internal sealed class Searcher : IScanSearch
     // A promoted simple field drops the hit it held. The session may have published it already.
     public Action<int>? Removed { get; init; }
 
+    // The finished scan's root list, which a background search jumps through between candidates.
+    internal SearchSkip? Skip { get; init; }
+
+    // Root fields the finished scan holds as lists. A hit under the first such entry is renamed later.
+    internal IReadOnlySet<string>? RootLists { get; init; }
+
+    // Hits from the start up to this count keep their path and place for the rest of the search.
+    internal int StableCount(int from)
+    {
+        if (Done)
+            return _hits.Count;
+        var bound = _hits.Count;
+        foreach (var frame in _stack)
+        {
+            if (frame.Parent is not null && frame.HitOrigin < bound)
+                bound = frame.HitOrigin;
+        }
+
+        for (var i = from; i < bound; i++)
+        {
+            var steps = _hits[i].Steps;
+            if (steps.Count > 0 && steps[0].OneBasedIndex is null && RootLists is { } lists && lists.Contains(steps[0].Name))
+                return i;
+        }
+
+        return Math.Max(from, bound);
+    }
+
+    private bool TrySkip(string local)
+    {
+        if (Skip is not { } skip || !ReferenceEquals(_active, _parser) || _stack.Count != 1)
+            return false;
+        var list = skip.Lists[0];
+        if (list.Name != local)
+            return false;
+        var parent = _stack.Peek();
+        var key = FieldKey.Elem("", local);
+        var done = parent.CountOf(key);
+        // The first two entries promote the field. Only later entries are counted from the offsets.
+        if (done < 2)
+            return false;
+        var offsets = list.Offsets;
+        var target = skip.Target(offsets, done, _parser.FileByte, _document.Source.Length);
+        if (target < 0 || !_parser.JumpTo(offsets![target]))
+            return false;
+        parent.SetCount(key, target);
+        skip.Skipped += target - done;
+        return true;
+    }
+
     public SearchStep Step()
     {
         if (Done)
@@ -137,6 +187,8 @@ internal sealed class Searcher : IScanSearch
 
             if (parser.FileByte >= Front)
                 return;
+            if (_stack.Count == 1)
+                TrySkip(name);
             if (!parser.TryNextFlat(name, out start, out end))
                 return;
         }
@@ -302,7 +354,10 @@ internal sealed class Searcher : IScanSearch
             SearchOwnText(frame);
         else
             SearchSimple(frame);
+        var entry = _stack.Count == 1 && frame.Index is not null && frame.Ns.Length == 0 ? frame.Local : null;
         Recycle(frame);
+        if (entry is not null)
+            TrySkip(entry);
     }
 
     private void SearchAttributes(SFrame frame, XmlEvent ev)

@@ -55,6 +55,29 @@ internal sealed class EntryOffsets
         + (_bits.Count * (long)BitPageWords * sizeof(ulong))
         + (_tail.Length * sizeof(long));
 
+    // The last entry that starts at or before the offset, or -1 when every entry starts after it.
+    public int LastAtOrBefore(long offset)
+    {
+        var low = 0;
+        var high = Count - 1;
+        var found = -1;
+        while (low <= high)
+        {
+            var mid = low + ((high - low) >> 1);
+            if (this[mid] <= offset)
+            {
+                found = mid;
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid - 1;
+            }
+        }
+
+        return found;
+    }
+
     public void Add(long offset)
     {
         if (_tailCount == _tail.Length)

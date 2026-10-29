@@ -341,6 +341,15 @@ internal sealed class XmlParser
         return skipped;
     }
 
+    // Moves forward to a sibling start the finished scan recorded. Only between markup, outside an entity.
+    internal bool JumpTo(long offset)
+    {
+        if (offset < _byte || _inputs.Count > 0 || _hasLow || _textFrom >= 0 || _phase != Phase.Content || _error is not null)
+            return false;
+        _byte = offset;
+        return true;
+    }
+
     internal bool TryNextFlat(string name, out long start, out long end)
     {
         start = 0;
