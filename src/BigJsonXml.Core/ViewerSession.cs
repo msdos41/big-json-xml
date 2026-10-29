@@ -429,8 +429,11 @@ public sealed partial class ViewerSession : IDisposable
     private SearchSkip? PlanSkip(TextSearch search, IByteSource reader)
     {
         var needle = search.FindWhat;
-        if (!search.MatchCase || needle.Length == 0)
+        if (needle.Length == 0)
             return null;
+        // Without match case only ASCII letters fold: no other character equals an ASCII one when case is ignored.
+        var fold = !search.MatchCase;
+        var comparison = fold ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         foreach (var unit in needle)
         {
             if (unit < 0x21 || unit > 0x7e)
@@ -440,11 +443,11 @@ public sealed partial class ViewerSession : IDisposable
         if (_tree.Root is not { } root)
             return null;
         var bytes = System.Text.Encoding.ASCII.GetBytes(needle);
-        var patterns = new List<(byte[] Bytes, int RefuseAfter)> { (bytes, -1) };
+        var patterns = new List<CandidatePattern> { new(bytes, Fold: fold) };
         var lists = new List<SkipList>();
         if (_grammar == Grammar.Json)
         {
-            if (search.ElementName && "#value".Contains(needle, StringComparison.Ordinal))
+            if (search.ElementName && "#value".Contains(needle, comparison))
                 return null;
             foreach (var slot in root.Slots)
             {
@@ -452,7 +455,7 @@ public sealed partial class ViewerSession : IDisposable
                     lists.Add(new SkipList(slot.StartByte, slot.Name, starts));
             }
 
-            patterns.Add(("\\"u8.ToArray(), -1));
+            patterns.Add(new("\\"u8.ToArray()));
         }
         else
         {
@@ -467,15 +470,15 @@ public sealed partial class ViewerSession : IDisposable
                 ? known
                 : new SkipList(-1, slot.Key.Local, null) { ContentStart = root.ContentByte, ContentEnd = root.ContentEnd, Expected = slot.Count };
             lists.Add(_rootEntries);
-            patterns.Add(("&"u8.ToArray(), -1));
-            patterns.Add(("xmlns"u8.ToArray(), -1));
-            patterns.Add(("<![CDATA["u8.ToArray(), -1));
+            patterns.Add(new("&"u8.ToArray()));
+            patterns.Add(new("xmlns"u8.ToArray()));
+            patterns.Add(new("<![CDATA["u8.ToArray()));
             for (var cut = 1; cut < bytes.Length; cut++)
             {
                 var split = new byte[cut + 1];
                 bytes.AsSpan(0, cut).CopyTo(split);
                 split[cut] = (byte)'<';
-                patterns.Add((split, '/'));
+                patterns.Add(new(split, '/', fold));
             }
         }
 

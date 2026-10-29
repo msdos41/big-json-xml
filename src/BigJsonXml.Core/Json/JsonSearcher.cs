@@ -368,11 +368,18 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
 
     private void VisitBulk()
     {
-        if (!_bulk || _stack.Count == 0)
+        if (_stack.Count == 0)
             return;
         var parent = _stack.Peek();
         if (!parent.Array)
             return;
+        // Without the item reader, each item is still parsed event by event, but the jump works the same.
+        if (!_bulk)
+        {
+            TrySkip(parent);
+            return;
+        }
+
         var deadline = Stopwatch.GetTimestamp() + Stopwatch.Frequency / 125;
         _visitArray = parent;
         while (Stopwatch.GetTimestamp() < deadline)

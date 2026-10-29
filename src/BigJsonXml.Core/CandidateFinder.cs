@@ -1,9 +1,19 @@
+using System.Numerics;
+using System.Runtime.Intrinsics;
+
 namespace BigJsonXml;
+
+/// <summary>
+/// One byte sequence a hit's raw bytes must contain. <paramref name="RefuseAfter"/> is a byte that may
+/// not follow it, or -1. With <paramref name="Fold"/>, ASCII letters match in either case.
+/// </summary>
+internal readonly record struct CandidatePattern(byte[] Bytes, int RefuseAfter = -1, bool Fold = false);
 
 /// <summary>
 /// Finds the next byte where a text-search hit could begin, without parsing. Each pattern is a
 /// byte sequence that a hit's raw bytes must contain; a pattern may refuse one byte right after it.
-/// The file is read in large blocks and searched with vectorized span searches.
+/// The file is read in large blocks and searched with vectorized span searches. A folded pattern
+/// compares its first and last bytes sixteen at a time and checks the rest at each place both match.
 /// </summary>
 internal sealed class CandidateFinder
 {
@@ -12,6 +22,7 @@ internal sealed class CandidateFinder
     private readonly IByteSource _source;
     private readonly byte[][] _patterns;
     private readonly int[] _refuseAfter;
+    private readonly bool[] _fold;
     private readonly long[] _next;
     private readonly byte[] _block = new byte[BlockSize];
     private readonly int _overlap;
@@ -19,17 +30,27 @@ internal sealed class CandidateFinder
     private int _blockCount;
 
     public CandidateFinder(IByteSource source, IReadOnlyList<(byte[] Bytes, int RefuseAfter)> patterns)
+        : this(source, patterns.Select(pattern => new CandidatePattern(pattern.Bytes, pattern.RefuseAfter)).ToList())
+    {
+    }
+
+    public CandidateFinder(IByteSource source, IReadOnlyList<CandidatePattern> patterns)
     {
         _source = source;
         _patterns = new byte[patterns.Count][];
         _refuseAfter = new int[patterns.Count];
+        _fold = new bool[patterns.Count];
         _next = new long[patterns.Count];
         var longest = 1;
         for (var i = 0; i < patterns.Count; i++)
         {
-            _patterns[i] = patterns[i].Bytes;
+            var bytes = patterns[i].Bytes;
+            // A pattern without letters reads the same in both cases, so the plain search serves it.
+            var fold = patterns[i].Fold && bytes.Any(IsLetter);
+            _patterns[i] = fold ? bytes.Select(Lower).ToArray() : bytes;
             _refuseAfter[i] = patterns[i].RefuseAfter;
-            longest = Math.Max(longest, patterns[i].Bytes.Length + 1);
+            _fold[i] = fold;
+            longest = Math.Max(longest, bytes.Length + 1);
         }
 
         _overlap = longest;
@@ -111,7 +132,7 @@ internal sealed class CandidateFinder
         var at = (int)(from - _blockAt);
         while (at < span.Length)
         {
-            var found = span[at..].IndexOf(pattern);
+            var found = _fold[index] ? IndexOfFolded(span[at..], pattern) : span[at..].IndexOf(pattern);
             if (found < 0)
                 return long.MaxValue;
             var start = at + found;
@@ -122,5 +143,63 @@ internal sealed class CandidateFinder
         }
 
         return long.MaxValue;
+    }
+
+    private static bool IsLetter(byte value) => (uint)((value | 0x20) - 'a') <= 'z' - 'a';
+
+    private static byte Lower(byte value) => IsLetter(value) ? (byte)(value | 0x20) : value;
+
+    /// <summary>The first place <paramref name="lower"/> matches with ASCII letters in either case, or -1.</summary>
+    internal static int IndexOfFolded(ReadOnlySpan<byte> hay, ReadOnlySpan<byte> lower)
+    {
+        var last = lower.Length - 1;
+        if (last < 0)
+            return 0;
+        var end = hay.Length - last;
+        if (end <= 0)
+            return -1;
+        var i = 0;
+        if (Vector128.IsHardwareAccelerated && end >= Vector128<byte>.Count)
+        {
+            // A letter is compared with the 0x20 bit set; any other byte is compared as it is.
+            var firstMask = Vector128.Create(IsLetter(lower[0]) ? (byte)0x20 : (byte)0);
+            var firstValue = Vector128.Create(lower[0]);
+            var lastMask = Vector128.Create(IsLetter(lower[last]) ? (byte)0x20 : (byte)0);
+            var lastValue = Vector128.Create(lower[last]);
+            ref var start = ref System.Runtime.InteropServices.MemoryMarshal.GetReference(hay);
+            for (; i + Vector128<byte>.Count <= end; i += Vector128<byte>.Count)
+            {
+                var head = Vector128.LoadUnsafe(ref start, (nuint)i);
+                var tail = Vector128.LoadUnsafe(ref start, (nuint)(i + last));
+                var both = Vector128.Equals(head | firstMask, firstValue) & Vector128.Equals(tail | lastMask, lastValue);
+                var bits = both.ExtractMostSignificantBits();
+                while (bits != 0)
+                {
+                    var at = i + BitOperations.TrailingZeroCount(bits);
+                    if (SameFolded(hay.Slice(at, lower.Length), lower))
+                        return at;
+                    bits &= bits - 1;
+                }
+            }
+        }
+
+        for (; i < end; i++)
+        {
+            if (Lower(hay[i]) == lower[0] && SameFolded(hay.Slice(i, lower.Length), lower))
+                return i;
+        }
+
+        return -1;
+    }
+
+    private static bool SameFolded(ReadOnlySpan<byte> bytes, ReadOnlySpan<byte> lower)
+    {
+        for (var i = 0; i < lower.Length; i++)
+        {
+            if (Lower(bytes[i]) != lower[i])
+                return false;
+        }
+
+        return true;
     }
 }
