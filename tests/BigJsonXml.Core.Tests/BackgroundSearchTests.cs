@@ -103,6 +103,8 @@ public class BackgroundSearchTests
             2500 => "<item id=\"2500\"><name>N&#69;EDLE</name><v>x</v></item>",
             2600 => "<item id=\"2600\" NOTE=\"A NEEDLE\"><NAME>y</NAME><v>x</v></item>",
             2800 => "<item id=\"2800\"><name>NEE<![CDATA[DLE]]></name><v>x</v></item>",
+            // A run where every entry holds a hit: looking ahead pauses there and resumes after it.
+            >= 100 and < 1100 => $"<item id=\"{i}\"><name>needle {i}</name><v>x</v></item>",
             _ => $"<item id=\"{i}\"><name>n{i}</name><v>x</v></item>",
         });
 
@@ -137,6 +139,111 @@ public class BackgroundSearchTests
         });
         SameHits(scalars, "needle", "7", "zzz", "FALSE");
     }
+
+    private static string NestedXml(int count, Func<int, string> order)
+    {
+        var builder = new StringBuilder("<db>\n <meta><version>3</version></meta>\n <customers>\n");
+        for (var i = 1; i <= count; i++)
+            builder.Append($"  <customer id=\"c{i}\"><name>Customer {i}</name><city>{(i % 3 == 0 ? "New York" : "Lima")}</city></customer>\n");
+        builder.Append(" </customers>\n <orders>\n");
+        for (var i = 1; i <= count; i++)
+            builder.Append("  ").Append(order(i)).Append('\n');
+        builder.Append(" </orders>\n <audit><entry at=\"1\">first</entry><entry at=\"2\">second</entry><entry at=\"3\">third</entry></audit>\n</db>\n");
+        return builder.ToString();
+    }
+
+    private static string NestedJson(int count, Func<int, string> order)
+    {
+        var builder = new StringBuilder("{\"meta\": {\"version\": 3}, \"data\": {\"customers\": [\n");
+        for (var i = 1; i <= count; i++)
+            builder.Append(i == 1 ? "" : ",\n").Append($"{{\"id\": \"c{i}\", \"city\": \"{(i % 3 == 0 ? "New York" : "Lima")}\"}}");
+        builder.Append("\n], \"orders\": [\n");
+        for (var i = 1; i <= count; i++)
+            builder.Append(i == 1 ? "" : ",\n").Append(order(i));
+        builder.Append("\n]}, \"tail\": [1, 2, 3]}\n");
+        return builder.ToString();
+    }
+
+    [Fact]
+    public void Lists_below_the_root_and_beside_other_lists_give_the_same_xml_hits()
+    {
+        var text = NestedXml(2000, i => i switch
+        {
+            500 => "<order id=\"o500\" note=\"New\tYork\"><lines><line sku=\"a\"/><line sku=\"b\"/></lines><note>x</note></order>",
+            900 => "<order id=\"o900\"><lines><line sku=\"上海\"/></lines><note>New&#32;York &#19978;海</note></order>",
+            1200 => "<order id=\"o1200\"><lines/><note>New <b>York</b></note></order>",
+            1500 => "<order id=\"o1500\"><lines/><note><![CDATA[NEW YORK]]> 上海</note></order>",
+            1999 => "<order id=\"o1999\"><lines/><note>last New York</note></order>",
+            _ => $"<order id=\"o{i}\"><lines><line sku=\"s{i}\"/></lines><note>plain {i}</note></order>",
+        });
+
+        SameHits(text, "New York", "上海", "海", "o1999", "@id", "@sku", "line", "zzz", "w Y", "first", "#text", "Customer 7");
+    }
+
+    [Fact]
+    public void Lists_below_the_root_and_beside_other_lists_give_the_same_json_hits()
+    {
+        var text = NestedJson(2000, i => i switch
+        {
+            500 => "{\"id\": \"o500\", \"note\": \"New\\u0020York\", \"lines\": [1, 2]}",
+            900 => "{\"id\": \"o900\", \"note\": \"上海 New York\", \"lines\": []}",
+            1200 => "{\"id\": \"o1200\", \"New York\": true, \"lines\": []}",
+            1999 => "{\"id\": \"o1999\", \"note\": \"last NEW YORK\", \"lines\": [3]}",
+            _ => $"{{\"id\": \"o{i}\", \"note\": \"plain {i}\", \"lines\": [{i}]}}",
+        });
+
+        SameHits(text, "New York", "上海", "o1999", "lines", "zzz", "w Y", "value", "3");
+    }
+
+    [Fact]
+    public void A_search_jumps_through_lists_below_the_root_and_hands_over_hits_before_they_close()
+    {
+        var xml = Scan(Bytes(NestedXml(5000, i => i == 2500 ? "<order id=\"o\"><note>New York 上海</note></order>" : $"<order id=\"o{i}\"><note>{i}</note></order>")));
+        xml.InlineSearchTicks = 0;
+        Assert.Equal(["/db/orders/order[2500]/note @9+2"], Find(xml, new TextSearch { FindWhat = "上海" }));
+        Assert.True(xml.SearchSkipped > 4000, $"skipped {xml.SearchSkipped}");
+        Assert.Equal(["/db/orders/order[2500]/note @4+6"], Find(xml, new TextSearch { FindWhat = "YORK 上", MatchCase = false, ElementName = false }));
+        Assert.True(xml.SearchSkipped > 4000, $"skipped {xml.SearchSkipped}");
+
+        var json = Scan(Bytes(NestedJson(5000, i => i == 2500 ? "{\"note\": \"New York 上海\"}" : $"{{\"note\": {i}}}")));
+        json.InlineSearchTicks = 0;
+        Assert.Equal(["/data/orders[2500]/note @10+2"], Find(json, new TextSearch { FindWhat = "上海" }));
+        Assert.True(json.SearchSkipped > 4000, $"skipped {json.SearchSkipped}");
+    }
+
+    [Fact]
+    public void A_hit_inside_an_open_record_is_shown_before_the_record_closes()
+    {
+        // Ignoring case leaves no ASCII part of this needle to look for, so every order is read.
+        var xml = Scan(Bytes(NestedXml(150_000, i => i == 10 ? "<order id=\"o\"><note>上海</note></order>" : $"<order id=\"o{i}\"><note>{i}</note></order>")));
+        xml.InlineSearchTicks = 0;
+        xml.Search(new TextSearch { FindWhat = "上海", MatchCase = false });
+        var running = false;
+        var waited = Stopwatch.StartNew();
+        while (xml.Hits.Count == 0 && waited.ElapsedMilliseconds < 20_000)
+        {
+            xml.WaitForSearch(1);
+            running = xml.SearchInBackground;
+            xml.Pump(512);
+        }
+
+        Assert.True(running, "the hit should arrive while </orders> is still ahead");
+        Assert.Equal("/db/orders/order[10]/note", xml.FormatPath(Assert.Single(xml.Hits).Path));
+        xml.PumpAll();
+        Assert.Equal("/db/orders/order[10]/note", xml.FormatPath(Assert.Single(xml.Hits).Path));
+    }
+
+    [Theory]
+    [InlineData("New York", false, false, "York")]
+    [InlineData("New York", false, true, "New York")]
+    [InlineData("@id", false, false, "id")]
+    [InlineData("上海 x", false, false, "上海")]
+    [InlineData("上海 xy", true, false, "xy")]
+    [InlineData("上海", true, false, "")]
+    [InlineData("a\tbc", false, true, "a\tbc")]
+    [InlineData("a\tbc", true, true, "bc")]
+    public void The_probe_is_the_longest_part_every_hit_holds(string needle, bool fold, bool json, string probe) =>
+        Assert.Equal(probe, ViewerSession.Probe(needle, fold, json));
 
     [Fact]
     public void A_sparse_search_jumps_over_entries_without_a_candidate()
