@@ -303,10 +303,11 @@ public sealed partial class ViewerSession
 
     // The header, or the sampled cells without their longest twentieth, whichever is
     // wider, and never wider than the column cap.
-    private static double ListWidth(FitRun run)
+    private static double ListWidth(FitRun run) => ListWidth(run.Header, run.Cells);
+
+    private static double ListWidth(double header, List<double> cells)
     {
-        var width = Math.Max(MinWidth, run.Header);
-        var cells = run.Cells;
+        var width = Math.Max(MinWidth, header);
         if (cells.Count == 0)
             return width;
         cells.Sort();
@@ -330,16 +331,20 @@ public sealed partial class ViewerSession
         var cell = frame.FindKey(run.ColumnSlot.Key);
         if (cell is null)
             return;
-        var path = entryPath.Field(run.ColumnSlot.Name);
+        MeasureCell(run.Cells, cell, entryPath.Field(run.ColumnSlot.Name));
+    }
+
+    private void MeasureCell(List<double> cells, Slot cell, DocumentPath path)
+    {
         if (cell.Kind == SlotKind.Scalar)
         {
             var chars = TextChars(cell.Text);
             if (chars > 0)
-                run.Cells.Add(CharsWidth(chars, gutter: false));
+                cells.Add(CharsWidth(chars, gutter: false));
         }
         else
         {
-            run.Cells.Add(CharsWidth(LabelChars(cell, path), gutter: true));
+            cells.Add(CharsWidth(LabelChars(cell, path), gutter: true));
         }
     }
 

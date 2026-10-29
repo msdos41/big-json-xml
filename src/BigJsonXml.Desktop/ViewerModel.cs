@@ -9,6 +9,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 {
     public const int ScanSliceMilliseconds = 32;
     public const int ScanIdleMilliseconds = 16;
+    public const int AutoFitSliceMilliseconds = 8;
     public const int QuiescentScanSliceMilliseconds = 64;
     public const int QuiescentScanIdleMilliseconds = 4;
     public const int QuiescenceThresholdMilliseconds = 250;
@@ -80,6 +81,10 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private CellSelection? _selection;
     private bool _findWindowOpen;
     private bool _resultsWindowOpen;
+
+    // Tables fit their columns on their own after the scan and after an expand (ADR 0057).
+    // A column the user dragged or double-clicked keeps its width.
+    public bool AutoFitColumns { get; init; } = true;
 
     public ViewerModel()
     {
@@ -605,7 +610,11 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             SyncResults(tab, false);
         }
 
-        if (ApplyPendingFits(active))
+        var fitted = ApplyPendingFits(active);
+        // Tables drawn since the last tick get their columns fitted once the scan is done.
+        if (active is not null && active.Session.AdvanceAutoFit(AutoFitSliceMilliseconds))
+            fitted = true;
+        if (fitted)
             Refresh();
     }
 
@@ -854,6 +863,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     private void Adopt(ViewerSession session, string path, string label)
     {
         _openFailure = null;
+        session.AutoFitColumns = AutoFitColumns;
         var tab = new DocumentTab(session, path, label)
         {
             ScanStartedAt = Environment.TickCount64,

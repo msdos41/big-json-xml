@@ -67,6 +67,13 @@ public sealed partial class ViewerSession
     public void SetColumnWidth(DocumentPath listPath, string column, double width)
     {
         ArgumentException.ThrowIfNullOrEmpty(column);
+        // A width the user set is never replaced by an automatic fit (ADR 0057).
+        _setByHand.Add((listPath, column));
+        ApplyColumnWidth(listPath, column, width);
+    }
+
+    private void ApplyColumnWidth(DocumentPath listPath, string column, double width)
+    {
         if (!TryList(listPath, out var slot))
         {
             var state = ColumnState(listPath, column);
