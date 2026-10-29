@@ -1,6 +1,10 @@
 # BigJsonXml
 
-A tool for reading and searching a very large XML or JSON file.
+English | [简体中文](README.zh-CN.md)
+
+A Windows viewer for opening and searching XML and JSON files of a gigabyte or more.
+
+General text editors often slow down or run out of memory on files this size. BigJsonXml shows the file as nested tables instead, keeps memory low, and lets you scroll and search while the file is still loading.
 
 A release is one file. There is no installer and no separate runtime to set up. Download the [latest release](https://github.com/msdos41/big-json-xml/releases/latest).
 
@@ -12,8 +16,20 @@ A release is one file. There is no installer and no separate runtime to set up. 
 
 ## What you get
 
-- **Memory stays low on a large file.** A 1 GB file stays around 40 MB.
+- **Memory stays low on a large file.** A 1 GB file peaks at about 47-51 MB.
 - **Reading does not block the window.** You can scroll and search while the file is still being read.
+- **Search runs in the background.** Searching a loaded 1 GB file takes well under a second, and the window stays responsive.
+
+## Measured numbers
+
+| File | Load speed | Peak memory | Search after load |
+| --- | --- | --- | --- |
+| 1 GB XML, records | 439 MB/s | 51 MB | 0.4-0.6 s |
+| 1 GB JSON, records | 406 MB/s | 50 MB | 0.2-0.3 s |
+| 1 GB XML, deep nesting | 374 MB/s | 47 MB | 0.3-0.4 s |
+| 512 MB JSON, 268 million scalars | 142-162 MB/s | 71 MB | 0.1 s |
+
+Measured with the engine benchmarks (Release build, 8-core Linux machine, file in the OS cache), not the desktop window. Search times cover case-sensitive and case-insensitive text, hit or no hit. Peak memory is the process high-water mark during loading.
 
 ## How a file becomes a table
 
@@ -59,7 +75,13 @@ Press `Ctrl+F`, or the Find button. Names and values are searched even inside ta
 
 ## This release
 
-This version reads a document and searches it.
+Version 0.2.0 reads a document and searches it.
+
+- Large lists are stored compactly, so memory stays around 50-70 MB even for files with hundreds of millions of entries.
+- Search runs on its own thread and does not freeze the window.
+- Case-insensitive search, text with spaces, and non-ASCII text such as Chinese skip ahead using the index instead of reading the whole file again.
+
+Windows only for now. The executable is not signed, so on the first run Windows SmartScreen may show "Windows protected your PC". Click **More info**, then **Run anyway**.
 
 JSON is one UTF-8 value: an object, an array, or a scalar. Comments, trailing commas, and a second value are outside that grammar. An ill-formed byte stops the read, and the tables built before that byte stay.
 
