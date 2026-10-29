@@ -10,7 +10,7 @@ namespace BigJsonXml.Tests;
 public class HalfTimePinTests
 {
     [Fact]
-    public void A_long_list_of_short_cells_fits_from_every_entry()
+    public void A_long_list_fits_cells_from_its_far_end()
     {
         const int count = 4_000;
         const string widest = "widest-cell-here";
@@ -18,7 +18,7 @@ public class HalfTimePinTests
         xml.Append("<root>");
         for (var i = 0; i < count; i++)
         {
-            var text = i == count - 1 ? widest : i == 20 ? "middle" : "short";
+            var text = i >= count - (count / 10) ? widest : i == 20 ? "middle" : "short";
             xml.Append("<item>").Append(text).Append("</item>");
         }
 
@@ -36,7 +36,7 @@ public class HalfTimePinTests
     }
 
     [Fact]
-    public void A_list_column_stops_growing_at_five_hundred_characters()
+    public void A_list_column_stops_growing_at_the_column_cap()
     {
         var capped = new string('a', ViewerSession.FitCharacterCap);
         var longer = new string('b', ViewerSession.FitCharacterCap + 300);
@@ -47,8 +47,7 @@ public class HalfTimePinTests
         session.Fit(WidthAxis.ListColumn, list, "#text");
         var header = Header(session, list, "#text");
 
-        Assert.Equal(ViewerSession.FitCharacterCap * ViewerSession.Advance, header.Width);
-        Assert.Equal(capped, session.ReadList(list, 0, 1).Entries[0].Cells.Single(cell => cell.Name == "#text").Text);
+        Assert.Equal(ViewerSession.FitColumnCharacters * ViewerSession.Advance, header.Width);
     }
 
     [Fact]

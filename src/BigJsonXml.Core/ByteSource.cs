@@ -1,3 +1,5 @@
+using Microsoft.Win32.SafeHandles;
+
 namespace BigJsonXml;
 
 /// <summary>
@@ -19,6 +21,16 @@ internal interface IReaderSource
 {
     // Null when the source cannot be read from another thread.
     IByteSource? OpenReader();
+}
+
+/// <summary>
+/// A source whose large read-ahead window would cost more than the read itself when
+/// the reads jump far apart, as a sampled column fit does.
+/// </summary>
+internal interface ISparseReadSource
+{
+    // Reads only what the buffer holds. The read-ahead window is used when it already covers the offset.
+    int ReadSparse(long offset, Span<byte> buffer);
 }
 
 /// <summary>
@@ -74,13 +86,15 @@ public sealed class MemoryByteSource : IByteSource, IReaderSource
 /// <summary>
 /// Seekable stream, typically a file opened read-only. The session does not write it.
 /// </summary>
-public sealed class StreamByteSource : IByteSource, IDisposable, IReaderSource
+public sealed class StreamByteSource : IByteSource, IDisposable, IReaderSource, ISparseReadSource
 {
     private readonly Stream _stream;
     private readonly bool _leaveOpen;
     private readonly byte[] _window = new byte[1024 * 1024];
     private long _origin = -1;
     private int _filled;
+    private SafeFileHandle? _sparse;
+    private bool _sparseRefused;
 
     public StreamByteSource(Stream stream, bool leaveOpen = false)
     {
@@ -125,6 +139,49 @@ public sealed class StreamByteSource : IByteSource, IDisposable, IReaderSource
         return copied;
     }
 
+    // A file stream reads ahead by its own buffer on every seek. A sampled read goes
+    // through a second handle that reads only the bytes asked for.
+    int ISparseReadSource.ReadSparse(long offset, Span<byte> buffer)
+    {
+        if ((ulong)offset > (ulong)Length || buffer.IsEmpty)
+            return 0;
+        if ((ulong)(offset - _origin) < (ulong)_filled && offset + buffer.Length <= _origin + _filled)
+            return Read(offset, buffer);
+        var handle = SparseHandle();
+        if (handle is null)
+            return Read(offset, buffer);
+        var count = (int)Math.Min(buffer.Length, Length - offset);
+        var read = 0;
+        while (read < count)
+        {
+            var n = RandomAccess.Read(handle, buffer[read..count], offset + read);
+            if (n == 0)
+                break;
+            read += n;
+        }
+
+        return read;
+    }
+
+    private SafeFileHandle? SparseHandle()
+    {
+        if (_sparse is not null || _sparseRefused)
+            return _sparse;
+        if (_stream is FileStream file)
+        {
+            try
+            {
+                _sparse = File.OpenHandle(file.Name, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+            }
+        }
+
+        _sparseRefused = _sparse is null;
+        return _sparse;
+    }
+
     // A file is opened again, so the second reader has its own position and window.
     IByteSource? IReaderSource.OpenReader()
     {
@@ -166,6 +223,7 @@ public sealed class StreamByteSource : IByteSource, IDisposable, IReaderSource
 
     public void Dispose()
     {
+        _sparse?.Dispose();
         if (!_leaveOpen)
             _stream.Dispose();
     }
