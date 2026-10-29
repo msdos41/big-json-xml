@@ -53,6 +53,7 @@ public sealed partial class ViewerSession : IDisposable
     // a whole drain slice, so a large document goes straight to the thread.
     internal long InlineSearchTicks = System.Diagnostics.Stopwatch.Frequency / 500;
     internal long InlineSearchBytes = 4L << 20;
+    internal long InlineSearchCompleteBytes = 64L << 10;
 
     // How long one drain of repeated siblings may run. Tests shorten it to pin a slow machine.
     internal long FlatDrainTicks = System.Diagnostics.Stopwatch.Frequency / 80;
@@ -391,85 +392,67 @@ public sealed partial class ViewerSession : IDisposable
         }
         else
         {
-            var xml = new Searcher(document, search, hits) { Skip = skip, RootLists = RootListNames() };
+            var xml = new Searcher(document, search, hits) { Skip = skip, Outline = ListFields() };
             searcher = xml;
             stable = xml.StableCount;
         }
 
         Action<Func<bool>>? prepare = null;
-        if (skip is not null && _grammar == Grammar.Xml && skip.Lists[0] is { Offsets: null } entries)
+        if (skip is not null && _grammar == Grammar.Xml && skip.Lists.FirstOrDefault(list => list.Offsets is null) is { } entries)
             prepare = cancelled => entries.Offsets ??= EntryTagScan.Build(reader, entries, cancelled);
         _lastSkip = skip;
         var background = new BackgroundSearch(searcher, hits, stable, owned, skip, prepare);
         _background = background;
-        if (_document.Source.Length <= InlineSearchBytes)
+        // A tiny document finishes here whatever the machine's load, so its hits are there at once.
+        if (_document.Source.Length <= InlineSearchCompleteBytes && InlineSearchTicks > 0)
+            background.RunInline(long.MaxValue / 2);
+        else if (_document.Source.Length <= InlineSearchBytes)
             background.RunInline(InlineSearchTicks);
         background.Start();
         Publish();
         return true;
     }
 
-    private HashSet<string> RootListNames()
-    {
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        if (_tree.Root is { } root)
-        {
-            foreach (var slot in root.Slots)
-            {
-                if (slot.Kind == SlotKind.List)
-                    names.Add(slot.Name);
-            }
-        }
-
-        return names;
-    }
-
-    // Jumping is safe only when every hit's text appears in the raw bytes as the needle itself,
-    // or near a byte the finder also stops at (an escape, an entity, a tag that splits text).
+    // Jumping is safe only when every hit's text holds the probe below in its raw bytes,
+    // or sits near a byte the finder also stops at (an escape, an entity, a tag that splits text).
     private SearchSkip? PlanSkip(TextSearch search, IByteSource reader)
     {
         var needle = search.FindWhat;
-        if (needle.Length == 0)
+        if (needle.Length == 0 || _tree.Root is not { } root)
             return null;
         // Without match case only ASCII letters fold: no other character equals an ASCII one when case is ignored.
         var fold = !search.MatchCase;
         var comparison = fold ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        foreach (var unit in needle)
-        {
-            if (unit < 0x21 || unit > 0x7e)
-                return null;
-        }
-
-        if (_tree.Root is not { } root)
+        var json = _grammar == Grammar.Json;
+        if (json && search.ElementName && "#value".Contains(needle, comparison))
             return null;
-        var bytes = System.Text.Encoding.ASCII.GetBytes(needle);
+        if (!json && _document.Encoding.CodePage != 65001)
+            return null;
+        var probe = Rarest(Parts(needle, fold, json), fold, reader);
+        if (probe.Length == 0)
+            return null;
+        var bytes = System.Text.Encoding.UTF8.GetBytes(probe);
         var patterns = new List<CandidatePattern> { new(bytes, Fold: fold) };
         var lists = new List<SkipList>();
-        if (_grammar == Grammar.Json)
+        if (json)
         {
-            if (search.ElementName && "#value".Contains(needle, comparison))
-                return null;
-            foreach (var slot in root.Slots)
+            WalkOutline(root, DocumentPath.Root, (frame, path) =>
             {
-                if (slot.Kind == SlotKind.List && slot.EntryStarts is { Count: > 1 } starts)
-                    lists.Add(new SkipList(slot.StartByte, slot.Name, starts));
-            }
-
+                foreach (var slot in frame.Slots)
+                {
+                    if (slot.Kind == SlotKind.List && slot.EntryStarts is { Count: > 1 } starts)
+                        lists.Add(new SkipList(slot.StartByte, slot.Name, starts) { Parent = path });
+                }
+            });
             patterns.Add(new("\\"u8.ToArray()));
         }
         else
         {
-            if (needle.Contains('@') || needle.Contains('#') || _document.Encoding.CodePage != 65001)
-                return null;
-            if (!ReferenceEquals(root.Scope, NsScope.Empty) || root.ContentEnd < 0 || root.Slots.Count != 1)
-                return null;
-            var slot = root.Slots[0];
-            if (slot.Kind != SlotKind.List || slot.Key.Ns.Length != 0 || slot.Count < 3)
-                return null;
-            _rootEntries = _rootEntries is { } known && known.Name == slot.Key.Local && known.Expected == slot.Count
-                ? known
-                : new SkipList(-1, slot.Key.Local, null) { ContentStart = root.ContentByte, ContentEnd = root.ContentEnd, Expected = slot.Count };
-            lists.Add(_rootEntries);
+            WalkOutline(root, DocumentPath.Root, (frame, path) =>
+            {
+                if (XmlSkipList(frame, path, ReferenceEquals(frame, root)) is { } list)
+                    lists.Add(list);
+            });
             patterns.Add(new("&"u8.ToArray()));
             patterns.Add(new("xmlns"u8.ToArray()));
             patterns.Add(new("<![CDATA["u8.ToArray()));
@@ -483,6 +466,147 @@ public sealed partial class ViewerSession : IDisposable
         }
 
         return lists.Count == 0 ? null : new SearchSkip(new CandidateFinder(reader, patterns), lists);
+    }
+
+    // The longest part of the needle that every hit holds byte for byte, apart from letter case.
+    // XML turns tabs and line breaks in attribute values into spaces, and shows names with @ and #
+    // that the bytes do not hold, so those characters split the needle. Ignoring case keeps only
+    // ASCII, because only ASCII letters fold to ASCII.
+    internal static string Probe(string needle, bool fold, bool json) =>
+        Parts(needle, fold, json).OrderByDescending(part => part.Length).FirstOrDefault() ?? "";
+
+    // The parts of the needle that every hit holds byte for byte, apart from letter case.
+    internal static List<string> Parts(string needle, bool fold, bool json)
+    {
+        var parts = new List<string>();
+        var start = 0;
+        for (var i = 0; i <= needle.Length; i++)
+        {
+            if (i < needle.Length && Keeps(needle[i], fold, json))
+                continue;
+            if (i > start)
+                parts.Add(needle[start..i]);
+            start = i + 1;
+        }
+
+        return parts;
+    }
+
+    // Any part will do, so the one seen least in a sample from the middle of the file is looked for.
+    // A common word would stop the search at nearly every entry.
+    private static string Rarest(List<string> parts, bool fold, IByteSource reader)
+    {
+        if (parts.Count <= 1)
+            return parts.Count == 1 ? parts[0] : "";
+        var sample = new byte[(int)Math.Min(1 << 20, reader.Length)];
+        var at = Math.Max(0, reader.Length / 2 - sample.Length / 2);
+        var got = 0;
+        while (got < sample.Length)
+        {
+            var n = reader.Read(at + got, sample.AsSpan(got));
+            if (n <= 0)
+                break;
+            got += n;
+        }
+
+        var hay = sample.AsSpan(0, got);
+        var best = parts[0];
+        var fewest = int.MaxValue;
+        foreach (var part in parts)
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(fold ? part.ToLowerInvariant() : part);
+            var count = 0;
+            for (var i = 0; i < hay.Length && count <= fewest;)
+            {
+                var found = fold ? CandidateFinder.IndexOfFolded(hay[i..], bytes) : hay[i..].IndexOf(bytes);
+                if (found < 0)
+                    break;
+                count++;
+                i += found + 1;
+            }
+
+            if (count < fewest || (count == fewest && part.Length > best.Length))
+            {
+                fewest = count;
+                best = part;
+            }
+        }
+
+        return best;
+    }
+
+    private static bool Keeps(char unit, bool fold, bool json)
+    {
+        if (fold && (unit < 0x20 || unit > 0x7e))
+            return false;
+        if (json)
+            return true;
+        return unit is not (' ' or '\t' or '\n' or '\r' or '@' or '#');
+    }
+
+    // Record frames the finished outline holds outside list entries, with their paths.
+    private static void WalkOutline(Frame frame, DocumentPath path, Action<Frame, DocumentPath> visit)
+    {
+        visit(frame, path);
+        foreach (var slot in frame.Slots)
+        {
+            if (slot.Kind == SlotKind.Record && slot.Detail is { } detail && !ReferenceEquals(detail, frame))
+                WalkOutline(detail, slot.Path ?? path.Field(slot.Name), visit);
+        }
+    }
+
+    // A list may be jumped through when it is its parent's only child element and the parent has no text,
+    // so the bytes between two entries hold nothing else that counts.
+    private SkipList? XmlSkipList(Frame frame, DocumentPath path, bool isRoot)
+    {
+        if (!ReferenceEquals(frame.Scope, NsScope.Empty))
+            return null;
+        Slot? list = null;
+        foreach (var slot in frame.Slots)
+        {
+            if (slot.Key.Kind == NameKind.Attribute)
+                continue;
+            if (list is not null)
+                return null;
+            list = slot;
+        }
+
+        if (list is null || list.Kind != SlotKind.List || list.Key.Kind != NameKind.Element || list.Key.Ns.Length != 0 || list.Count < 3)
+            return null;
+        var listPath = list.Path ?? path.Field(list.Name);
+        if (_offsets.TryGetValue(OffsetKey.For(frame, list, listPath), out var index) && index.Offsets.Count == list.Count)
+            return new SkipList(-1, list.Key.Local, index.Offsets) { Parent = path };
+        if (!isRoot || frame.ContentEnd < 0)
+            return null;
+        _rootEntries = _rootEntries is { } known && known.Name == list.Key.Local && known.Expected == list.Count
+            ? known
+            : new SkipList(-1, list.Key.Local, null) { Parent = path, ContentStart = frame.ContentByte, ContentEnd = frame.ContentEnd, Expected = list.Count };
+        _rootEntries.Misses = 0;
+        _rootEntries.Pause = 0;
+        _rootEntries.PauseUntil = 0;
+        return _rootEntries;
+    }
+
+    // For each record frame outside list entries, the fields the finished outline holds as lists.
+    private Dictionary<DocumentPath, HashSet<string>> ListFields()
+    {
+        var outline = new Dictionary<DocumentPath, HashSet<string>>();
+        if (_tree.Root is { } root)
+        {
+            WalkOutline(root, DocumentPath.Root, (frame, path) =>
+            {
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var slot in frame.Slots)
+                {
+                    if (slot.Kind == SlotKind.List)
+                        names.Add(slot.Name);
+                }
+
+                outline[path] = names;
+            });
+        }
+
+        return outline;
     }
 
     // Hits are published in document order. One that cannot be read yet holds back the hits after it.

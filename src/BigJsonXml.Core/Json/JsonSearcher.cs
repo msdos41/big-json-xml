@@ -130,7 +130,7 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
             root.Name = "#value";
             root.Array = true;
             root.Path = path;
-            root.Offsets = Indexed(start);
+            root.Jumps = Indexed(start);
             _stack.Push(root);
             return;
         }
@@ -155,30 +155,19 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
         child.Array = true;
         child.Parent = parent;
         child.Path = field;
-        child.Offsets = _stack.Count == 1 ? Indexed(start) : null;
+        child.Jumps = Indexed(start);
         _stack.Push(child);
     }
 
-    private EntryOffsets? Indexed(long start)
-    {
-        if (Skip is null)
-            return null;
-        foreach (var list in Skip.Lists)
-        {
-            if (list.ListStart == start)
-                return list.Offsets;
-        }
-
-        return null;
-    }
+    private SkipList? Indexed(long start) => Skip?.Find(start);
 
     // Items before the next candidate byte hold no hit. Their count comes from the scan's offsets.
     private bool TrySkip(Node array)
     {
-        if (Skip is not { } skip || array.Offsets is not { } offsets)
+        if (Skip is not { } skip || array.Jumps is not { } list)
             return false;
-        var target = skip.Target(offsets, array.Count, _parser.FileByte, _document.Source.Length);
-        if (target < 0 || !_parser.SeekArrayItem(offsets[target]))
+        var target = skip.Target(list, array.Count, _parser.FileByte, _document.Source.Length);
+        if (target < 0 || !_parser.SeekArrayItem(list.Offsets![target]))
             return false;
         skip.Skipped += target - array.Count;
         array.Count = target;
@@ -348,7 +337,7 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
         node.Names?.Clear();
         node.Provisional = false;
         node.HitOrigin = 0;
-        node.Offsets = null;
+        node.Jumps = null;
         return node;
     }
 
@@ -447,6 +436,6 @@ internal sealed class JsonSearcher : IScanSearch, IJsonItem
         public HashSet<string>? Names;
         public bool Provisional;
         public int HitOrigin;
-        public EntryOffsets? Offsets;
+        public SkipList? Jumps;
     }
 }
