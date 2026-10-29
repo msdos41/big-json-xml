@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using BigJsonXml.Xml;
 
 namespace BigJsonXml;
@@ -8,7 +9,9 @@ public sealed partial class ViewerSession
     private readonly byte[] _fitWindow = new byte[16 * 1024];
 
     // A scalar column is measured from the entry bytes. An entity, a nested value,
-    // or a non-ASCII character falls back to the frame reader for that entry.
+    // or a character the bytes cannot count falls back to the frame reader for that entry.
+    // UTF-8 text counts one character per sequence, two for a sequence past U+FFFF.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private bool TryMeasureFast(FitRun run, long offset, FieldKey key)
     {
         if (key.Ns.Length != 0)
@@ -20,11 +23,12 @@ public sealed partial class ViewerSession
         return false;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private bool MeasureJson(FitRun run, long offset, FieldKey key)
     {
         if (key.Kind != NameKind.Element)
             return false;
-        var scan = new ByteScan(_document.Source, _fitWindow, offset);
+        var scan = new ByteScan(_document.Source, _fitWindow, offset, utf8: true, sparse: run.Sparse);
         if (!scan.SkipSpace() || !scan.Try(out var kind))
             return false;
         int chars;
@@ -40,9 +44,10 @@ public sealed partial class ViewerSession
         return ApplyFast(run, chars);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private bool MeasureXml(FitRun run, long offset, FieldKey key)
     {
-        var scan = new ByteScan(_document.Source, _fitWindow, offset);
+        var scan = new ByteScan(_document.Source, _fitWindow, offset, utf8: _document.Encoding.CodePage == 65001, sparse: run.Sparse);
         if (!scan.SkipSpace() || !scan.Try(out var mark) || mark != (byte)'<')
             return false;
         bool read;
@@ -60,24 +65,29 @@ public sealed partial class ViewerSession
         return ApplyFast(run, chars);
     }
 
-    private bool ApplyFast(FitRun run, int chars)
+    private static bool ApplyFast(FitRun run, int chars)
     {
-        if (chars >= 0)
-            run.Width = Math.Max(run.Width, CharsWidth(chars, gutter: false));
+        if (chars > 0)
+            run.Cells.Add(CharsWidth(chars, gutter: false));
         return true;
     }
 
-    private ref struct ByteScan(IByteSource source, byte[] window, long position)
+    // The first fit after start runs only a few thousand entries, too few for tiered
+    // compilation to reach optimized code, so these loops are compiled optimized at once.
+    private ref struct ByteScan(IByteSource source, byte[] window, long position, bool utf8, bool sparse)
     {
         private static readonly SearchValues<byte> QuoteOrSlash = SearchValues.Create("\"\\"u8);
         private static readonly SearchValues<byte> JsonNest = SearchValues.Create("{}[]\""u8);
 
         private readonly IByteSource _source = source;
         private readonly byte[] _window = window;
+        private readonly bool _utf8 = utf8;
+        private readonly ISparseReadSource? _sparse = sparse ? source as ISparseReadSource : null;
         private long _pos = position;
         private long _at = -1;
         private int _count;
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public bool MeasureObject(string local, out int chars)
         {
             chars = -1;
@@ -122,6 +132,7 @@ public sealed partial class ViewerSession
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public bool MeasureScalar(out int chars)
         {
             chars = -1;
@@ -162,6 +173,7 @@ public sealed partial class ViewerSession
             return true;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public bool MeasureAttribute(string local, out int chars)
         {
             chars = -1;
@@ -208,6 +220,7 @@ public sealed partial class ViewerSession
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public bool MeasureEntryText(out int chars)
         {
             chars = -1;
@@ -220,6 +233,7 @@ public sealed partial class ViewerSession
             return !child;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public bool MeasureChild(string local, out int chars)
         {
             chars = -1;
@@ -270,6 +284,7 @@ public sealed partial class ViewerSession
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool PlainKey(string local, out bool matches)
         {
             matches = false;
@@ -299,32 +314,55 @@ public sealed partial class ViewerSession
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool PlainString(out int chars)
         {
             chars = -1;
             var start = _pos;
             if (!Take((byte)'"'))
                 return false;
+            long adjust = 0;
+            var pending = 0;
             while (true)
             {
                 if (!Fill(out var span))
                     return false;
                 var stop = span.IndexOfAny(QuoteOrSlash);
                 var run = stop < 0 ? span.Length : stop;
-                if (run > 0 && span[..run].IndexOfAnyInRange((byte)0x80, (byte)0xFF) >= 0)
-                    return false;
                 if (run > 0 && span[..run].IndexOfAnyInRange((byte)0x00, (byte)0x1F) >= 0)
                     return false;
+                var high = run > 0 ? span[..run].IndexOfAnyInRange((byte)0x80, (byte)0xFF) : -1;
+                if (high >= 0 || pending > 0)
+                {
+                    if (!_utf8)
+                        return false;
+                    for (var i = pending > 0 ? 0 : high; i < run; i++)
+                    {
+                        var mark = span[i];
+                        if (mark < 0x80)
+                        {
+                            if (pending > 0)
+                                return false;
+                            continue;
+                        }
+
+                        var units = 0;
+                        if (!Utf8Step(mark, ref pending, ref units))
+                            return false;
+                        adjust += units - 1;
+                    }
+                }
+
                 if (stop < 0)
                 {
                     _pos += span.Length;
                     continue;
                 }
 
-                if (span[stop] != (byte)'"')
+                if (span[stop] != (byte)'"' || pending > 0)
                     return false;
                 _pos += stop + 1;
-                var raw = _pos - start;
+                var raw = _pos - start + adjust;
                 if (raw > int.MaxValue)
                     return false;
                 chars = (int)raw;
@@ -332,6 +370,7 @@ public sealed partial class ViewerSession
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool SkipJsonValue()
         {
             if (!Try(out var mark))
@@ -353,6 +392,7 @@ public sealed partial class ViewerSession
             return false;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool SkipNest()
         {
             _pos++;
@@ -386,6 +426,7 @@ public sealed partial class ViewerSession
             return true;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool SkipStringBody()
         {
             while (true)
@@ -419,6 +460,7 @@ public sealed partial class ViewerSession
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool SkipNumber()
         {
             if (!Try(out var first))
@@ -472,6 +514,7 @@ public sealed partial class ViewerSession
                 _pos++;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool SkipWord(ReadOnlySpan<byte> word)
         {
             foreach (var expected in word)
@@ -484,12 +527,14 @@ public sealed partial class ViewerSession
             return true;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool OpenTag(out bool empty)
         {
             empty = false;
             return Take((byte)'<') && SkipXmlName() && FinishTag(out empty);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool OpenChild(out long nameAt, out int nameLen, out bool empty)
         {
             nameAt = 0;
@@ -500,6 +545,7 @@ public sealed partial class ViewerSession
             return FinishTag(out empty);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool FinishTag(out bool empty)
         {
             empty = false;
@@ -533,12 +579,14 @@ public sealed partial class ViewerSession
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool PlainText(out int chars, out bool child)
         {
             chars = -1;
             child = false;
             var count = 0;
             var any = false;
+            var pending = 0;
             while (true)
             {
                 if (!Fill(out var span))
@@ -548,7 +596,15 @@ public sealed partial class ViewerSession
                 for (var i = 0; i < run.Length; i++)
                 {
                     var mark = run[i];
-                    if (mark is (byte)'&' or >= 0x80 or (byte)'\r' or (byte)'\n' or (byte)'\t')
+                    if (mark >= 0x80)
+                    {
+                        if (!_utf8 || !Utf8Step(mark, ref pending, ref count))
+                            return false;
+                        any = true;
+                        continue;
+                    }
+
+                    if (pending > 0 || mark is (byte)'&' or (byte)'\r' or (byte)'\n' or (byte)'\t')
                         return false;
                     if (mark != (byte)' ')
                         any = true;
@@ -558,6 +614,8 @@ public sealed partial class ViewerSession
                 _pos += run.Length;
                 if (rel < 0)
                     continue;
+                if (pending > 0)
+                    return false;
                 if (!Look(1, out var next))
                     return false;
                 if (next != (byte)'/')
@@ -572,6 +630,7 @@ public sealed partial class ViewerSession
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool SkipUntil(byte value)
         {
             while (true)
@@ -590,6 +649,7 @@ public sealed partial class ViewerSession
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool SkipBody()
         {
             var depth = 1;
@@ -616,6 +676,7 @@ public sealed partial class ViewerSession
             return true;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool SkipEndTag()
         {
             if (!Take((byte)'<') || !Take((byte)'/'))
@@ -630,6 +691,7 @@ public sealed partial class ViewerSession
             return Take((byte)'>');
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool Quoted(out int chars, out bool plain)
         {
             chars = 0;
@@ -638,8 +700,23 @@ public sealed partial class ViewerSession
                 return false;
             _pos++;
             var count = 0;
+            var pending = 0;
             while (Try(out var mark))
             {
+                if (mark >= 0x80)
+                {
+                    if (!_utf8 || !Utf8Step(mark, ref pending, ref count))
+                        plain = false;
+                    _pos++;
+                    continue;
+                }
+
+                if (pending > 0)
+                {
+                    plain = false;
+                    pending = 0;
+                }
+
                 if (mark == quote)
                 {
                     _pos++;
@@ -647,7 +724,7 @@ public sealed partial class ViewerSession
                     return true;
                 }
 
-                if (mark is (byte)'<' or (byte)'&' or >= 0x80 or (byte)'\r' or (byte)'\n' or (byte)'\t')
+                if (mark is (byte)'<' or (byte)'&' or (byte)'\r' or (byte)'\n' or (byte)'\t')
                     plain = false;
                 count++;
                 _pos++;
@@ -656,6 +733,7 @@ public sealed partial class ViewerSession
             return false;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool SkipQuoted()
         {
             if (!Try(out var quote) || quote is not ((byte)'"' or (byte)'\''))
@@ -675,6 +753,7 @@ public sealed partial class ViewerSession
 
         private bool SkipXmlName() => XmlName(out _, out _);
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool XmlName(out long nameAt, out int nameLen)
         {
             nameAt = _pos;
@@ -692,6 +771,7 @@ public sealed partial class ViewerSession
             return true;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool Contains(long at, int length, byte value)
         {
             for (var i = 0; i < length; i++)
@@ -705,6 +785,7 @@ public sealed partial class ViewerSession
             return false;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool Eq(long at, ReadOnlySpan<byte> text)
         {
             for (var i = 0; i < text.Length; i++)
@@ -716,6 +797,7 @@ public sealed partial class ViewerSession
             return true;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool Eq(long at, string text)
         {
             for (var i = 0; i < text.Length; i++)
@@ -727,6 +809,7 @@ public sealed partial class ViewerSession
             return true;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public bool SkipSpace()
         {
             while (Try(out var mark) && mark is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n')
@@ -746,6 +829,7 @@ public sealed partial class ViewerSession
 
         private bool Look(int ahead, out byte value) => At(_pos + ahead, out value);
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool At(long pos, out byte value)
         {
             value = 0;
@@ -753,7 +837,7 @@ public sealed partial class ViewerSession
             {
                 if ((ulong)pos >= (ulong)_source.Length)
                     return false;
-                var got = _source.Read(pos, _window);
+                var got = _sparse is null ? _source.Read(pos, _window) : _sparse.ReadSparse(pos, _window.AsSpan(0, SparseRead(pos)));
                 if (got <= 0)
                     return false;
                 _at = pos;
@@ -764,6 +848,10 @@ public sealed partial class ViewerSession
             return true;
         }
 
+        // The first read of a sampled entry is small. A long entry reads the whole window after that.
+        private int SparseRead(long pos) => _at < 0 ? 2048 : _window.Length;
+
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool Fill(out ReadOnlySpan<byte> span)
         {
             if (!At(_pos, out _))
@@ -774,6 +862,36 @@ public sealed partial class ViewerSession
 
             span = _window.AsSpan((int)(_pos - _at), (int)(_at + _count - _pos));
             return span.Length > 0;
+        }
+
+        // One byte of a UTF-8 sequence. A lead counts the UTF-16 units it decodes to.
+        private static bool Utf8Step(byte value, ref int pending, ref int units)
+        {
+            if (pending > 0)
+            {
+                if ((value & 0xC0) != 0x80)
+                    return false;
+                pending--;
+                return true;
+            }
+
+            switch (value)
+            {
+                case >= 0xC2 and <= 0xDF:
+                    pending = 1;
+                    units++;
+                    return true;
+                case >= 0xE0 and <= 0xEF:
+                    pending = 2;
+                    units++;
+                    return true;
+                case >= 0xF0 and <= 0xF4:
+                    pending = 3;
+                    units += 2;
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private static bool IsDigit(byte value) => value is >= (byte)'0' and <= (byte)'9';

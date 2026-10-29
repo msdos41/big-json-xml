@@ -13,6 +13,10 @@ public sealed partial class ViewerSession : IDisposable
     public const double DefaultWidth = 200;
     public const double MinWidth = 32;
     public const int FitCharacterCap = 500;
+    // A fitted list column stops here, header included (ADR 0056).
+    public const int FitColumnCharacters = 60;
+    // A list column fits from at most this many entries, spread over the list (ADR 0056).
+    public const int FitSampleEntries = 4096;
     public const double RowHeight = 24;
     public const double ExpandButtonInset = 10;
     public const double ExpandButtonSize = 12;
