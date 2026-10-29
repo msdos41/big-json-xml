@@ -50,7 +50,11 @@ public class BackgroundSearchTests
             {
                 new TextSearch { FindWhat = needle },
                 new TextSearch { FindWhat = needle, MatchCase = false },
+                new TextSearch { FindWhat = needle.ToUpperInvariant(), MatchCase = false },
                 new TextSearch { FindWhat = needle, ElementName = false },
+                new TextSearch { FindWhat = needle, ElementName = false, MatchCase = false },
+                new TextSearch { FindWhat = needle, MatchCase = false, StartsWith = true },
+                new TextSearch { FindWhat = needle, MatchCase = false, EntireCell = true },
             })
             {
                 var expected = Find(pump, search);
@@ -94,10 +98,15 @@ public class BackgroundSearchTests
             2400 => "<item id=\"2400\"><name>n&#101;edle</name><v>x</v></item>",
             2700 => "<item id=\"2700\" note=\"a needle\"><name>y</name><v>x</v></item>",
             2999 => "<item id=\"2999\"><name>last needle</name><v>x</v></item>",
+            2200 => "<item id=\"2200\"><name>NeEdLe</name><v>x</v></item>",
+            2300 => "<item id=\"2300\"><name>NEE<b>DLE</b></name><v>x</v></item>",
+            2500 => "<item id=\"2500\"><name>N&#69;EDLE</name><v>x</v></item>",
+            2600 => "<item id=\"2600\" NOTE=\"A NEEDLE\"><NAME>y</NAME><v>x</v></item>",
+            2800 => "<item id=\"2800\"><name>NEE<![CDATA[DLE]]></name><v>x</v></item>",
             _ => $"<item id=\"{i}\"><name>n{i}</name><v>x</v></item>",
         });
 
-        SameHits(text, "needle", "dle", "item", "2999", "zzz", "id", "<", "@id");
+        SameHits(text, "needle", "dle", "item", "2999", "zzz", "id", "<", "@id", "Name", "nOtE", "CdAtA");
     }
 
     [Fact]
@@ -109,15 +118,24 @@ public class BackgroundSearchTests
             1500 => "{\"id\": 1500, \"name\": \"nee\\u0064le\"}",
             2000 => "{\"id\": 2000, \"needle\": [1, 2]}",
             2999 => "{\"id\": 2999, \"name\": \"last needle\"}",
+            2200 => "{\"id\": 2200, \"name\": \"NeEdLe\"}",
+            2300 => "{\"id\": 2300, \"name\": \"NEE\\u0044LE\"}",
+            2400 => "{\"id\": 2400, \"NEEDLE\": true}",
             _ => $"{{\"id\": {i}, \"name\": \"n{i}\"}}",
         });
-        SameHits(array, "needle", "2999", "id", "zzz", "value", "\\");
+        SameHits(array, "needle", "2999", "id", "zzz", "value", "\\", "VALUE", "Name", "TRUE");
 
         var keyed = "{\"meta\": {\"n\": 1}, \"rows\": " + array + ", \"tail\": \"needle\"}";
         SameHits(keyed, "needle", "rows", "2000", "zzz");
 
-        var scalars = JsonArray(5000, i => i == 4000 ? "\"needle\"" : (i % 10).ToString());
-        SameHits(scalars, "needle", "7", "zzz");
+        var scalars = JsonArray(5000, i => i switch
+        {
+            4000 => "\"needle\"",
+            4500 => "\"NEEDLE\"",
+            4600 => "false",
+            _ => (i % 10).ToString(),
+        });
+        SameHits(scalars, "needle", "7", "zzz", "FALSE");
     }
 
     [Fact]
@@ -133,6 +151,20 @@ public class BackgroundSearchTests
         var json = Scan(Bytes(JsonArray(5000, i => i == 4000 ? "{\"v\": \"needle\"}" : $"{{\"v\": {i}}}")));
         json.InlineSearchTicks = 0;
         Assert.Equal(["/#value[4000]/v @1+6"], Find(json, new TextSearch { FindWhat = "needle" }));
+        Assert.True(json.SearchSkipped > 3900, $"skipped {json.SearchSkipped}");
+    }
+
+    [Fact]
+    public void A_search_that_ignores_case_also_jumps_over_entries()
+    {
+        var xml = Scan(Bytes(XmlList(5000, i => i == 4000 ? "<item><v>NeEdLe</v></item>" : $"<item><v>{i}</v></item>")));
+        xml.InlineSearchTicks = 0;
+        Assert.Equal(["/root/item[4000]/v @0+6"], Find(xml, new TextSearch { FindWhat = "needle", MatchCase = false }));
+        Assert.True(xml.SearchSkipped > 4000, $"skipped {xml.SearchSkipped}");
+
+        var json = Scan(Bytes(JsonArray(5000, i => i == 4000 ? "{\"v\": \"NEEDLE\"}" : $"{{\"v\": {i}}}")));
+        json.InlineSearchTicks = 0;
+        Assert.Equal(["/#value[4000]/v @1+6"], Find(json, new TextSearch { FindWhat = "needle", MatchCase = false }));
         Assert.True(json.SearchSkipped > 3900, $"skipped {json.SearchSkipped}");
     }
 

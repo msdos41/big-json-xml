@@ -54,4 +54,41 @@ public class CandidateFinderTests
         Assert.Equal(1, offsets.LastAtOrBefore(17));
         Assert.Equal(999, offsets.LastAtOrBefore(long.MaxValue));
     }
+
+    [Fact]
+    public void A_folded_search_finds_the_first_place_in_either_case()
+    {
+        var random = new Random(53);
+        var alphabet = "aAbB<>-_@`[{zZ09"u8.ToArray();
+        for (var round = 0; round < 2000; round++)
+        {
+            var hay = new byte[random.Next(0, 80)];
+            for (var i = 0; i < hay.Length; i++)
+                hay[i] = alphabet[random.Next(alphabet.Length)];
+            var needle = new byte[random.Next(1, 5)];
+            for (var i = 0; i < needle.Length; i++)
+                needle[i] = alphabet[random.Next(alphabet.Length)];
+            var lower = needle.Select(b => b is >= (byte)'A' and <= (byte)'Z' ? (byte)(b + 32) : b).ToArray();
+            var expected = -1;
+            for (var at = 0; at + needle.Length <= hay.Length && expected < 0; at++)
+            {
+                var text = System.Text.Encoding.ASCII.GetString(hay, at, needle.Length);
+                if (text.Equals(System.Text.Encoding.ASCII.GetString(needle), StringComparison.OrdinalIgnoreCase))
+                    expected = at;
+            }
+
+            Assert.Equal(expected, CandidateFinder.IndexOfFolded(hay, lower));
+        }
+    }
+
+    [Fact]
+    public void A_folded_pattern_is_found_across_a_block_edge()
+    {
+        const int block = 1 << 20;
+        var source = Filled(2 * block, (block - 2, "XyZ"), (block + 40, "</"), (block + 60, "x<"));
+        var finder = new CandidateFinder(source, [new CandidatePattern("xyz"u8.ToArray(), Fold: true), new CandidatePattern("X<"u8.ToArray(), '/', Fold: true)]);
+
+        Assert.Equal(block - 2, finder.Next(0));
+        Assert.Equal(block + 60, finder.Next(block - 1));
+    }
 }
