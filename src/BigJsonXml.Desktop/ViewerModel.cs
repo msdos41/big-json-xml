@@ -1193,13 +1193,8 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         var next = tab.Session.Hits;
         if (tab.BuiltWidth == _resultWidth && IsPrefix(tab, next))
         {
-            // Paths only rename while the scan still counts list entries.
-            if (tab.Session.Progress == ScanProgress.Scanning)
-            {
-                for (var i = 0; i < tab.Results.Count; i++)
-                    tab.Results[i].RevisePath(tab.Session.FormatPath(next[i].Path));
-            }
-
+            for (var i = 0; i < tab.Results.Count; i++)
+                tab.Results[i].RevisePath(tab.Session.FormatPath(next[i].Path));
             var grown = DescribeMore(tab, next);
             if (grown && active)
             {
@@ -1355,17 +1350,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
         for (var i = shown; i < tab.Results.Count; i++)
             tab.Visible.Add(new ResultHitLine(tab.Results[i]));
-        // Append-only growth: new rows are not current; only re-tint when selection moves or the list rebuilt.
-        if (!prefix || shown == 0)
-            Mark(tab.Visible, tab.Current);
-        else if (tab.Current is not null)
-        {
-            for (var i = 1; i < tab.Visible.Count; i++)
-            {
-                if (tab.Visible[i] is ResultHitLine hit && hit.IsCurrent)
-                    hit.SetCurrent(ReferenceEquals(hit.Result, tab.Current));
-            }
-        }
+        Mark(tab.Visible, tab.Current);
     }
 
     private ObservableCollection<ResultLine> VisibleOfActive() => Active?.Visible ?? _visible;
