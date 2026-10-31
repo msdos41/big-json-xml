@@ -176,23 +176,18 @@ public partial class ResultsWindow : Window
     {
         if (_syncingSelection)
             return;
-        ResultHitLine? match = null;
-        for (var i = 0; i < ResultsList.ItemCount; i++)
-        {
-            if (ResultsList.Items[i] is ResultHitLine hit && ReferenceEquals(hit.Result, model.CurrentResult))
-            {
-                match = hit;
-                break;
-            }
-        }
+        var hitIndex = model.CurrentHitIndex;
+        var listIndex = hitIndex >= 0 && model.VisibleResults.Count > 1 ? hitIndex + 1 : -1;
+        if (listIndex >= ResultsList.ItemCount)
+            listIndex = -1;
 
         _syncingSelection = true;
         try
         {
-            if (!ReferenceEquals(ResultsList.SelectedItem, match))
-                ResultsList.SelectedItem = match;
-            if (match is not null)
-                ResultsList.ScrollIntoView(match);
+            if (ResultsList.SelectedIndex != listIndex)
+                ResultsList.SelectedIndex = listIndex;
+            if (listIndex >= 0)
+                ResultsList.ScrollIntoView(listIndex);
         }
         finally
         {

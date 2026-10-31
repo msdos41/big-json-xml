@@ -1304,7 +1304,7 @@ public class ShellTests
         Assert.True(document.IsExpanded);
         Assert.Equal("\u2212", document.Glyph);
         Assert.Same(model.Results[0], model.CurrentResult);
-        Assert.Contains(model.VisibleResults, line => line is ResultHitLine hit && ReferenceEquals(hit.Result, model.CurrentResult) && hit.IsCurrent);
+        Assert.Contains(model.VisibleResults.Cast<object>(), line => line is ResultHitLine hit && ReferenceEquals(hit.Result, model.CurrentResult) && hit.IsCurrent);
 
         var other = Write("<root><item>gamma</item></root>");
         model.OpenPath(other);

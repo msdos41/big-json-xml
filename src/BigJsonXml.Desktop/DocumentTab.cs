@@ -34,6 +34,8 @@ public sealed class DocumentTab : INotifyPropertyChanged, IDisposable
         Path = path;
         Label = label;
         _width = EstimateWidth(label);
+        Results = new FindResultList(this);
+        Visible = new VirtualResultLines(this);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -75,18 +77,17 @@ public sealed class DocumentTab : INotifyPropertyChanged, IDisposable
 
     public IBrush TopEdge => _active ? ActiveEdgeBrush : Brushes.Transparent;
 
-    internal readonly ObservableCollection<FindResult> Results = [];
+    internal readonly FindResultList Results;
 
     internal readonly ObservableCollection<ResultDocument> Documents = [];
 
-    internal readonly ObservableCollection<ResultLine> Visible = [];
+    internal readonly VirtualResultLines Visible;
 
     internal FindResult? Current;
 
     internal int BuiltWidth = -1;
 
-    // Esc / CancelFind freezes listing at the rows already described.
-    internal int ListStop = int.MaxValue;
+    internal int CurrentHitIndex = -1;
 
     internal bool Searched;
 
