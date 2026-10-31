@@ -41,7 +41,6 @@ public class FindResultYieldTests
         var previous = model.ResultCount;
         for (var i = 0; i < 100_000; i++)
         {
-            var started = Stopwatch.GetTimestamp();
             model.Tick();
             var step = model.ResultCount - previous;
             if (step > maxStep)
@@ -49,17 +48,17 @@ public class FindResultYieldTests
             if (model.HitCount >= 1_000 && model.ResultCount < model.HitCount)
                 sawPartial = true;
             previous = model.ResultCount;
-            if (model.HitCount >= 10_000 && !model.SearchRunning && model.ResultCount >= Math.Min(10_000, ViewerModel.MaxListedResults))
+            if (model.HitCount >= 10_000 && !model.SearchRunning && model.ResultCount >= 10_000)
                 break;
             if (model.SearchRunning || step > 0)
                 Thread.Sleep(1);
-            _ = started;
         }
 
         Assert.True(model.HitCount >= 10_000, $"hits {model.HitCount}");
         Assert.True(sawPartial, "listing stayed equal to Hits on every tick");
         Assert.True(maxStep <= ViewerModel.ResultDescribeBudget * 2,
             $"largest listing step {maxStep}");
+        Assert.Equal(model.HitCount, model.ResultCount);
     }
 
     [Fact]
@@ -73,7 +72,7 @@ public class FindResultYieldTests
         model.FindAll();
 
         var ticks = new List<double>();
-        for (var i = 0; i < 100_000 && model.ResultCount < Math.Min(10_000, ViewerModel.MaxListedResults); i++)
+        for (var i = 0; i < 100_000 && model.ResultCount < 10_000; i++)
         {
             var before = model.ResultCount;
             var started = Stopwatch.GetTimestamp();
@@ -123,17 +122,17 @@ public class FindResultYieldTests
     }
 
     [Fact]
-    public void Match_count_tracks_session_hits_while_the_list_is_capped()
+    public void Listing_eventually_includes_every_hit()
     {
         using var model = new ViewerModel();
-        var need = ViewerModel.MaxListedResults + 200;
+        const int need = 2_500;
         model.OpenPath(WriteItems(need * 2, i => i % 2 == 0));
         ScanToEnd(model);
         model.ShowFind();
         model.FindWhat = "needle";
         model.FindAll();
 
-        for (var i = 0; i < 200_000 && (model.HitCount < need || model.ResultCount < ViewerModel.MaxListedResults || model.SearchRunning); i++)
+        for (var i = 0; i < 200_000 && (model.SearchRunning || model.ListingResults || model.HitCount < need); i++)
         {
             model.Tick();
             if (model.SearchRunning)
@@ -141,11 +140,11 @@ public class FindResultYieldTests
         }
 
         Assert.True(model.HitCount >= need, $"hits {model.HitCount}");
-        Assert.Equal(ViewerModel.MaxListedResults, model.ResultCount);
+        Assert.Equal(model.HitCount, model.ResultCount);
         var document = Assert.Single(model.ResultDocuments);
         Assert.Equal(model.HitCount, document.MatchCount);
-        Assert.Contains(model.HitCount.ToString(), document.MatchLabel, StringComparison.Ordinal);
-        Assert.Contains(ViewerModel.MaxListedResults.ToString(), document.MatchLabel, StringComparison.Ordinal);
+        Assert.Equal(model.HitCount.ToString() + " matches", document.MatchLabel);
+        Assert.DoesNotContain("Showing first", document.MatchLabel, StringComparison.Ordinal);
     }
 
     [Fact]

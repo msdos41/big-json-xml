@@ -14,7 +14,6 @@ public sealed class ResultDocument : INotifyPropertyChanged
 {
     private bool _expanded = true;
     private int _matchCount;
-    private int _listedCount = -1;
 
     public ResultDocument(string path) => Path = path;
 
@@ -28,24 +27,9 @@ public sealed class ResultDocument : INotifyPropertyChanged
 
     public string Glyph => _expanded ? "\u2212" : "+";
 
-    public string MatchLabel
-    {
-        get
-        {
-            if (_listedCount >= 0 && _matchCount > _listedCount)
-            {
-                return "Showing first "
-                    + _listedCount.ToString(CultureInfo.InvariantCulture)
-                    + " of "
-                    + _matchCount.ToString(CultureInfo.InvariantCulture)
-                    + " matches";
-            }
-
-            return _matchCount == 1
-                ? "1 match"
-                : _matchCount.ToString(CultureInfo.InvariantCulture) + " matches";
-        }
-    }
+    public string MatchLabel => _matchCount == 1
+        ? "1 match"
+        : _matchCount.ToString(CultureInfo.InvariantCulture) + " matches";
 
     internal void SetExpanded(bool expanded)
     {
@@ -56,14 +40,11 @@ public sealed class ResultDocument : INotifyPropertyChanged
         OnPropertyChanged(nameof(Glyph));
     }
 
-    internal void SetMatchCount(int count) => SetMatchCount(count, count);
-
-    internal void SetMatchCount(int hits, int listed)
+    internal void SetMatchCount(int count)
     {
-        if (_matchCount == hits && _listedCount == listed)
+        if (_matchCount == count)
             return;
-        _matchCount = hits;
-        _listedCount = listed;
+        _matchCount = count;
         OnPropertyChanged(nameof(MatchCount));
         OnPropertyChanged(nameof(MatchLabel));
     }

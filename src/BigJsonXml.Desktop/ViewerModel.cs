@@ -16,8 +16,6 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     public const double FoundColumnMin = 64;
     public const double FoundColumnMax = 4000;
     public const double FoundColumnPadding = 8;
-    // How many Find All rows the results window will hold. Further hits stay in Hits only.
-    public const int MaxListedResults = 2000;
     // New rows described in one SyncResults call so the UI can pump between batches.
     public const int ResultDescribeBudget = 64;
 
@@ -162,8 +160,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         {
             if (Active is not { } tab || !tab.Searched)
                 return false;
-            var limit = Math.Min(MaxListedResults, tab.ListStop);
-            return tab.Results.Count < limit && tab.Results.Count < tab.Session.Hits.Count;
+            return tab.Results.Count < tab.ListStop && tab.Results.Count < tab.Session.Hits.Count;
         }
     }
 
@@ -1184,8 +1181,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         if (!tab.Searched)
             return false;
-        var limit = Math.Min(MaxListedResults, tab.ListStop);
-        return tab.Results.Count < limit && tab.Results.Count < tab.Session.Hits.Count;
+        return tab.Results.Count < tab.ListStop && tab.Results.Count < tab.Session.Hits.Count;
     }
 
     private void SyncResults(DocumentTab tab, bool active)
@@ -1212,11 +1208,10 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     private bool DescribeMore(DocumentTab tab, IReadOnlyList<Hit> next)
     {
-        var limit = Math.Min(MaxListedResults, tab.ListStop);
         var budget = ResultDescribeBudget;
         var deadline = Environment.TickCount64 + Math.Max(8, CurrentScanSliceMilliseconds);
         var grown = false;
-        for (var i = tab.Results.Count; i < next.Count && i < limit && budget > 0; i++)
+        for (var i = tab.Results.Count; i < next.Count && i < tab.ListStop && budget > 0; i++)
         {
             if (Environment.TickCount64 >= deadline)
                 break;
@@ -1314,11 +1309,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         }
 
         var document = tab.Documents[0];
-        var hits = tab.Session.Hits.Count;
-        var listed = tab.Results.Count;
-        // Only announce the list cap once listing has stopped at MaxListedResults.
-        var labelListed = listed >= MaxListedResults && hits > listed ? listed : hits;
-        document.SetMatchCount(hits, labelListed);
+        document.SetMatchCount(tab.Session.Hits.Count);
         if (tab.Visible.Count == 0 || tab.Visible[0] is not ResultDocumentLine group || !ReferenceEquals(group.Document, document))
         {
             tab.Visible.Clear();
