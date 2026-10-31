@@ -62,7 +62,8 @@ public class BackgroundSearchTickTests
             Thread.Sleep(2);
         }
 
-        model.Tick();
+        for (var i = 0; i < 10_000 && model.ResultCount < 300; i++)
+            model.Tick();
         Assert.Equal(300, model.ResultCount);
         if (ticks.Count > 2)
         {

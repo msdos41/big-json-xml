@@ -1,0 +1,7 @@
+# Find All results are a virtual list over Hits
+
+After a background search (ADR 0053) hands hits over, the results window must stay interactive even when Hits holds tens or hundreds of thousands of matches. Describing every hit into an `ObservableCollection` on the UI thread froze the window (a regression from 0.1.1). The results list is a virtual `IList`: its count tracks `Hits` immediately so the match label and scrollbar extent are correct. The indexer never calls `ReadHitText`; it returns a cheap placeholder and queues a prefetch window. Bodies are filled on the UI timer tick with a budget, so scrolling does not stall on file IO. Esc cancels the search thread; hits already found stay browsable. Dumping every hit into the collection up front, capping the list so later hits never appear, and reading hit text synchronously while the ListBox indexes rows, were rejected.
+
+Closing the results or find window calls `ReleaseResultViews` so the virtual list drops to Count 0 before Avalonia clears `ItemsSource`. Clearing a bound list raises Remove of the entire source; with hundreds of thousands of hits that freezes the UI thread.
+
+Placeholders show the formatted path immediately (no file IO). After the scrollbar settles, a short budgeted `PumpResultDescribeSettled` fills the visible band before the wider prefetch ring, so the list is not blank for long while drag stays free of `ReadHitText`.

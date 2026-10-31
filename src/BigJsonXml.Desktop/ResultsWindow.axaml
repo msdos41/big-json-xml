@@ -42,6 +42,11 @@
                Background="White" BorderThickness="0"
                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                SelectionChanged="ResultSelected">
+        <ListBox.ItemsPanel>
+          <ItemsPanelTemplate>
+            <VirtualizingStackPanel/>
+          </ItemsPanelTemplate>
+        </ListBox.ItemsPanel>
         <ListBox.Styles>
           <Style Selector="ListBoxItem">
             <Setter Property="Padding" Value="0"/>

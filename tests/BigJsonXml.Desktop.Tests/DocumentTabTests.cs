@@ -426,7 +426,7 @@ public class DocumentTabTests
 
         model.Activate(model.Tabs[0]);
         Assert.Equal(current, model.CurrentResult);
-        Assert.Contains(model.VisibleResults, line => line is ResultHitLine hit && ReferenceEquals(hit.Result, current) && hit.IsCurrent);
+        Assert.Contains(model.VisibleResults.Cast<object>(), line => line is ResultHitLine hit && ReferenceEquals(hit.Result, current) && hit.IsCurrent);
         Assert.Contains(model.Rows, row => row.IsMarked);
         Assert.Equal("alpha", model.Results[0].Text);
         Assert.Equal(180, model.FoundColumnWidth);

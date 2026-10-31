@@ -207,7 +207,10 @@ public partial class MainWindow : Window
 
         if (e.Key != Key.Escape)
             return;
-        _model.ClearMark();
+        if (_model.SearchRunning || _model.ListingResults)
+            _model.CancelFind();
+        else
+            _model.ClearMark();
         e.Handled = true;
     }
 

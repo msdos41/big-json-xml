@@ -1,6 +1,9 @@
 using System.ComponentModel;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 
 namespace BigJsonXml.Desktop;
 
@@ -16,6 +19,62 @@ public partial class ResultsWindow : Window
     public ResultsWindow()
     {
         InitializeComponent();
+        ResultsList.TemplateApplied += (_, _) => HookScroll();
+        ResultsList.LayoutUpdated += (_, _) => PrefetchFromViewport();
+    }
+
+    private ScrollViewer? _scroll;
+    private DispatcherTimer? _settleFill;
+
+    private void HookScroll()
+    {
+        _scroll = ResultsList.FindDescendantOfType<ScrollViewer>();
+        if (_scroll is null)
+            return;
+        _scroll.ScrollChanged -= ScrollChanged;
+        _scroll.ScrollChanged += ScrollChanged;
+    }
+
+    private void ScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        PrefetchFromViewport();
+        ArmSettleFill();
+    }
+
+    private void PrefetchFromViewport()
+    {
+        if (DataContext is not ViewerModel model || model.HitCount == 0)
+            return;
+        // Fixed row height in the template is 22px; group row is index 0.
+        const double row = 22;
+        var offset = _scroll?.Offset.Y ?? 0;
+        var viewport = _scroll?.Viewport.Height ?? ResultsList.Bounds.Height;
+        if (viewport <= 1)
+            viewport = ResultsList.Bounds.Height;
+        var first = Math.Max(0, (int)(offset / row) - 4);
+        var last = Math.Max(first, (int)((offset + viewport) / row) + 4);
+        // Convert list indices to hit indices (skip group row).
+        var firstHit = Math.Max(0, first - 1);
+        var lastHit = Math.Max(firstHit, last - 1);
+        // Only queue work here — ReadHitText runs on settle / timer tick, not during drag layout.
+        model.PrefetchResultRange(firstHit, lastHit);
+    }
+
+    private void ArmSettleFill()
+    {
+        _settleFill ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+        _settleFill.Tick -= SettleFillTick;
+        _settleFill.Tick += SettleFillTick;
+        _settleFill.Stop();
+        _settleFill.Start();
+    }
+
+    private void SettleFillTick(object? sender, EventArgs e)
+    {
+        _settleFill?.Stop();
+        PrefetchFromViewport();
+        if (DataContext is ViewerModel model)
+            model.PumpResultDescribeSettled();
     }
 
     private void ResultSelected(object? sender, SelectionChangedEventArgs e)
@@ -101,9 +160,38 @@ public partial class ResultsWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        DataContext = null;
         if (_watched is not null)
             _watched.PropertyChanged -= ModelChanged;
+
+        // Drop selection first — Reset/Remove during a selection update throws in Avalonia.
+        _syncingSelection = true;
+        try
+        {
+            ResultsList.SelectedIndex = -1;
+        }
+        finally
+        {
+            _syncingSelection = false;
+        }
+
+        // Collapse before ItemsSource unbinds — Avalonia Remove(entire list) freezes on huge Count.
+        _watched?.ReleaseResultViews();
+        ResultsList.ItemsSource = null;
+        DataContext = null;
+        _watched = null;
+        if (_settleFill is not null)
+        {
+            _settleFill.Stop();
+            _settleFill.Tick -= SettleFillTick;
+            _settleFill = null;
+        }
+
+        if (_scroll is not null)
+        {
+            _scroll.ScrollChanged -= ScrollChanged;
+            _scroll = null;
+        }
+
         base.OnClosed(e);
     }
 
@@ -119,10 +207,17 @@ public partial class ResultsWindow : Window
 
         if (e.Key != Key.Escape)
             return;
+        if (DataContext is ViewerModel model && (model.SearchRunning || model.ListingResults))
+        {
+            model.CancelFind();
+            e.Handled = true;
+            return;
+        }
+
         if (ResultsList.SelectedItem is not null)
             ResultsList.SelectedItem = null;
-        else if (DataContext is ViewerModel model)
-            model.ClearMark();
+        else if (DataContext is ViewerModel clear)
+            clear.ClearMark();
         e.Handled = true;
     }
 
@@ -169,23 +264,18 @@ public partial class ResultsWindow : Window
     {
         if (_syncingSelection)
             return;
-        ResultHitLine? match = null;
-        for (var i = 0; i < ResultsList.ItemCount; i++)
-        {
-            if (ResultsList.Items[i] is ResultHitLine hit && ReferenceEquals(hit.Result, model.CurrentResult))
-            {
-                match = hit;
-                break;
-            }
-        }
+        var hitIndex = model.CurrentHitIndex;
+        var listIndex = hitIndex >= 0 && model.VisibleResults.Count > 1 ? hitIndex + 1 : -1;
+        if (listIndex >= ResultsList.ItemCount)
+            listIndex = -1;
 
         _syncingSelection = true;
         try
         {
-            if (!ReferenceEquals(ResultsList.SelectedItem, match))
-                ResultsList.SelectedItem = match;
-            if (match is not null)
-                ResultsList.ScrollIntoView(match);
+            if (ResultsList.SelectedIndex != listIndex)
+                ResultsList.SelectedIndex = listIndex;
+            if (listIndex >= 0)
+                ResultsList.ScrollIntoView(listIndex);
         }
         finally
         {

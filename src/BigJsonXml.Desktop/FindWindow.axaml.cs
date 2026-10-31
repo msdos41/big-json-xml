@@ -33,6 +33,14 @@ public partial class FindWindow : Window
             return;
         }
 
+        if (e.Key == Key.Escape)
+        {
+            if (DataContext is ViewerModel model && (model.SearchRunning || model.ListingResults))
+                model.CancelFind();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key != Key.F || !e.KeyModifiers.HasFlag(KeyModifiers.Control))
             return;
         MainWindow.RequestFind(this);
