@@ -16,6 +16,10 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     public const double FoundColumnMin = 64;
     public const double FoundColumnMax = 4000;
     public const double FoundColumnPadding = 8;
+    // How many Find All rows the results window will hold. Further hits stay in Hits only.
+    public const int MaxListedResults = 2000;
+    // New rows described in one SyncResults call so the UI can pump between batches.
+    public const int ResultDescribeBudget = 64;
 
     public int CurrentScanSliceMilliseconds { get; internal set; } = ScanSliceMilliseconds;
     public int CurrentScanIdleMilliseconds { get; internal set; } = ScanIdleMilliseconds;
@@ -143,6 +147,12 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         ClearMark();
     }
 
+    /// <summary>Stops the search thread and any further listing of hits for this Find All.</summary>
+    public void CancelFind()
+    {
+        StopSearches();
+    }
+
     public string FindWhat
     {
         get => _findWhat;
@@ -230,6 +240,9 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     }
 
     public int ResultCount => _results.Count;
+
+    /// <summary>Hits the session holds for the active document, including ones not yet listed.</summary>
+    public int HitCount => Active?.Session.Hits.Count ?? 0;
 
     // A search after the scan still runs on its own thread in the active document.
     public bool SearchRunning => Active?.Session.SearchInBackground ?? false;
