@@ -165,4 +165,73 @@ public class FindResultYieldTests
         Assert.Equal("needle", model.CurrentResult.Text);
         Assert.Equal(0, model.CurrentHitIndex);
     }
+
+    [Fact]
+    public void Close_find_after_many_hits_returns_quickly()
+    {
+        using var model = new ViewerModel();
+        model.OpenPath(WriteItems(40_000, i => i % 2 == 0));
+        ScanToEnd(model);
+        model.ShowFind();
+        model.FindWhat = "needle";
+        model.FindAll();
+        WaitForHits(model, 20_000);
+        _ = model.VisibleResults[1];
+        _ = model.VisibleResults[10_000];
+        for (var i = 0; i < 5; i++)
+            model.Tick();
+
+        var started = Stopwatch.GetTimestamp();
+        model.CloseFind();
+        var ms = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        Assert.False(model.FindWindowOpen);
+        Assert.False(model.ResultsWindowOpen);
+        Assert.Empty(model.VisibleResults);
+        Assert.True(ms < 500, $"CloseFind took {ms} ms with {model.HitCount} hits");
+    }
+
+    [Fact]
+    public void Release_result_views_drops_the_visible_extent_immediately()
+    {
+        using var model = new ViewerModel();
+        model.OpenPath(WriteItems(60_000, i => i % 2 == 0));
+        ScanToEnd(model);
+        model.ShowFind();
+        model.FindWhat = "needle";
+        model.FindAll();
+        WaitForHits(model, 30_000);
+        Assert.True(model.VisibleResults.Count > 30_000);
+        _ = model.VisibleResults[500];
+
+        var started = Stopwatch.GetTimestamp();
+        model.ReleaseResultViews();
+        var ms = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        Assert.Empty(model.VisibleResults);
+        Assert.True(ms < 100, $"ReleaseResultViews took {ms} ms");
+        // Hits remain for Find Next after the window is gone.
+        Assert.True(model.HitCount >= 30_000);
+        Assert.Equal("needle", model.Results[0].Text);
+    }
+
+    [Fact]
+    public void Close_results_clears_visible_rows_without_dropping_hits()
+    {
+        using var model = new ViewerModel();
+        model.OpenPath(WriteItems(40_000, i => i % 2 == 0));
+        ScanToEnd(model);
+        model.ShowFind();
+        model.FindWhat = "needle";
+        model.FindAll();
+        WaitForHits(model, 20_000);
+        Assert.True(model.VisibleResults.Count > 20_000);
+
+        var started = Stopwatch.GetTimestamp();
+        model.CloseResults();
+        var ms = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        Assert.False(model.ResultsWindowOpen);
+        Assert.True(model.FindWindowOpen);
+        Assert.Empty(model.VisibleResults);
+        Assert.True(model.HitCount >= 20_000);
+        Assert.True(ms < 500, $"CloseResults took {ms} ms with {model.HitCount} hits");
+    }
 }

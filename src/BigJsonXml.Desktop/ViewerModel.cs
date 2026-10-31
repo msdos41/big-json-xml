@@ -125,6 +125,8 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(FindWindowOpen));
         if (resultsWereOpen)
             OnPropertyChanged(nameof(ResultsWindowOpen));
+        // ResultsWindow.OnClosed calls ReleaseResultViews before ItemsSource unbinds.
+        // Model-only closes rely on SyncVisible (results closed ⇒ ClearRows) via ClearMarks.
         if (findWasOpen || resultsWereOpen)
         {
             CancelFind();
@@ -140,6 +142,19 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(ResultsWindowOpen));
         CancelFind();
         ClearMark();
+    }
+
+    /// <summary>
+    /// Collapse published result rows and drop describe work. Call before the Results window
+    /// unbinds so Avalonia does not Remove/enumerate every hit.
+    /// </summary>
+    public void ReleaseResultViews()
+    {
+        foreach (var tab in _tabs)
+        {
+            tab.Results.CancelPending();
+            tab.Visible.ClearRows();
+        }
     }
 
     /// <summary>Stops the background search thread. Hits already found stay browsable in the virtual list.</summary>
@@ -1253,6 +1268,8 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     {
         _resultsWindowOpen = true;
         OnPropertyChanged(nameof(ResultsWindowOpen));
+        if (Active is { } tab)
+            SyncVisible(tab);
     }
 
     private void ExpandResults(DocumentTab tab)
@@ -1274,7 +1291,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
     private void SyncVisible(DocumentTab tab)
     {
-        if (!tab.Searched || tab.Documents.Count == 0)
+        if (!tab.Searched || tab.Documents.Count == 0 || !_resultsWindowOpen)
         {
             tab.Visible.ClearRows();
             return;

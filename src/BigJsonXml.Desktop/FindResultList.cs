@@ -67,6 +67,13 @@ internal sealed class FindResultList : IReadOnlyList<FindResult>
         _focus = -1;
     }
 
+    /// <summary>Stop background fill without dropping already-described rows.</summary>
+    public void CancelPending()
+    {
+        _pending.Clear();
+        _focus = -1;
+    }
+
     public void RequestAround(int center)
     {
         if ((uint)center >= (uint)Count)

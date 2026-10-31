@@ -137,9 +137,31 @@ public partial class ResultsWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        DataContext = null;
         if (_watched is not null)
             _watched.PropertyChanged -= ModelChanged;
+
+        // Drop selection first — Reset/Remove during a selection update throws in Avalonia.
+        _syncingSelection = true;
+        try
+        {
+            ResultsList.SelectedIndex = -1;
+        }
+        finally
+        {
+            _syncingSelection = false;
+        }
+
+        // Collapse before ItemsSource unbinds — Avalonia Remove(entire list) freezes on huge Count.
+        _watched?.ReleaseResultViews();
+        ResultsList.ItemsSource = null;
+        DataContext = null;
+        _watched = null;
+        if (_scroll is not null)
+        {
+            _scroll.ScrollChanged -= ScrollChanged;
+            _scroll = null;
+        }
+
         base.OnClosed(e);
     }
 
