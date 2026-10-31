@@ -132,7 +132,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(ResultsWindowOpen));
         if (findWasOpen || resultsWereOpen)
         {
-            StopSearches();
+            CancelFind();
             ClearMarks();
         }
     }
@@ -143,7 +143,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             return;
         _resultsWindowOpen = false;
         OnPropertyChanged(nameof(ResultsWindowOpen));
-        StopSearches();
+        CancelFind();
         ClearMark();
     }
 
@@ -151,6 +151,20 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     public void CancelFind()
     {
         StopSearches();
+        if (Active is { } tab)
+            tab.ListStop = tab.Results.Count;
+    }
+
+    /// <summary>True while Find All still has hits to describe into the results list.</summary>
+    public bool ListingResults
+    {
+        get
+        {
+            if (Active is not { } tab || !tab.Searched)
+                return false;
+            var limit = Math.Min(MaxListedResults, tab.ListStop);
+            return tab.Results.Count < limit && tab.Results.Count < tab.Session.Hits.Count;
+        }
     }
 
     public string FindWhat
@@ -589,14 +603,15 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
             }
             while (Environment.TickCount64 - start < CurrentScanSliceMilliseconds);
 
+            var pendingList = PendingList(active);
             if (worked)
             {
                 var isScanning = active.Session.Progress == ScanProgress.Scanning;
-                var hasNewHits = active.Session.Hits.Count != active.Results.Count;
-                // While only the search thread works, the rows change only when hits arrive.
+                // While only the search thread works, the rows change only when hits arrive,
+                // or when described rows still lag the handed-over hits.
                 var searching = !isScanning && active.Session.SearchInBackground;
                 var elapsed = Environment.TickCount64 - _lastScanRefreshTime;
-                if (hasNewHits || (!isScanning && !searching) || (isScanning && elapsed >= ScanRefreshIntervalMilliseconds))
+                if (pendingList || (!isScanning && !searching) || (isScanning && elapsed >= ScanRefreshIntervalMilliseconds))
                 {
                     _lastScanRefreshTime = Environment.TickCount64;
                     Refresh();
@@ -606,13 +621,19 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
                     PublishScan(active);
                 }
             }
+            else if (pendingList)
+            {
+                SyncResults(active, true);
+                OnPropertyChanged(nameof(HitCount));
+                OnPropertyChanged(nameof(ListingResults));
+            }
         }
 
         foreach (var tab in _tabs.ToArray())
         {
             if (ReferenceEquals(tab, Active))
                 continue;
-            if (!tab.Session.Pump(512))
+            if (!tab.Session.Pump(512) && !PendingList(tab))
                 continue;
             tab.NoteProgress();
             SyncResults(tab, false);
@@ -660,6 +681,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         NoteUserInteraction();
         RememberFindWhat();
         EnsureSearched(tab);
+        tab.ListStop = int.MaxValue;
         tab.Session.Search(Criteria());
         CurrentResult = null;
         Refresh();
@@ -1158,6 +1180,14 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         return tab.Session.ReadSurface();
     }
 
+    private static bool PendingList(DocumentTab tab)
+    {
+        if (!tab.Searched)
+            return false;
+        var limit = Math.Min(MaxListedResults, tab.ListStop);
+        return tab.Results.Count < limit && tab.Results.Count < tab.Session.Hits.Count;
+    }
+
     private void SyncResults(DocumentTab tab, bool active)
     {
         var next = tab.Session.Hits;
@@ -1165,22 +1195,39 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         {
             for (var i = 0; i < tab.Results.Count; i++)
                 tab.Results[i].RevisePath(tab.Session.FormatPath(next[i].Path));
-            var grown = false;
-            for (var i = tab.Results.Count; i < next.Count; i++)
+            var grown = DescribeMore(tab, next);
+            if (grown && active)
             {
-                if (!TryDescribe(tab, next[i], out var described))
-                    break;
-                tab.Results.Add(described);
-                grown = true;
+                OnPropertyChanged(nameof(ResultCount));
+                OnPropertyChanged(nameof(HitCount));
+                OnPropertyChanged(nameof(ListingResults));
             }
 
-            if (grown && active)
-                OnPropertyChanged(nameof(ResultCount));
             SyncVisible(tab);
             return;
         }
 
         ReplaceResults(tab, next, active);
+    }
+
+    private bool DescribeMore(DocumentTab tab, IReadOnlyList<Hit> next)
+    {
+        var limit = Math.Min(MaxListedResults, tab.ListStop);
+        var budget = ResultDescribeBudget;
+        var deadline = Environment.TickCount64 + Math.Max(8, CurrentScanSliceMilliseconds);
+        var grown = false;
+        for (var i = tab.Results.Count; i < next.Count && i < limit && budget > 0; i++)
+        {
+            if (Environment.TickCount64 >= deadline)
+                break;
+            if (!TryDescribe(tab, next[i], out var described))
+                break;
+            tab.Results.Add(described);
+            grown = true;
+            budget--;
+        }
+
+        return grown;
     }
 
     private void ReplaceResults(DocumentTab tab, IReadOnlyList<Hit> next, bool active)
@@ -1192,13 +1239,8 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         {
             var currentHit = tab.Current?.Hit;
             tab.Results.Clear();
-            foreach (var hit in next)
-            {
-                if (!TryDescribe(tab, hit, out var described))
-                    break;
-                tab.Results.Add(described);
-            }
             tab.BuiltWidth = _resultWidth;
+            DescribeMore(tab, next);
             SyncVisible(tab);
             if (currentHit is null)
                 return;
@@ -1225,7 +1267,11 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         }
 
         if (active)
+        {
             OnPropertyChanged(nameof(ResultCount));
+            OnPropertyChanged(nameof(HitCount));
+            OnPropertyChanged(nameof(ListingResults));
+        }
     }
 
     private void EnsureSearched(DocumentTab tab)
@@ -1268,7 +1314,11 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         }
 
         var document = tab.Documents[0];
-        document.SetMatchCount(tab.Results.Count);
+        var hits = tab.Session.Hits.Count;
+        var listed = tab.Results.Count;
+        // Only announce the list cap once listing has stopped at MaxListedResults.
+        var labelListed = listed >= MaxListedResults && hits > listed ? listed : hits;
+        document.SetMatchCount(hits, labelListed);
         if (tab.Visible.Count == 0 || tab.Visible[0] is not ResultDocumentLine group || !ReferenceEquals(group.Document, document))
         {
             tab.Visible.Clear();

@@ -119,10 +119,17 @@ public partial class ResultsWindow : Window
 
         if (e.Key != Key.Escape)
             return;
+        if (DataContext is ViewerModel model && (model.SearchRunning || model.ListingResults))
+        {
+            model.CancelFind();
+            e.Handled = true;
+            return;
+        }
+
         if (ResultsList.SelectedItem is not null)
             ResultsList.SelectedItem = null;
-        else if (DataContext is ViewerModel model)
-            model.ClearMark();
+        else if (DataContext is ViewerModel clear)
+            clear.ClearMark();
         e.Handled = true;
     }
 

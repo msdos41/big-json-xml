@@ -85,6 +85,9 @@ public sealed class DocumentTab : INotifyPropertyChanged, IDisposable
 
     internal int BuiltWidth = -1;
 
+    // Esc / CancelFind freezes listing at the rows already described.
+    internal int ListStop = int.MaxValue;
+
     internal bool Searched;
 
     internal double ScrollX;
