@@ -161,7 +161,7 @@ internal sealed class VirtualResultLines : IList, INotifyCollectionChanged
             return line;
         }
 
-        line = new ResultHitLine(_tab.Results[hitIndex]);
+        line = new ResultHitLine(_tab.Results.Placeholder(hitIndex));
         line.SetCurrent(ReferenceEquals(line.Result, _tab.Current));
         while (_lines.Count >= LineCacheLimit && _order.Count > 0)
         {

@@ -627,6 +627,32 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
 
         if (ApplyPendingFits(active))
             Refresh();
+
+        // Fill result placeholders after pump/layout work — never inside the ListBox indexer.
+        if (active is not null && active.Results.HasPending)
+        {
+            var deadline = Environment.TickCount64 + Math.Max(4, CurrentScanSliceMilliseconds / 2);
+            if (active.Results.PumpDescribe(FindResultList.DescribeBudget, deadline) > 0)
+                OnPropertyChanged(nameof(DescribedResultCount));
+        }
+    }
+
+    /// <summary>Ask the virtual list to warm hits around a visible range (scroll path).</summary>
+    public void PrefetchResultRange(int firstHit, int lastHit)
+    {
+        if (Active is not { } tab || !tab.Searched)
+            return;
+        tab.Results.RequestRange(firstHit, lastHit);
+    }
+
+    /// <summary>Describe a few pending result rows now (after scroll, before the next timer tick).</summary>
+    public void PumpResultDescribe()
+    {
+        if (Active is not { } tab || !tab.Results.HasPending)
+            return;
+        var deadline = Environment.TickCount64 + 8;
+        if (tab.Results.PumpDescribe(FindResultList.DescribeBudget, deadline) > 0)
+            OnPropertyChanged(nameof(DescribedResultCount));
     }
 
     private bool ApplyPendingFits(DocumentTab? active)
@@ -692,7 +718,7 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         FindResult result;
         try
         {
-            result = tab.Results[index + 1];
+            result = tab.Results.EnsureDescribed(index + 1);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentOutOfRangeException)
         {
@@ -734,7 +760,16 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
         if (_adjustingResults || Active is null)
             return;
         if (result is not null && Active is { } tab)
+        {
             ExpandResults(tab);
+            var index = IndexOfHit(tab, result);
+            if (index >= 0)
+            {
+                result = tab.Results.EnsureDescribed(index);
+                tab.CurrentHitIndex = index;
+            }
+        }
+
         CurrentResult = result;
         if (result is null)
             ClearMark();

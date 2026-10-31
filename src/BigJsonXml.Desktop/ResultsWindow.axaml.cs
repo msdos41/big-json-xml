@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.VisualTree;
 
 namespace BigJsonXml.Desktop;
 
@@ -16,6 +18,40 @@ public partial class ResultsWindow : Window
     public ResultsWindow()
     {
         InitializeComponent();
+        ResultsList.TemplateApplied += (_, _) => HookScroll();
+        ResultsList.LayoutUpdated += (_, _) => PrefetchFromViewport();
+    }
+
+    private ScrollViewer? _scroll;
+
+    private void HookScroll()
+    {
+        _scroll = ResultsList.FindDescendantOfType<ScrollViewer>();
+        if (_scroll is null)
+            return;
+        _scroll.ScrollChanged -= ScrollChanged;
+        _scroll.ScrollChanged += ScrollChanged;
+    }
+
+    private void ScrollChanged(object? sender, ScrollChangedEventArgs e) => PrefetchFromViewport();
+
+    private void PrefetchFromViewport()
+    {
+        if (DataContext is not ViewerModel model || model.HitCount == 0)
+            return;
+        // Fixed row height in the template is 22px; group row is index 0.
+        const double row = 22;
+        var offset = _scroll?.Offset.Y ?? 0;
+        var viewport = _scroll?.Viewport.Height ?? ResultsList.Bounds.Height;
+        if (viewport <= 1)
+            viewport = ResultsList.Bounds.Height;
+        var first = Math.Max(0, (int)(offset / row) - 1);
+        var last = Math.Max(first, (int)((offset + viewport) / row) + 1);
+        // Convert list indices to hit indices (skip group row).
+        var firstHit = Math.Max(0, first - 1);
+        var lastHit = Math.Max(firstHit, last - 1);
+        // Only queue work here — ReadHitText runs on the timer tick, not during scroll layout.
+        model.PrefetchResultRange(firstHit, lastHit);
     }
 
     private void ResultSelected(object? sender, SelectionChangedEventArgs e)

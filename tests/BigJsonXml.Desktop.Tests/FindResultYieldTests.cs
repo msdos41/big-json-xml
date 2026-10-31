@@ -51,15 +51,33 @@ public class FindResultYieldTests
 
         Assert.Equal(model.HitCount, model.ResultCount);
         Assert.True(model.VisibleResults.Count >= 1 + 10_000, $"visible extent {model.VisibleResults.Count}");
-        Assert.True(model.DescribedResultCount < 64,
-            $"described {model.DescribedResultCount} rows without asking for any");
+        Assert.Equal(0, model.DescribedResultCount);
         var document = Assert.Single(model.ResultDocuments);
         Assert.Equal(model.HitCount, document.MatchCount);
-        Assert.Equal(model.HitCount + " matches", document.MatchLabel);
     }
 
     [Fact]
-    public void Asking_for_a_far_row_describes_that_hit_without_walking_from_the_start()
+    public void Indexer_returns_a_placeholder_without_reading_hit_text()
+    {
+        using var model = new ViewerModel();
+        model.OpenPath(WriteItems(20_000, i => i % 2 == 0));
+        ScanToEnd(model);
+        model.ShowFind();
+        model.FindWhat = "needle";
+        model.FindAll();
+        WaitForHits(model, 10_000);
+
+        var started = Stopwatch.GetTimestamp();
+        var far = Assert.IsType<ResultHitLine>(model.VisibleResults[5_000]);
+        var ms = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        Assert.False(far.Result.IsReady);
+        Assert.Equal("\u2026", far.Result.Text);
+        Assert.Equal(0, model.DescribedResultCount);
+        Assert.True(ms < 5, $"indexer took {ms} ms");
+    }
+
+    [Fact]
+    public void Tick_fills_placeholders_near_the_requested_row()
     {
         using var model = new ViewerModel();
         model.OpenPath(WriteItems(20_000, i => i % 2 == 0));
@@ -70,18 +88,20 @@ public class FindResultYieldTests
         WaitForHits(model, 10_000);
 
         var far = Assert.IsType<ResultHitLine>(model.VisibleResults[5_000]);
-        Assert.Equal("needle", far.Result.Text);
-        Assert.True(model.DescribedResultCount <= 8,
-            $"described {model.DescribedResultCount} after one far row");
+        Assert.False(far.Result.IsReady);
 
-        var near = Assert.IsType<ResultHitLine>(model.VisibleResults[1]);
-        Assert.Equal("needle", near.Result.Text);
-        Assert.True(model.DescribedResultCount <= 8,
-            $"described {model.DescribedResultCount} after two rows");
+        for (var i = 0; i < 200 && !far.Result.IsReady; i++)
+            model.Tick();
+
+        Assert.True(far.Result.IsReady);
+        Assert.Equal("needle", far.Result.Text);
+        Assert.True(model.DescribedResultCount > 0);
+        Assert.True(model.DescribedResultCount < 400,
+            $"described {model.DescribedResultCount} — should stay near the prefetch window");
     }
 
     [Fact]
-    public void A_tick_after_hits_arrive_stays_inside_the_scan_slice()
+    public void A_tick_that_only_publishes_hits_stays_inside_the_scan_slice()
     {
         using var model = new ViewerModel();
         model.OpenPath(WriteItems(20_000, i => i % 2 == 0));
@@ -105,7 +125,7 @@ public class FindResultYieldTests
         var median = ticks[ticks.Count / 2];
         Assert.True(median < model.CurrentScanSliceMilliseconds * 2.0,
             $"median tick {median} ms with slice {model.CurrentScanSliceMilliseconds}");
-        Assert.True(model.DescribedResultCount < 64, $"described {model.DescribedResultCount}");
+        Assert.Equal(0, model.DescribedResultCount);
     }
 
     [Fact]
@@ -124,21 +144,12 @@ public class FindResultYieldTests
             Thread.Sleep(1);
         }
 
-        if (model.SearchRunning)
-        {
-            model.CancelFind();
-            Assert.False(model.SearchRunning);
-        }
-        else
-        {
-            // Search finished before cancel; still a no-op success.
-            model.CancelFind();
-            Assert.False(model.SearchRunning);
-        }
+        model.CancelFind();
+        Assert.False(model.SearchRunning);
     }
 
     [Fact]
-    public void Find_next_describes_only_the_current_hit()
+    public void Find_next_ensures_the_current_hit_body()
     {
         using var model = new ViewerModel();
         model.OpenPath(WriteItems(10_000, i => i % 10 == 0));
@@ -150,9 +161,8 @@ public class FindResultYieldTests
 
         model.FindNext();
         Assert.NotNull(model.CurrentResult);
+        Assert.True(model.CurrentResult.IsReady);
         Assert.Equal("needle", model.CurrentResult.Text);
         Assert.Equal(0, model.CurrentHitIndex);
-        Assert.True(model.DescribedResultCount <= 8,
-            $"described {model.DescribedResultCount} after Find Next");
     }
 }

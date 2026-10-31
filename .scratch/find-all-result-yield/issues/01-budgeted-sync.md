@@ -4,4 +4,4 @@ Status: resolved
 
 ## Answer
 
-Replaced progressive `ObservableCollection` dump with `VirtualResultLines` + `FindResultList`. Hit count publishes immediately; `ReadHitText` only on indexer access. ADR 0056.
+`VirtualResultLines` + `FindResultList.Placeholder` never call `ReadHitText` on the scroll path. Bodies fill on the UI timer via `PumpDescribe` with a prefetch window. ADR 0056.

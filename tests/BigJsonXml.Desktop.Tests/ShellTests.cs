@@ -1291,8 +1291,10 @@ public class ShellTests
         Assert.Equal("2 matches", document.MatchLabel);
         Assert.Equal(3, model.VisibleResults.Count);
         Assert.IsType<ResultDocumentLine>(model.VisibleResults[0]);
-        Assert.Equal("item", Assert.IsType<ResultHitLine>(model.VisibleResults[1]).Result.Text);
-        Assert.Equal("item", Assert.IsType<ResultHitLine>(model.VisibleResults[2]).Result.Text);
+        Assert.IsType<ResultHitLine>(model.VisibleResults[1]);
+        Assert.IsType<ResultHitLine>(model.VisibleResults[2]);
+        Assert.Equal("item", model.Results[0].Text);
+        Assert.Equal("item", model.Results[1].Text);
 
         model.ToggleResultDocument(document);
         Assert.False(document.IsExpanded);
@@ -1332,9 +1334,9 @@ public class ShellTests
         var document = Assert.Single(model.ResultDocuments);
         Assert.Equal("", document.Path);
         Assert.Equal("1 match", document.MatchLabel);
-        var hit = Assert.IsType<ResultHitLine>(model.VisibleResults[1]);
-        Assert.Equal("findme", hit.Result.Text);
-        Assert.Equal("/root/item", hit.Result.Path);
+        Assert.IsType<ResultHitLine>(model.VisibleResults[1]);
+        Assert.Equal("findme", model.Results[0].Text);
+        Assert.Equal("/root/item", model.Results[0].Path);
     }
 
     [Fact]
