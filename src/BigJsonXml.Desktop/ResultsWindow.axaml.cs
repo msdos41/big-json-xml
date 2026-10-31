@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 namespace BigJsonXml.Desktop;
@@ -23,6 +24,7 @@ public partial class ResultsWindow : Window
     }
 
     private ScrollViewer? _scroll;
+    private DispatcherTimer? _settleFill;
 
     private void HookScroll()
     {
@@ -33,7 +35,11 @@ public partial class ResultsWindow : Window
         _scroll.ScrollChanged += ScrollChanged;
     }
 
-    private void ScrollChanged(object? sender, ScrollChangedEventArgs e) => PrefetchFromViewport();
+    private void ScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        PrefetchFromViewport();
+        ArmSettleFill();
+    }
 
     private void PrefetchFromViewport()
     {
@@ -45,13 +51,30 @@ public partial class ResultsWindow : Window
         var viewport = _scroll?.Viewport.Height ?? ResultsList.Bounds.Height;
         if (viewport <= 1)
             viewport = ResultsList.Bounds.Height;
-        var first = Math.Max(0, (int)(offset / row) - 1);
-        var last = Math.Max(first, (int)((offset + viewport) / row) + 1);
+        var first = Math.Max(0, (int)(offset / row) - 4);
+        var last = Math.Max(first, (int)((offset + viewport) / row) + 4);
         // Convert list indices to hit indices (skip group row).
         var firstHit = Math.Max(0, first - 1);
         var lastHit = Math.Max(firstHit, last - 1);
-        // Only queue work here — ReadHitText runs on the timer tick, not during scroll layout.
+        // Only queue work here — ReadHitText runs on settle / timer tick, not during drag layout.
         model.PrefetchResultRange(firstHit, lastHit);
+    }
+
+    private void ArmSettleFill()
+    {
+        _settleFill ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+        _settleFill.Tick -= SettleFillTick;
+        _settleFill.Tick += SettleFillTick;
+        _settleFill.Stop();
+        _settleFill.Start();
+    }
+
+    private void SettleFillTick(object? sender, EventArgs e)
+    {
+        _settleFill?.Stop();
+        PrefetchFromViewport();
+        if (DataContext is ViewerModel model)
+            model.PumpResultDescribeSettled();
     }
 
     private void ResultSelected(object? sender, SelectionChangedEventArgs e)
@@ -156,6 +179,13 @@ public partial class ResultsWindow : Window
         ResultsList.ItemsSource = null;
         DataContext = null;
         _watched = null;
+        if (_settleFill is not null)
+        {
+            _settleFill.Stop();
+            _settleFill.Tick -= SettleFillTick;
+            _settleFill = null;
+        }
+
         if (_scroll is not null)
         {
             _scroll.ScrollChanged -= ScrollChanged;

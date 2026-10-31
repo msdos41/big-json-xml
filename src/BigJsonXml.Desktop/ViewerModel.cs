@@ -663,10 +663,21 @@ public sealed class ViewerModel : INotifyPropertyChanged, IDisposable
     /// <summary>Describe a few pending result rows now (after scroll, before the next timer tick).</summary>
     public void PumpResultDescribe()
     {
+        PumpResultDescribe(FindResultList.DescribeBudget, 8);
+    }
+
+    /// <summary>Fill the visible band quickly once scrolling has settled — still budgeted, never unbounded.</summary>
+    public void PumpResultDescribeSettled()
+    {
+        PumpResultDescribe(FindResultList.SettleDescribeBudget, 16);
+    }
+
+    private void PumpResultDescribe(int budget, int deadlineMilliseconds)
+    {
         if (Active is not { } tab || !tab.Results.HasPending)
             return;
-        var deadline = Environment.TickCount64 + 8;
-        if (tab.Results.PumpDescribe(FindResultList.DescribeBudget, deadline) > 0)
+        var deadline = Environment.TickCount64 + Math.Max(1, deadlineMilliseconds);
+        if (tab.Results.PumpDescribe(budget, deadline) > 0)
             OnPropertyChanged(nameof(DescribedResultCount));
     }
 

@@ -96,7 +96,7 @@ public class FindResultYieldTests
         Assert.True(far.Result.IsReady);
         Assert.Equal("needle", far.Result.Text);
         Assert.True(model.DescribedResultCount > 0);
-        Assert.True(model.DescribedResultCount < 400,
+        Assert.True(model.DescribedResultCount < 700,
             $"described {model.DescribedResultCount} — should stay near the prefetch window");
     }
 
@@ -233,5 +233,27 @@ public class FindResultYieldTests
         Assert.Empty(model.VisibleResults);
         Assert.True(model.HitCount >= 20_000);
         Assert.True(ms < 500, $"CloseResults took {ms} ms with {model.HitCount} hits");
+    }
+
+    [Fact]
+    public void Settle_fill_describes_the_requested_viewport_first()
+    {
+        using var model = new ViewerModel();
+        model.OpenPath(WriteItems(40_000, i => i % 2 == 0));
+        ScanToEnd(model);
+        model.ShowFind();
+        model.FindWhat = "needle";
+        model.FindAll();
+        WaitForHits(model, 20_000);
+
+        // Simulate a jump: queue a far viewport, then settle-fill once.
+        model.PrefetchResultRange(9_000, 9_030);
+        var started = Stopwatch.GetTimestamp();
+        model.PumpResultDescribeSettled();
+        var ms = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        Assert.True(ms < 50, $"settle fill took {ms} ms");
+        // Settle pump should paint most of a ~30-row viewport in one shot (no EnsureDescribed).
+        Assert.True(model.DescribedResultCount >= 8,
+            $"described {model.DescribedResultCount} after settle fill");
     }
 }

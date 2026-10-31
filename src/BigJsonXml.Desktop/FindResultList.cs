@@ -8,9 +8,11 @@ namespace BigJsonXml.Desktop;
 /// </summary>
 internal sealed class FindResultList : IReadOnlyList<FindResult>
 {
-    public const int CacheLimit = 768;
-    public const int PrefetchRadius = 80;
+    public const int CacheLimit = 1536;
+    public const int PrefetchRadius = 200;
     public const int DescribeBudget = 48;
+    /// <summary>Extra describe work right after the scrollbar settles (still budgeted).</summary>
+    public const int SettleDescribeBudget = 96;
 
     private readonly DocumentTab _tab;
     private readonly Dictionary<int, Entry> _cache = new();
@@ -19,6 +21,8 @@ internal sealed class FindResultList : IReadOnlyList<FindResult>
     private readonly List<int> _scratch = [];
     private int _width = 40;
     private int _focus = -1;
+    private int _viewportLo = -1;
+    private int _viewportHi = -1;
     private int _ready;
 
     public FindResultList(DocumentTab tab) => _tab = tab;
@@ -42,7 +46,9 @@ internal sealed class FindResultList : IReadOnlyList<FindResult>
             return entry.Result;
 
         var hit = _tab.Session.Hits[index];
-        var placeholder = new FindResult(hit, "…", 0, 0, "", ready: false);
+        // Path is cheap (no file IO). Body stays "…" until PumpDescribe / EnsureDescribed.
+        var path = _tab.Session.FormatPath(hit.Path);
+        var placeholder = new FindResult(hit, "…", 0, 0, path, ready: false);
         Set(index, placeholder, _width, ready: false);
         _pending.Add(index);
         return placeholder;
@@ -65,6 +71,8 @@ internal sealed class FindResultList : IReadOnlyList<FindResult>
         _pending.Clear();
         _ready = 0;
         _focus = -1;
+        _viewportLo = -1;
+        _viewportHi = -1;
     }
 
     /// <summary>Stop background fill without dropping already-described rows.</summary>
@@ -72,6 +80,8 @@ internal sealed class FindResultList : IReadOnlyList<FindResult>
     {
         _pending.Clear();
         _focus = -1;
+        _viewportLo = -1;
+        _viewportHi = -1;
     }
 
     public void RequestAround(int center)
@@ -98,9 +108,13 @@ internal sealed class FindResultList : IReadOnlyList<FindResult>
         if (lastHit < firstHit)
             (firstHit, lastHit) = (lastHit, firstHit);
         var center = firstHit + (lastHit - firstHit) / 2;
-        RequestAround(center);
+        _viewportLo = firstHit;
+        _viewportHi = lastHit;
+        // Viewport first so settle-fill paints visible rows before the prefetch ring.
         for (var i = firstHit; i <= lastHit; i++)
             _pending.Add(i);
+        RequestAround(center);
+        _focus = center;
     }
 
     /// <summary>Describe pending hits near the focus. Never call from the ListBox indexer.</summary>
@@ -112,8 +126,7 @@ internal sealed class FindResultList : IReadOnlyList<FindResult>
         _scratch.Clear();
         foreach (var index in _pending)
             _scratch.Add(index);
-        if (_focus >= 0)
-            _scratch.Sort((a, b) => Math.Abs(a - _focus).CompareTo(Math.Abs(b - _focus)));
+        _scratch.Sort(ComparePending);
 
         var done = 0;
         foreach (var index in _scratch)
@@ -184,6 +197,17 @@ internal sealed class FindResultList : IReadOnlyList<FindResult>
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    private int ComparePending(int a, int b)
+    {
+        var aIn = _viewportLo >= 0 && a >= _viewportLo && a <= _viewportHi;
+        var bIn = _viewportLo >= 0 && b >= _viewportLo && b <= _viewportHi;
+        if (aIn != bIn)
+            return aIn ? -1 : 1;
+        if (_focus < 0)
+            return a.CompareTo(b);
+        return Math.Abs(a - _focus).CompareTo(Math.Abs(b - _focus));
+    }
 
     private bool TryDescribe(int index)
     {
